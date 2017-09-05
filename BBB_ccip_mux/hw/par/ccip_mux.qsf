@@ -1,0 +1,7 @@
+
+# MODIFY THESE CONSTRAINTS PATHS TO BE IN SYNC WITH DESIGNS
+# These constraints places Tx c1 port closer to the interface for timing optimizations
+  
+set_instance_assignment -name PLACE_REGION "50 30 56 60" -to inst_green_bs|inst_ccip_std_afu|ccip_mux_U0|up_TxPort_T3.c1*
+set_instance_assignment -name RESERVE_PLACE_REGION OFF -to inst_green_bs|inst_ccip_std_afu|ccip_mux_U0|up_TxPort_T3.c1*
+set_instance_assignment -name CORE_ONLY_PLACE_REGION ON -to inst_green_bs|inst_ccip_std_afu|ccip_mux_U0|up_TxPort_T3.c1*

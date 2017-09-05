@@ -1,0 +1,1 @@
+../rtl/cci_hello_afu.sv

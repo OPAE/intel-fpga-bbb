@@ -1,0 +1,7 @@
+../rtl/ccip_mux.sv 
+../rtl/fair_arbiter.sv
+../rtl/ccip_front_end.sv
+../rtl/ccip_intf_regs.sv
+../rtl/sync_C1Tx_fifo.v
+../rtl/gram_sdp.v
+../rtl/a10_ram_sdp_wysiwyg.v

@@ -1,0 +1,28 @@
+This file contains the names of people who contributed in one way or another to
+the development of FPGA building blocks.
+
+Please DO NOT contact the people below directly to report bugs or issues.
+
+Please use the issue tracker at:
+
+	http://github.com/OPAE/intel-fpga-bbb/issues
+
+to report bugs.
+
+-------------------------------------------------------------------------------
+
+The following is a (probably incomplete) list of the much-appreciated
+contributors to the FPGA building blocks:
+
+	Michael Adler <michael.adler@intel.com>
+	Rahul Sharma <rahul.r.sharma@intel.com>
+	Lok Koppaka <lok.chand.koppaka@intel.com>
+	Enno Luebbers <enno.luebbers@intel.com>
+
+Special thanks to the people who contributed to the discussions about
+architecture, API, and usage models:
+
+	Bhushan Chitlur <bhushan.chitlur@intel.com>
+	Pratik Marolia <pratik.m.marolia@intel.com>
+	Dipti Sherlekar <dipti.sherlekar@intel.com>
+	Suchit Subhaschandra <suchit.subhaschandra@intel.com>

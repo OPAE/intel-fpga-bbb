@@ -1,0 +1,15 @@
+*.rpt
+*.cmp
+*.debuginfo
+*.o
+*.so
+*.sof
+*.msf
+*.rbf
+*.qpf
+db/*
+qdb/*
+*.0.0.*
+*.so.0
+helloALInlb
+unit_build

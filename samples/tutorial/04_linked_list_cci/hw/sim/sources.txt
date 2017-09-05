@@ -1,0 +1,6 @@
+-F ../../../base/hw/sim/base_addenda.txt
+
++incdir+../rtl
+
+../rtl/hash32.sv
+../rtl/linked_list_afu.sv

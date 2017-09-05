@@ -1,0 +1,18 @@
+##
+## This asynchronous clock crossing library is imported into Quartus with:
+##
+##   source <path to BBBs>/BBB_ccip_async/hw/par/ccip_async_addenda.qsf
+##
+
+## Find the source tree relative to this script
+set this_script [dict get [ info frame 0 ] file]
+# Pop 3 levels (including the script name) off the path to find the root
+set CCIP_ASYNC_SRC [file join {*}[lrange [file split $this_script] 0 end-3]]
+
+## Sources
+set_global_assignment -name SYSTEMVERILOG_FILE $CCIP_ASYNC_SRC/hw/rtl/ccip_async_shim.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCIP_ASYNC_SRC/hw/rtl/ccip_async_activity_cnt.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCIP_ASYNC_SRC/hw/rtl/ccip_afifo_channel.sv
+
+## Constraints
+set_global_assignment -name SDC_FILE $CCIP_ASYNC_SRC/hw/par/ccip_async.sdc

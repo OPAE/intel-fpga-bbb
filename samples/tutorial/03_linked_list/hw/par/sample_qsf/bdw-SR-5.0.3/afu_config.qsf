@@ -1,0 +1,8 @@
+## Set AFU clock frequency.  Logic in cci_afu_with_mpf.sv will use the macro
+## to select from the available clocks.
+set_global_assignment -name VERILOG_MACRO "AFU_CLOCK_FREQ=200"
+
+## Platform required by MPF
+set_global_assignment -name VERILOG_MACRO "MPF_PLATFORM_BDX=1"
+
+source <path to examples>/cci/03_linked_list/hw/par/sources_PAR_files.qsf

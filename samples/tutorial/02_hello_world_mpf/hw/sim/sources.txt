@@ -1,0 +1,5 @@
+-F ../../../base/hw/sim/base_addenda.txt
+
++incdir+../rtl
+
+../rtl/cci_mpf_hello_afu.sv

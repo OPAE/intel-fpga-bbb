@@ -1,0 +1,3 @@
+Example to build the sample:
+gcc -g -o hello_fpga_mux hello_fpga_mux.c <OPAE-INST-DIR>/lib/libopae-c-ase.so -I <OPAE-INST-DIR>/include -std=c99 -luuid
+

@@ -1,0 +1,27 @@
+.
+├── doc
+│   └── CCIP_MUX_User_Guide.pdf
+├── hw
+│   ├── par
+│   │   └── ccip_mux.qsf
+│   ├── rtl
+│   │   ├── a10_ram_sdp_wysiwyg.v
+│   │   ├── ccip_front_end.sv
+│   │   ├── ccip_if_pkg.sv
+│   │   ├── ccip_intf_regs.sv
+│   │   ├── ccip_mux.sv
+│   │   ├── fair_arbiter.sv
+│   │   ├── gram_sdp.v
+│   │   ├── sync_C1Tx_fifo.v
+│   │   └── vendor_defines.vh
+│   └── sim
+│       └── mux_simfiles.list
+├── RELEASE_NOTES
+└── samples
+    ├── hw
+    │   ├── ccip_std_afu.sv
+    │   ├── nlb_csr.sv
+    │   └── ReadMe.txt
+    └── sw
+        └── hello_fpga_mux.c
+

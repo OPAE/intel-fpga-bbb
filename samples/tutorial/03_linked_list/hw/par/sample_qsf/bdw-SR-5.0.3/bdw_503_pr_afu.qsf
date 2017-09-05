@@ -1,0 +1,72 @@
+set_global_assignment -name TOP_LEVEL_ENTITY wcp_top
+set_global_assignment -name EDA_GENERATE_FUNCTIONAL_NETLIST ON -section_id eda_simulation
+set_global_assignment -name SDC_FILE ../lib/blue/BDW_base.sdc
+
+#---------------------------------------------------------------------------#
+#                       Synthesis Options                                   #
+#---------------------------------------------------------------------------#
+
+set_global_assignment -name FAMILY "Arria 10"
+set_global_assignment -name DEVICE 10AX115U3F45E2SGE3
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+set_global_assignment -name DEVICE_FILTER_PACKAGE FBGA
+set_global_assignment -name DEVICE_FILTER_PIN_COUNT 1932
+set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 2
+set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005
+set_global_assignment -name VERILOG_SHOW_LMF_MAPPING_MESSAGES OFF
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
+
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name AUTO_RESERVE_CLKUSR_FOR_CALIBRATION OFF
+set_global_assignment -name SEED 0
+set_global_assignment -name ALLOW_ANY_RAM_SIZE_FOR_RECOGNITION ON
+set_global_assignment -name OPTIMIZATION_TECHNIQUE SPEED
+set_global_assignment -name SYNTH_TIMING_DRIVEN_SYNTHESIS ON
+set_global_assignment -name ADD_PASS_THROUGH_LOGIC_TO_INFERRED_RAMS OFF
+set_global_assignment -name USE_HIGH_SPEED_ADDER ON
+set_global_assignment -name TIMEQUEST_MULTICORNER_ANALYSIS ON
+set_global_assignment -name OPTIMIZE_HOLD_TIMING "ALL PATHS"
+set_global_assignment -name OPTIMIZE_MULTI_CORNER_TIMING ON
+set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL MAXIMUM
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
+set_global_assignment -name ROUTER_LCELL_INSERTION_AND_LOGIC_DUPLICATION ON
+set_global_assignment -name QII_AUTO_PACKED_REGISTERS NORMAL
+set_global_assignment -name MUX_RESTRUCTURE ON
+set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP ON
+set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
+set_global_assignment -name INI_VARS "hdd_disable_top_hub=on"
+
+# Enable Scrubbing. Set Divider to 2 when using D1 Device
+set_global_assignment -name ENABLE_OCT_DONE OFF
+set_global_assignment -name USE_CONFIGURATION_DEVICE ON
+set_global_assignment -name CRC_ERROR_OPEN_DRAIN OFF
+set_global_assignment -name INTERNAL_SCRUBBING ON
+set_global_assignment -name OUTPUT_IO_TIMING_NEAR_END_VMEAS "HALF VCCIO" -rise
+set_global_assignment -name OUTPUT_IO_TIMING_NEAR_END_VMEAS "HALF VCCIO" -fall
+set_global_assignment -name OUTPUT_IO_TIMING_FAR_END_VMEAS "HALF SIGNAL SWING" -rise
+set_global_assignment -name OUTPUT_IO_TIMING_FAR_END_VMEAS "HALF SIGNAL SWING" -fall
+set_global_assignment -name ACTIVE_SERIAL_CLOCK FREQ_100MHZ
+
+set_global_assignment -name VCCT_L_USER_VOLTAGE 0.9V
+set_global_assignment -name VCCT_R_USER_VOLTAGE 0.9V
+set_global_assignment -name VCCR_L_USER_VOLTAGE 0.9V
+set_global_assignment -name VCCR_R_USER_VOLTAGE 0.9V
+set_global_assignment -name VCCA_L_USER_VOLTAGE 1.8V
+set_global_assignment -name VCCA_R_USER_VOLTAGE 1.8V
+
+# ==============================================================================================================================
+# DO NOT MODIFY the contents above this
+# ==============================================================================================================================
+
+# ==================================================
+# SUB-FloorPlans inside the AFU (if needed) goes here
+# ==================================================
+#set_instance_assignment -name PLACE_REGION "60 100 200 200" -to inst_ccip_interface_reg|inst_green_top|inst_ccip_std_afu|nlb_lpbk|inst_arbiter|test_lpbk1
+#set_instance_assignment -name RESERVE_PLACE_REGION OFF -to inst_ccip_interface_reg|inst_green_top|inst_ccip_std_afu|nlb_lpbk|inst_arbiter|test_lpbk1
+#set_instance_assignment -name CORE_ONLY_PLACE_REGION ON -to inst_ccip_interface_reg|inst_green_top|inst_ccip_std_afu|nlb_lpbk|inst_arbiter|test_lpbk1 
+
+# AFU SDC section - User AFU SDCs goes here
+# ========================================
+
+source afu_config.qsf

@@ -1,0 +1,14 @@
+##
+## Import the CCI-P asynchronous clock crossing module by copying this
+## file, modifying the definition of CCIP_ASYNC_SRC below to point to
+## the appropriate path and then sourcing the copied file from the QSF
+## project.
+## 
+
+set CCIP_ASYNC_SRC "../samples/ccip-async"
+
+source $CCIP_ASYNC_SRC/par/ccip_async_addenda.qsf
+set_global_assignment -name SDC_FILE $CCIP_ASYNC_SRC/par/ccip_async.sdc
+
+# set_global_assignment -name SYSTEMVERILOG_FILE $CCIP_ASYNC_SRC/HW/ccip_afifo_channel.sv
+# set_global_assignment -name SYSTEMVERILOG_FILE $CCIP_ASYNC_SRC/HW/ccip_async_shim.sv

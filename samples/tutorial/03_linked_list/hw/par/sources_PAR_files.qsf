@@ -1,0 +1,49 @@
+##
+## To build this AFU, start with the standard sample Quartus configuration
+## for the target platform.  In the directory with the <platform>_synth.qsf
+## and <platform>.qsf files, add a new qsf file afu_config.qsf.
+## afu_config.qsf will be used to set parameters and then import this file.
+##
+## Complete sample configurations for some platforms are in the sample_qsf
+## subdirectory.
+##
+## The FPGA_BBB_CCI_SRC shell environment variable must be defined before
+## this file is included, pointing to the root of the BBB source tree.
+## The BBB source tree holds RTL for MPF and the asynchronous clock
+## crossing shim.
+##
+##
+## Edit the two standard QSF files to use afu_config.qsf:
+##
+##   1. In <platform>_synth.qsf, replace the AFU user RTL section with:
+##
+##        source afu_config.qsf
+##
+##   2. Do the same in the AFU SDC section of <platform>.qsf.
+##
+## In afu_config.qsf, first define configuration macros and then source
+## this file.  At least one macro is required: the MPF platform, which
+## must match the target platform.  AFU_CLOCK_FREQ is not required if the
+## AFU uses the default CCI clock (pClk).
+##
+## The following example afu_config.qsf selects a 200 MHz clock and
+## sets the platform to BDX
+##
+##   set_global_assignment -name VERILOG_MACRO "AFU_CLOCK_FREQ=200"
+##   set_global_assignment -name VERILOG_MACRO "MPF_PLATFORM_BDX=1"
+##   source <path to examples>/cci/03_linked_list/hw/par/sources_PAR_files.qsf
+##
+
+## Find the CCI examples source tree relative to this script
+set this_script [dict get [ info frame 0 ] file]
+# Pop 4 levels (including the script name) off the path to find the root
+set CCI_EXAMPLES_SRC [file join {*}[lrange [file split $this_script] 0 end-4]]
+
+## Common sources
+source $CCI_EXAMPLES_SRC/base/hw/par/cci_examples_base_PAR_files.qsf
+
+## This test's sources
+set_global_assignment -name SEARCH_PATH $CCI_EXAMPLES_SRC/03_linked_list/hw/rtl
+
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_SRC/03_linked_list/hw/rtl/linked_list_afu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_SRC/03_linked_list/hw/rtl/hash32.sv

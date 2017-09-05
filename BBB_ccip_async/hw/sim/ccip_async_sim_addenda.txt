@@ -1,0 +1,10 @@
+##
+## Include this file in an ASE build to import MPF into a simulation environment
+## by adding the following line to vlog_files.list in an ASE build directory:
+##
+##     -F <absolute path to this directory>/ccip_async_sim_addenda.txt
+##
+
+../rtl/ccip_afifo_channel.sv
+../rtl/ccip_async_activity_cnt.sv
+../rtl/ccip_async_shim.sv
