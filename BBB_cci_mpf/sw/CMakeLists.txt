@@ -107,7 +107,13 @@ endif(WIN32)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
-find_file(OPAELIB_HDRS_PRESENT opae/fpga.h PATHS ${OPAELIB_INC_PATH})
+## Add install directory to include path in case OPAE has been installed there
+if (IS_DIRECTORY ${CMAKE_INSTALL_PREFIX}/include)
+    include_directories(AFTER ${CMAKE_INSTALL_PREFIX}/include)
+    list(APPEND CMAKE_REQUIRED_INCLUDES ${CMAKE_INSTALL_PREFIX}/include)
+endif()
+
+find_file(OPAELIB_HDRS_PRESENT opae/fpga.h PATHS "${OPAELIB_INC_PATH}" NO_DEFAULT_PATH)
 
 if (WIN32)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -wd4710 -wd4711 -wd4820 -O2")
@@ -131,12 +137,12 @@ endif(CMAKE_BUILD_TYPE STREQUAL "Release")
 ##
 ## Build FPGA library if libfpga header files are present
 ##
-check_include_file("opae/fpga.h" FPGA_PRESENT)
-if (FPGA_PRESENT OR OPAELIB_HDRS_PRESENT)
+check_include_file("opae/fpga.h" OPAE_PRESENT)
+if (OPAE_PRESENT OR OPAELIB_HDRS_PRESENT)
     include(src/mpf.cmake)
-else(FPGA_PRESENT OR OPAELIB_HDRS_PRESENT)
+else(OPAE_PRESENT OR OPAELIB_HDRS_PRESENT)
     message("Not building ${CMAKE_SHARED_LIBRARY_PREFIX}MPF${CMAKE_SHARED_LIBRARY_SUFFIX} for ${CMAKE_SHARED_LIBRARY_PREFIX}fpga${CMAKE_SHARED_LIBRARY_SUFFIX} -- opae/fpga.h not found")
-endif(FPGA_PRESENT OR OPAELIB_HDRS_PRESENT)
+endif(OPAE_PRESENT OR OPAELIB_HDRS_PRESENT)
 
 
 ##
