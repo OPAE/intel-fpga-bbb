@@ -197,8 +197,14 @@ module ccip_async_shim
                                     CCIP_TX_ALMOST_FULL_THRESHOLD * 8;
    generate
        if (C0_REQ_CREDIT_LIMIT <= 0) begin
-           always $display("C0RX_DEPTH_RADIX is too small");
+           //
+           // Error: C0RX_DEPTH_RADIX is too small, given the number of
+           //        requests that may be in flight after almost full is
+           //        asserted!
+           //
+           // Force a compile-time failure...
            PARAMETER_ERROR dummy();
+           always $display("C0RX_DEPTH_RADIX is too small");
        end
    endgenerate
 
@@ -295,8 +301,14 @@ module ccip_async_shim
                                     CCIP_TX_ALMOST_FULL_THRESHOLD * 8;
    generate
        if (C1_REQ_CREDIT_LIMIT <= 0) begin
-           always $display("C1RX_DEPTH_RADIX is too small");
+           //
+           // Error: C1RX_DEPTH_RADIX is too small, given the number of
+           //        requests that may be in flight after almost full is
+           //        asserted!
+           //
+           // Force a compile-time failure...
            PARAMETER_ERROR dummy();
+           always $display("C1RX_DEPTH_RADIX is too small");
        end
    endgenerate
 
