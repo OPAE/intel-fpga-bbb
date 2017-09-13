@@ -195,6 +195,18 @@ module ccip_async_shim
    // the AFU responding to almost full.
    localparam C0_REQ_CREDIT_LIMIT = (2 ** C0RX_DEPTH_RADIX) -
                                     CCIP_TX_ALMOST_FULL_THRESHOLD * 8;
+   generate
+       if (C0_REQ_CREDIT_LIMIT <= 0) begin
+           //
+           // Error: C0RX_DEPTH_RADIX is too small, given the number of
+           //        requests that may be in flight after almost full is
+           //        asserted!
+           //
+           // Force a compile-time failure...
+           PARAMETER_ERROR dummy();
+           always $display("C0RX_DEPTH_RADIX is too small");
+       end
+   endgenerate
 
    always @(posedge afu_clk) begin
       afu_rx_q.c0TxAlmFull <= c0tx_cnt[C0TX_DEPTH_RADIX-1] ||
@@ -283,11 +295,22 @@ module ccip_async_shim
    end
 
    // Maximum number of line requests outstanding is the size of the buffer
-   // minus the number of requests that may arrive after asserting almost full.
-   // Multiply the threshold by 2 in order to leave room for some delay in
-   // the AFU responding to almost full.
+   // minus the number of requests that may arrive after asserting almost full,
+   // with some wiggle room added for message latency.
    localparam C1_REQ_CREDIT_LIMIT = (2 ** C1RX_DEPTH_RADIX) -
-                                    CCIP_TX_ALMOST_FULL_THRESHOLD * 2;
+                                    CCIP_TX_ALMOST_FULL_THRESHOLD * 8;
+   generate
+       if (C1_REQ_CREDIT_LIMIT <= 0) begin
+           //
+           // Error: C1RX_DEPTH_RADIX is too small, given the number of
+           //        requests that may be in flight after almost full is
+           //        asserted!
+           //
+           // Force a compile-time failure...
+           PARAMETER_ERROR dummy();
+           always $display("C1RX_DEPTH_RADIX is too small");
+       end
+   endgenerate
 
    always @(posedge afu_clk) begin
       afu_rx_q.c1TxAlmFull <= c1tx_cnt[C1TX_DEPTH_RADIX-1] ||
