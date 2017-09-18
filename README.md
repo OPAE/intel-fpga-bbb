@@ -2,11 +2,13 @@
 
 Basic Building Blocks (BBB) for Intel FPGAs is a suite of application building blocks and shims for transforming the CCI-P interface.
 
-## BBB_cci_mpf ##
+For detailed documentation of the building blocks, please visit the [BBB Wiki](https://github.com/OPAE/intel-fpga-bbb/wiki "BBB Wiki").
+
+## [BBB_cci_mpf](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_cci_mpf) ##
 
 **Memory Properties Factory (MPF)**: MPF shims may be mixed and matched to add features to the base CCI-P memory interface. Features include: virtual memory, ordered read responses, read/write hazard detection, and masked (partial) writes.
 
-## BBB_ccip_async ##
+## [BBB_ccip_async](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_ccip_async) ##
 
 **CCI-P Async-shim (CCI-P ASYNC)**: A clock crossing shim, allowing users to attach slower-running accelerators to the CCI-P interface.
 
@@ -16,7 +18,7 @@ Basic Building Blocks (BBB) for Intel FPGAs is a suite of application building b
  
 These building blocks are implemented in SystemVerilog RTL and C or C++.
 
-# Samples and Tutorial #
+# [Samples and Tutorial](https://github.com/OPAE/intel-fpga-bbb/wiki/Tutorial) #
 
 A tutorial on CCI-P and Basic Building Blocks (BBB) is in the top-level samples directory.
 
