@@ -28,11 +28,11 @@ file(
     GLOB_RECURSE
     HDR
     FOLLOW_SYMLINKS
-    ${CMAKE_SOURCE_DIR}/include/opae/mpf/*.h
+    ${PROJECT_SOURCE_DIR}/include/opae/mpf/*.h
     )
 
 aux_source_directory(
-    ${CMAKE_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src
     SRC
     )
 

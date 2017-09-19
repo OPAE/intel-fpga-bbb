@@ -24,43 +24,13 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
+project("BBB")
 
-file(
-    GLOB_RECURSE
-    HDR_AAL
-    FOLLOW_SYMLINKS
-    ${PROJECT_SOURCE_DIR}/include/aalsdk/mpf/*.h
-    )
+cmake_minimum_required(VERSION 2.8)
 
-aux_source_directory(
-    ${PROJECT_SOURCE_DIR}/src_aal
-    SRC_AAL
-    )
+## Add projects
+add_subdirectory(BBB_cci_mpf/sw)
 
-set_source_files_properties(
-    ${SRC_AAL}
-    PROPERTIES COMPILE_FLAGS "-DHAVE_CONFIG_H -D__AAL_USER__=1"
-    )
-
-add_library(MPF_AAL SHARED ${SRC_AAL})
-target_link_libraries(MPF_AAL "-lOSAL -lAAS -laalrt")
-
-install(
-    TARGETS MPF_AAL
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    )
-
-install(
-     FILES ${HDR_AAL} DESTINATION include/aalsdk/mpf
-     )
-
-##
-## Add pthreads to the generated library.  VTP uses a mutex to guarantee
-## that only one allocation happens at a time.
-##
-find_package(Threads REQUIRED)
-if(CMAKE_THREAD_LIBS_INIT)
-    target_link_libraries(MPF_AAL "${CMAKE_THREAD_LIBS_INIT}")
-endif()
+## Wrap all sources of documentation
+add_custom_target(doc)
+add_dependencies(doc mpf_doc)
