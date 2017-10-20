@@ -28,7 +28,7 @@ The BBBs should be considered reference sample code that customers may use or mo
 
 # How To Contribute #
 
-Feel free to fork, contribute and share your code as-is in accordance with the BSD-3 license.
+Feel free to fork, contribute and share your code as-is in accordance with the BSD-3 license. We encourage submitting bug fixes to the repository via a pull request in line with our [contribution guidelines](https://github.com/OPAE/intel-fpga-bbb/blob/master/CONTRIBUTING.md).
 
 The Intel FPGA Basic Building Blocks (BBB) project uses a recommended (minimum) directory structure. All BBBs must start with a ```BBB_``` prefix. In your pull-requests, please use the following format:
 
