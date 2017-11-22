@@ -1,0 +1,8 @@
+# For now we force MPF to a particular platform.  This will be fixed later.
++define+MPF_PLATFORM_BDX
+
+SI:../../../base/hw/sim/base_addenda.txt
+QI:../../../base/hw/par/cci_examples_base_PAR_files.qsf
+
++incdir+.
+cci_mpf_hello_afu.sv
