@@ -1,0 +1,10 @@
+afu.json
+
+# For now we force MPF to a particular platform.  This will be fixed later.
++define+MPF_PLATFORM_BDX
+
+SI:../../../base/hw/sim/cci_mpf_test_base_addenda.txt
+QI:../../../base/hw/par/cci_mpf_test_base_PAR_files.qsf
+
++incdir+.
+test_random.sv
