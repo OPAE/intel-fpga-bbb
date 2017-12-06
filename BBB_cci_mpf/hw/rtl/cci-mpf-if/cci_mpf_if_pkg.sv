@@ -16,13 +16,8 @@
 //     and are named t_cci_mpf_....
 //
 
-// ========================================================================
-//
-//  Before importing this module, define exactly one preprocessor macro
-//  to specify the physical interface.  E.g. MPF_PLATFORM_BDX.
-//
-// ========================================================================
-
+// Load platform configuration.  The MPF interface configuration adapts
+// to the requested platform.
 `include "cci_mpf_platform.vh"
 
 package cci_mpf_if_pkg;

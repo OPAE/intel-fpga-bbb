@@ -35,62 +35,108 @@
 `ifndef __CCI_MPF_PLATFORM__
 `define __CCI_MPF_PLATFORM__
 
+`ifdef PLATFORM_IF_AVAIL
+`include "platform_if.vh"
+`else
+import ccip_if_pkg::*;
+`endif
+
+
+//
+// Enable additions to CCI-P by default.  Older platform defintions below
+// will turn them off when unavailable.
+//
+
+`define MPF_HOST_IFC_CCIP
+
+// CCI-P with support for WrPush_I
+`define MPF_HOST_IFC_CCIP_WRPUSH
+
+
+//
+// MPF's platform configuration predates the platform interface database.  If
+// platform interface information is available, map it to MPF's configuration.
 // Default platform: 3 physical channels (VL0, VH0, VH1)
-`define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 3
-`define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VL0
+//
+`ifdef PLATFORM_IF_AVAIL
 
+    `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS ccip_cfg_pkg::NUM_PHYS_CHANNELS
+    `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL ccip_cfg_pkg::VC_DEFAULT
 
-`ifdef MPF_PLATFORM_SKX
-     //
-     // Skylake Xeon+FPGA
-     //
-
-    localparam MPF_PLATFORM = "SKX";
-    `define MPF_HOST_IFC_CCIP
-
-    // CCI-P with support for WrPush_I
-    `define MPF_HOST_IFC_CCIP_WRPUSH
-
-`elsif MPF_PLATFORM_DCP_PCIE
-     //
-     // Discrete FPGA on a PCIe interface
-     //
-
-    localparam MPF_PLATFORM = "DCP_PCIE";
-    `define MPF_HOST_IFC_CCIP
-
-    // Use only VH0 (PCIe)
-    `undef  MPF_PLATFORM_NUM_PHYSICAL_CHANNELS
-    `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 1
-    `undef  MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL
-    `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VH0
-
-`elsif MPF_PLATFORM_BDX
-     //
-     // Broadwell Xeon+FPGA
-     //
-
-    localparam MPF_PLATFORM = "BDX";
-    `define MPF_HOST_IFC_CCIP
-
-`elsif MPF_PLATFORM_OME
-     //
-     // OME2 and OME3 dual socket system development platforms
-     //
-
-    localparam MPF_PLATFORM = "OME";
-    `define MPF_HOST_IFC_CCIS
-
-    // Use only VL0 (QPI)
-    `undef  MPF_PLATFORM_NUM_PHYSICAL_CHANNELS
-    `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 1
-    `undef  MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL
-    `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VL0
+    // Figure out the actual platform name, which may be used for tuning.
+    `ifdef PLATFORM_NAME
+        // PLATFORM_NAME is set in Quartus builds
+        localparam MPF_PLATFORM = `PLATFORM_NAME;
+    `elsif FPGA_PLATFORM_DISCRETE
+        // Set by ASE configuration for discrete platforms
+        localparam MPF_PLATFORM = "DISCRETE_PCIE";
+    `else
+        // Assume that the platform is integrated Xeon+FPGA.  For ASE it doesn't
+        // really matter which one.  Honor the MPF platform flags.
+        `ifdef MPF_PLATFORM_BDX
+            localparam MPF_PLATFORM = "INTG_BDX";
+            `undef MPF_HOST_IFC_CCIP_WRPUSH
+        `else
+            localparam MPF_PLATFORM = "INTG_SKX";
+        `endif
+    `endif
 
 `else
+    //
+    // No platform database is available.  Use the legacy configuration mechanism.
+    //
+    `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 3
+    `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VL0
 
-     ** ERROR: Select a valid MPF platform
+    `ifdef MPF_PLATFORM_SKX
+        //
+        // Skylake Xeon+FPGA
+        //
 
-`endif
+        localparam MPF_PLATFORM = "INTG_SKX";
+
+    `elsif MPF_PLATFORM_DCP_PCIE
+        //
+        // Discrete FPGA on a PCIe interface
+        //
+
+        localparam MPF_PLATFORM = "DISCRETE_PCIE";
+
+        // Use only VH0 (PCIe)
+        `undef  MPF_PLATFORM_NUM_PHYSICAL_CHANNELS
+        `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 1
+        `undef  MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL
+        `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VH0
+
+    `elsif MPF_PLATFORM_BDX
+        //
+        // Broadwell Xeon+FPGA
+        //
+
+        localparam MPF_PLATFORM = "INTG_BDX";
+        `undef MPF_HOST_IFC_CCIP_WRPUSH
+
+    `elsif MPF_PLATFORM_OME
+        //
+        // OME2 and OME3 dual socket system development platforms
+        //
+
+        localparam MPF_PLATFORM = "INTG_OME";
+        `undef MPF_HOST_IFC_CCIP
+        `define MPF_HOST_IFC_CCIS
+        `undef MPF_HOST_IFC_CCIP_WRPUSH
+
+        // Use only VL0 (QPI)
+        `undef  MPF_PLATFORM_NUM_PHYSICAL_CHANNELS
+        `define MPF_PLATFORM_NUM_PHYSICAL_CHANNELS 1
+        `undef  MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL
+        `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL eVC_VL0
+
+    `else
+
+        ** ERROR: Select a valid MPF platform
+
+    `endif
+`endif // `ifdef PLATFORM_IF_AVAIL
 
 `endif // __CCI_MPF_PLATFORM__

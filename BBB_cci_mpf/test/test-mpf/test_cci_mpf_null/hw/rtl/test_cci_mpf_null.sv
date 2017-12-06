@@ -31,6 +31,9 @@
 `include "cci_mpf_if.vh"
 `include "cci_test_csrs.vh"
 
+// Generated from the AFU JSON file by afu_json_mgr
+`include "afu_json_info.vh"
+
 
 module test_afu
    (
@@ -278,7 +281,7 @@ module main_afu
 
     always_comb
     begin
-        csrs.afu_id = 128'hbfd75b03_9608_4e82_ae22_f61a62b8f992;
+        csrs.afu_id = `AFU_IMAGE_UUID;
 
         // Default
         for (int i = 0; i < NUM_TEST_CSRS; i = i + 1)

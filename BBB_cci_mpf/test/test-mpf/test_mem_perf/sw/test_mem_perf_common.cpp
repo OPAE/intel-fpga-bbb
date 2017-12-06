@@ -29,11 +29,14 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "test_mem_perf.h"
+// Generated from the AFU JSON file by afu_json_mgr
+#include "afu_json_info.h"
+
 #include <time.h>
 
 const char* testAFUID()
 {
-    return "6DA50A7D-C76F-42B1-9018-EC1AA7629471";
+    return AFU_IMAGE_UUID;
 }
 
 bool

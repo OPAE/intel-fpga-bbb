@@ -25,6 +25,9 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "test_cci_mpf_null.h"
+// Generated from the AFU JSON file by afu_json_mgr
+#include "afu_json_info.h"
+
 #include <time.h>
 #include <boost/format.hpp>
 #include <stdlib.h>
@@ -39,7 +42,7 @@
 
 const char* testAFUID()
 {
-    return "BFD75B03-9608-4E82-AE22-F61A62B8F992";
+    return AFU_IMAGE_UUID;
 }
 
 void testConfigOptions(po::options_description &desc)

@@ -46,7 +46,7 @@ localparam CCI_PT_VA_BITS = CCI_MPF_CLADDR_WIDTH;
 // Width of a physical address (line addresses).  Old machines supported
 // only 32 bits.  Recent machines support larger spaces.
 localparam CCI_PT_PA_BITS =
-    ((MPF_PLATFORM == "OME" || MPF_PLATFORM == "BDX") ?
+    ((MPF_PLATFORM == "INTG_OME" || MPF_PLATFORM == "INTG_BDX") ?
         32 /* Old, small memory machine */ :
         CCI_MPF_CLADDR_WIDTH);
 
