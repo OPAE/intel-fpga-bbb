@@ -1,0 +1,18 @@
+{
+   "version": 1,
+   "afu-image": {
+      "power": 0,
+      "afu-top-interface":
+         {
+            "name": "ccip_std_afu"
+         },
+      "accelerator-clusters":
+         [
+            {
+               "name": "test_mem_perf",
+               "total-contexts": 1,
+               "accelerator-type-uuid": "6da50a7d-c76f-42b1-9018-ec1aa7629471"
+            }
+         ]
+   }
+}
