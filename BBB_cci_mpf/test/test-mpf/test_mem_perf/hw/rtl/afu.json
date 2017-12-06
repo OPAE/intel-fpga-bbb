@@ -9,7 +9,7 @@
       "accelerator-clusters":
          [
             {
-               "name": "test_random",
+               "name": "test_mem_perf",
                "total-contexts": 1,
                "accelerator-type-uuid": "6da50a7d-c76f-42b1-9018-ec1aa7629471"
             }
