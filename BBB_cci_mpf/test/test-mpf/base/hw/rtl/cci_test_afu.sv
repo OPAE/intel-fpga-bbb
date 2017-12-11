@@ -32,8 +32,6 @@
 `include "cci_mpf_test_conf_default.vh"
 `include "cci_test_csrs.vh"
 
-import ccip_if_pkg::*;
-
 module ccip_std_afu
    (
     // CCI-P Clocks and Resets

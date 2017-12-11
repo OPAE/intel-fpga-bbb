@@ -9,7 +9,9 @@
 module ccip_wires_to_mpf
   #(
     parameter REGISTER_INPUTS = 1,
-    parameter REGISTER_OUTPUTS = 1
+    parameter REGISTER_OUTPUTS = 1,
+    // Number of stages to add when registering inputs or outputs
+    parameter N_REG_STAGES = 1
     )
    (
     // -------------------------------------------------------------------
@@ -44,7 +46,7 @@ module ccip_wires_to_mpf
     logic  clk;
     assign clk = pClk;
 
-    logic reset = 1'b1;
+    (* preserve *) logic reset = 1'b1;
     assign fiu.reset = reset;
 
     always @(posedge clk)
@@ -68,17 +70,32 @@ module ccip_wires_to_mpf
        .afu_c1_tx(fiu.c1Tx)
        );
 
+    genvar s;
     generate
         if (REGISTER_OUTPUTS)
         begin : reg_out
+            (* preserve *) t_if_ccip_Tx reg_af2cp_sTx[N_REG_STAGES];
+
+            // Tx to register stages
             always_ff @(posedge clk)
             begin
-                pck_af2cp_sTx.c0 <= cci_mpf_cvtC0TxToBase(fiu.c0Tx);
-                pck_af2cp_sTx.c1 <= cci_mpf_cvtC1TxToBase(fiu_c1_tx);
-                pck_af2cp_sTx.c2 <= fiu.c2Tx;
+                reg_af2cp_sTx[0].c0 <= cci_mpf_cvtC0TxToBase(fiu.c0Tx);
+                reg_af2cp_sTx[0].c1 <= cci_mpf_cvtC1TxToBase(fiu_c1_tx);
+                reg_af2cp_sTx[0].c2 <= fiu.c2Tx;
+            end
 
-                fiu.c0TxAlmFull <= pck_cp2af_sRx.c0TxAlmFull;
-                fiu.c1TxAlmFull <= pck_cp2af_sRx.c1TxAlmFull;
+            // Intermediate stages
+            for (s = 0; s < N_REG_STAGES - 1; s = s + 1)
+            begin
+                always_ff @(posedge clk)
+                begin
+                    reg_af2cp_sTx[s+1] <= reg_af2cp_sTx[s];
+                end
+            end
+
+            always_comb
+            begin
+                pck_af2cp_sTx = reg_af2cp_sTx[N_REG_STAGES - 1];
             end
         end
         else
@@ -88,9 +105,6 @@ module ccip_wires_to_mpf
                 pck_af2cp_sTx.c0 = cci_mpf_cvtC0TxToBase(fiu.c0Tx);
                 pck_af2cp_sTx.c1 = cci_mpf_cvtC1TxToBase(fiu_c1_tx);
                 pck_af2cp_sTx.c2 = fiu.c2Tx;
-
-                fiu.c0TxAlmFull = pck_cp2af_sRx.c0TxAlmFull;
-                fiu.c1TxAlmFull = pck_cp2af_sRx.c1TxAlmFull;
             end
         end
     endgenerate
@@ -101,10 +115,29 @@ module ccip_wires_to_mpf
     generate
         if (REGISTER_INPUTS)
         begin : reg_in
+            (* preserve *) t_if_ccip_Rx reg_cp2af_sRx[N_REG_STAGES];
+
             always_ff @(posedge clk)
             begin
-                fiu.c0Rx <= pck_cp2af_sRx.c0;
-                fiu.c1Rx <= pck_cp2af_sRx.c1;
+                reg_cp2af_sRx[N_REG_STAGES - 1] <= pck_cp2af_sRx;
+            end
+
+            // Intermediate stages
+            for (s = N_REG_STAGES - 1; s > 0; s = s - 1)
+            begin
+                always_ff @(posedge clk)
+                begin
+                    reg_cp2af_sRx[s-1] <= reg_cp2af_sRx[s];
+                end
+            end
+
+            always_comb
+            begin
+                fiu.c0Rx = reg_cp2af_sRx[0].c0;
+                fiu.c1Rx = reg_cp2af_sRx[0].c1;
+
+                fiu.c0TxAlmFull = reg_cp2af_sRx[0].c0TxAlmFull;
+                fiu.c1TxAlmFull = reg_cp2af_sRx[0].c1TxAlmFull;
             end
         end
         else
@@ -113,6 +146,9 @@ module ccip_wires_to_mpf
             begin
                 fiu.c0Rx = pck_cp2af_sRx.c0;
                 fiu.c1Rx = pck_cp2af_sRx.c1;
+
+                fiu.c0TxAlmFull = pck_cp2af_sRx.c0TxAlmFull;
+                fiu.c1TxAlmFull = pck_cp2af_sRx.c1TxAlmFull;
             end
         end
     endgenerate

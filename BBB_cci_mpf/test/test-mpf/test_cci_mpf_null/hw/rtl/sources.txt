@@ -1,4 +1,4 @@
-afu.json
+test_cci_mpf_null.json
 
 # For now we force MPF to a particular platform.  This will be fixed later.
 +define+MPF_PLATFORM_BDX
