@@ -17,7 +17,7 @@ all: test_mem_perf test_mem_perf_ase test_mem_latency test_mem_latency_ase \
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
-$(AFU_JSON_INFO): ../hw/rtl/afu.json | objdir
+$(AFU_JSON_INFO): ../hw/rtl/test_mem_perf.json | objdir
 	afu_json_mgr json-info --afu-json=$^ --c-hdr=$@
 $(OBJS): $(AFU_JSON_INFO)
 
