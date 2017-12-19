@@ -11,7 +11,7 @@
                      "class": "cci-p",
                      "params":
                         {
-                           "num-auto-timing-reg-stages": "auto"
+                           "add-extra-timing-reg-stages": "auto"
                         }
                   }
                ]
