@@ -128,85 +128,39 @@ module cci_mpf_null
                           (c1_wrfence_cnt != t_active_wrfence_cnt'(0));
     end
 
-    // Increment/decrement count updates for current cycle.  Some counts
-    // must be large enough to hold multi-line counts.
-    logic [2:0] c0_active_incr;
-    logic c0_active_decr;
-    logic c1_active_incr;
-    logic [2:0] c1_active_decr;
-
+    // Construct a monitoring port
+    cci_mpf_if cci_mon(clk);
     always_comb
     begin
-        if (cci_mpf_c0TxIsReadReq(afu.c0Tx))
-        begin
-            c0_active_incr = 3'b1 + 3'(afu.c0Tx.hdr.base.cl_len);
-        end
-        else
-        begin
-            c0_active_incr = 3'b0;
-        end
-        c0_active_decr = cci_c0Rx_isReadRsp(afu.c0Rx);
+        cci_mon.reset = fiu.reset;
 
-        c1_active_incr = cci_mpf_c1TxIsWriteReq(afu.c1Tx);
-        if (cci_c1Rx_isWriteRsp(afu.c1Rx))
-        begin
-            if (afu.c1Rx.hdr.format)
-            begin
-                // Packed response for multiple lines
-                c1_active_decr = 3'b1 + 3'(afu.c1Rx.hdr.cl_num);
-            end
-            else
-            begin
-                c1_active_decr = 3'b1;
-            end
-        end
-        else
-        begin
-            c1_active_decr = 3'b0;
-        end
+        cci_mon.c0TxAlmFull = fiu.c0TxAlmFull;
+        cci_mon.c1TxAlmFull = fiu.c1TxAlmFull;
+
+        cci_mon.c0Rx = fiu.c0Rx;
+        cci_mon.c1Rx = fiu.c1Rx;
+
+        cci_mon.c0Tx = afu.c0Tx;
+        cci_mon.c1Tx = afu.c1Tx;
+        cci_mon.c2Tx = afu.c2Tx;
     end
 
-    always_ff @(posedge clk)
-    begin
-        c0NotEmpty <= cci_mpf_c0TxIsReadReq(afu.c0Tx) || (|(c0_num_active));
-        c1NotEmpty <= cci_mpf_c1TxIsWriteReq(afu.c1Tx) || (|(c1_num_active));
+    cci_mpf_prim_track_active_reqs
+      #(
+        .MAX_ACTIVE_LINES(MAX_ACTIVE_LINES),
+        .MAX_ACTIVE_WRFENCES(MAX_ACTIVE_WRFENCES)
+        )
+      tracker
+       (
+        .clk(clk),
 
-        c0_num_active <= c0_num_active +
-                         t_active_cnt'(c0_active_incr) -
-                         t_active_cnt'(c0_active_decr);
+        .cci_bus(cci_mon),
 
-        c1_num_active <= c1_num_active +
-                         t_active_cnt'(c1_active_incr) -
-                         t_active_cnt'(c1_active_decr);
-
-        if (reset)
-        begin
-            c0NotEmpty <= 1'b0;
-            c1NotEmpty <= 1'b0;
-
-            c0_num_active <= t_active_cnt'(0);
-            c1_num_active <= t_active_cnt'(0);
-        end
-    end
-
-    // Track write fence activity
-    always_ff @(posedge clk)
-    begin
-        if (cci_mpf_c1TxIsWriteFenceReq(afu.c1Tx) && ! cci_c1Rx_isWriteFenceRsp(afu.c1Rx))
-        begin
-            // New fence request
-            c1_wrfence_cnt <= c1_wrfence_cnt + t_active_wrfence_cnt'(1);
-        end
-        else if (! cci_mpf_c1TxIsWriteFenceReq(afu.c1Tx) && cci_c1Rx_isWriteFenceRsp(afu.c1Rx))
-        begin
-            // Response
-            c1_wrfence_cnt <= c1_wrfence_cnt - t_active_wrfence_cnt'(1);
-        end
-
-        if (reset)
-        begin
-            c1_wrfence_cnt <= t_active_wrfence_cnt'(0);
-        end
-    end
+        .c0NotEmpty(c0NotEmpty),
+        .c1NotEmpty(c1NotEmpty),
+        .c0ActiveLines(c0_num_active),
+        .c1ActiveLines(c1_num_active),
+        .c1ActiveWrFences(c1_wrfence_cnt)
+        );
 
 endmodule // cci_mpf_null
