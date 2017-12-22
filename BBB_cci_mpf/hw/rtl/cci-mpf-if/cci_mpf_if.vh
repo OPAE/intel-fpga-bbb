@@ -80,12 +80,12 @@ interface cci_mpf_if
 
     // ====================================================================
     //
-    // Snoop equivalents of the above interfaces: all the inputs and none
+    // Monitor equivalents of the above interfaces: all the inputs and none
     // of the outputs.
     //
     // ====================================================================
 
-    modport to_fiu_snoop
+    modport to_fiu_monitor
       (
        input  reset,
 
@@ -96,7 +96,7 @@ interface cci_mpf_if
        input  c1Rx
        );
 
-    modport to_afu_snoop
+    modport to_afu_monitor
       (
        input  reset,
 
@@ -105,7 +105,7 @@ interface cci_mpf_if
        input  c2Tx
        );
 
-    modport snoop
+    modport monitor
       (
        input  reset,
 
