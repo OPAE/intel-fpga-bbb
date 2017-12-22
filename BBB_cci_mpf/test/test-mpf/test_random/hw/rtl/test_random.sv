@@ -227,7 +227,7 @@ module test_afu
 
     always_comb
     begin
-        csrs.afu_id = `AFU_IMAGE_UUID;
+        csrs.afu_id = `AFU_ACCEL_UUID;
 
         // Default
         for (int i = 0; i < NUM_TEST_CSRS; i = i + 1)

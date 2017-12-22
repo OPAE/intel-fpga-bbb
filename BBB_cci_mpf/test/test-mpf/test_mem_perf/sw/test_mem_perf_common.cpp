@@ -36,7 +36,7 @@
 
 const char* testAFUID()
 {
-    return AFU_IMAGE_UUID;
+    return AFU_ACCEL_UUID;
 }
 
 bool
