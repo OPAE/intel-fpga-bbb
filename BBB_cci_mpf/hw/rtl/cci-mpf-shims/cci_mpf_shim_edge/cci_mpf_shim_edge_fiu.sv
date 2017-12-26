@@ -347,7 +347,6 @@ module cci_mpf_shim_edge_fiu
     logic stg1_packet_done;
     logic stg1_packet_is_new;
     logic stg1_flit_en;
-    logic wr_req_may_fire;
 
     // Pipeline stages
     t_if_cci_mpf_c1_Tx stg1_fiu_c1Tx;
@@ -356,17 +355,11 @@ module cci_mpf_shim_edge_fiu
 
     always_comb
     begin
-        // Write request may fire if the downstream pipeline isn't full and
-        // if the wr_heap_data read port is available to retrieve the store
-        // data.  The wr_heap_data read port is used as a write port for
-        // updates to partial write data, which are given priority.
-        wr_req_may_fire = ! fiu.c1TxAlmFull;
-
         // Processing is complete when all beats have been emitted.
-        stg1_packet_done = wr_req_may_fire && (stg1_fiu_wr_beats_rem == 0);
+        stg1_packet_done = (stg1_fiu_wr_beats_rem == 0);
 
         // Ready to process a write flit?
-        stg1_flit_en = wr_req_may_fire && cci_mpf_c1TxIsWriteReq(stg1_fiu_c1Tx);
+        stg1_flit_en = cci_mpf_c1TxIsWriteReq(stg1_fiu_c1Tx);
         wr_heap_deq_clNum = stg1_fiu_wr_beat_idx;
 
         // Release the write data heap entry when a write retires
@@ -375,6 +368,7 @@ module cci_mpf_shim_edge_fiu
         // Take the next request from the buffering FIFO when the current
         // packet is done or there is no packet being processed.
         deqC1Tx = cci_mpf_c1TxIsValid(afu_buf.c1Tx) &&
+                  ! fiu.c1TxAlmFull &&
                   (stg1_packet_done || ! cci_mpf_c1TxIsValid(stg1_fiu_c1Tx));
     end
 
@@ -414,25 +408,18 @@ module cci_mpf_shim_edge_fiu
             stg1_fiu_wr_beats_rem <= stg1_fiu_wr_beats_rem - 1;
         end
 
-        if (wr_req_may_fire)
-        begin
-            // Write request this cycle
-            stg2_fiu_c1Tx <= stg1_fiu_c1Tx;
-            // SOP set only first first beat in a multi-beat packet.
-            // Only write requests use SOP.
-            stg2_fiu_c1Tx.hdr.base.sop <=
-                cci_mpf_c1TxIsWriteReq_noCheckValid(stg1_fiu_c1Tx) &&
-                stg1_fiu_c1Tx_sop;
-            // Low bits of aligned address reflect the beat
-            stg2_fiu_c1Tx.hdr.base.address[$bits(t_ccip_clNum)-1 : 0] <=
-                stg1_fiu_c1Tx.hdr.base.address[$bits(t_ccip_clNum)-1 : 0] |
-                stg1_fiu_wr_beat_idx;
-        end
-        else
-        begin
-            // Nothing starting this cycle
-            stg2_fiu_c1Tx <= cci_c1Tx_clearValids();
-        end
+        // Once a multi-beat write request is in the pipeline it continues
+        // to be processed until complete, even if c1TxAlmFull is raised.
+        stg2_fiu_c1Tx <= stg1_fiu_c1Tx;
+        // SOP set only first first beat in a multi-beat packet.
+        // Only write requests use SOP.
+        stg2_fiu_c1Tx.hdr.base.sop <=
+            cci_mpf_c1TxIsWriteReq_noCheckValid(stg1_fiu_c1Tx) &&
+            stg1_fiu_c1Tx_sop;
+        // Low bits of aligned address reflect the beat
+        stg2_fiu_c1Tx.hdr.base.address[$bits(t_ccip_clNum)-1 : 0] <=
+            stg1_fiu_c1Tx.hdr.base.address[$bits(t_ccip_clNum)-1 : 0] |
+            stg1_fiu_wr_beat_idx;
 
         stg3_fiu_c1Tx <= stg2_fiu_c1Tx;
 
