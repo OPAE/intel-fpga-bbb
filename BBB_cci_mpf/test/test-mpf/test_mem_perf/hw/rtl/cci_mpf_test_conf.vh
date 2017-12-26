@@ -40,3 +40,6 @@
 `ifndef MPF_CONF_ENABLE_VC_MAP
   `define MPF_CONF_ENABLE_VC_MAP 1
 `endif
+
+// Enable flow control management in cci_test_afu
+`define CCI_TEST_FLOW_CONTROL

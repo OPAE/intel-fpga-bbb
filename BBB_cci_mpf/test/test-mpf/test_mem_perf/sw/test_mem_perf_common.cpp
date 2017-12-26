@@ -183,9 +183,9 @@ TEST_MEM_PERF::runTest(const t_test_config* config, t_test_stats* stats)
     stats->read_almost_full_cycles = readCommonCSR(CCI_TEST::CSR_COMMON_RD_ALMOST_FULL_CYCLES) - stats->read_almost_full_cycles;
     stats->write_almost_full_cycles = readCommonCSR(CCI_TEST::CSR_COMMON_WR_ALMOST_FULL_CYCLES) - stats->write_almost_full_cycles;
 
-    // Inflight counters are in DSM.  Convert packets to lines.
-    stats->read_max_inflight_lines = (dsm[1] & 0xffffffff) * (config->mcl + 1);
-    stats->write_max_inflight_lines = (dsm[1] >> 32) * (config->mcl + 1);
+    // Inflight counters are in DSM.
+    stats->read_max_inflight_lines = dsm[1] & 0xffffffff;
+    stats->write_max_inflight_lines = dsm[1] >> 32;
 
     if (stats->actual_cycles == 0)
     {
@@ -194,12 +194,8 @@ TEST_MEM_PERF::runTest(const t_test_config* config, t_test_stats* stats)
         return 1;
     }
 
-    // Convert read/write counts to packets
-    uint64_t read_packets = stats->read_lines / (config->mcl + 1);
-    uint64_t write_packets = stats->write_lines / (config->mcl + 1);
-
-    stats->read_average_latency = (read_packets ? dsm[2] / read_packets : 0);
-    stats->write_average_latency = (write_packets ? dsm[3] / write_packets : 0);
+    stats->read_average_latency = (stats->read_lines ? dsm[2] / stats->read_lines : 0);
+    stats->write_average_latency = (stats->write_lines ? dsm[3] / stats->write_lines : 0);
 
     *dsm = 0;
 

@@ -25,6 +25,7 @@ if [ -f stats/lat_mcl1_vc1.dat ]; then
 else
     # Assume just PCIe
     gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=0" scripts/plot_buffer_credits.gp
+    gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=0" scripts/plot_buffer_credits_rw.gp
 fi
 
 # Crop whitespace
