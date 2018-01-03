@@ -54,68 +54,12 @@ module ccip_std_afu
     //
     // Select the clock that will drive the AFU.
     //
-    localparam AFU_CLOCK_FREQ = `AFU_CLOCK_FREQ;
     logic afu_clk;
     logic afu_reset;
 
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-            assign afu_clk = pClk;
-        else if (AFU_CLOCK_FREQ == 200)
-            assign afu_clk = pClkDiv2;
-        else if (AFU_CLOCK_FREQ == 100)
-            assign afu_clk = pClkDiv4;
-        else if (AFU_CLOCK_FREQ == 2)
-            assign afu_clk = uClk_usr;
-        else if (AFU_CLOCK_FREQ == 1)
-            assign afu_clk = uClk_usrDiv2;
-        else
-        begin : ferr
-            always_ff @(posedge pClk)
-            begin
-                $fatal("Unsupported platform clock frequency: %d", AFU_CLOCK_FREQ);
-            end
-        end
-    endgenerate
-
-    t_if_ccip_Rx afck_cp2af_sRx;
-    t_if_ccip_Tx afck_af2cp_sTx;
-
-    //
-    // Clock crossing FIFO to connect the fast CCI-P interface to the
-    // slower AFU.
-    //
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-        begin : nc
-            assign afu_reset = pck_cp2af_softReset;
-            assign afck_cp2af_sRx = pck_cp2af_sRx;
-            assign pck_af2cp_sTx = afck_af2cp_sTx;
-        end
-        else
-        begin : cc
-            ccip_async_shim
-              #(
-                .DEBUG_ENABLE(1)
-                )
-              afu_clock_crossing
-               (
-                // Blue bitstream interface (pClk)
-                .bb_softreset(pck_cp2af_softReset),
-                .bb_clk(pClk),
-                .bb_tx(pck_af2cp_sTx),
-                .bb_rx(pck_cp2af_sRx),
-
-                // AFU
-                .afu_softreset(afu_reset),
-                .afu_clk(afu_clk),
-                .afu_tx(afck_af2cp_sTx),
-                .afu_rx(afck_cp2af_sRx),
-
-                .async_shim_error()
-                );
-        end
-    endgenerate
+    // Use .* to avoid naming any clocks or resets.  They will match
+    // from top-level interface names.
+    ccip_if_clock pick_clk(.*, .clk(afu_clk), .reset(afu_reset));
 
 
     //
@@ -123,24 +67,12 @@ module ccip_std_afu
     //
     logic [1:0] pck_cp2af_pwrState_q;
     logic pck_cp2af_error_q;
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-        begin : pwr_nc
-            // No clock crossing
-            always_ff @(posedge pClk)
-            begin
-                pck_cp2af_pwrState_q <= pck_cp2af_pwrState;
-                pck_cp2af_error_q <= pck_cp2af_error;
-            end
-        end
-        else
-        begin : pwr_cc
-            // We need clock crossing logic for the power and error signals.
-            // For now they are tied to 0.
-            assign pck_cp2af_pwrState_q = 2'b0;
-            assign pck_cp2af_error_q = 1'b0;
-        end
-    endgenerate
+
+    always_ff @(posedge afu_clk)
+    begin
+        pck_cp2af_pwrState_q <= pck_cp2af_pwrState;
+        pck_cp2af_error_q <= pck_cp2af_error;
+    end
 
 
     // ====================================================================
@@ -187,8 +119,7 @@ module ccip_std_afu
        (
         .pClk(afu_clk),
         .pck_cp2af_softReset(afu_reset),
-        .pck_cp2af_sRx(afck_cp2af_sRx),
-        .pck_af2cp_sTx(afck_af2cp_sTx),
+        .fiu,
         .*
         );
 
