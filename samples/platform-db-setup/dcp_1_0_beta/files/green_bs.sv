@@ -419,7 +419,7 @@ end
       .NUM_LOCAL_MEM_BANKS(`AFU_TOP_REQUIRES_LOCAL_MEMORY_AVALON_MM)
      )
 `endif
-    afu
+    `PLATFORM_SHIM_MODULE_NAME
      (
       .pClk                   (Clk_400),    // 16ui link/protocol clock domain. Interface Clock
       .pClkDiv2               (Clk_200),    // 32ui link/protocol clock domain. Synchronous to interface clock
