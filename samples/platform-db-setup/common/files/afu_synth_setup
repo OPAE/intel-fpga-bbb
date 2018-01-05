@@ -7,15 +7,15 @@
 ##
 
 # Get exact script path
-SCRIPT_PATH=`readlink -f $0`
+SCRIPT_PATH=`readlink -f "$0"`
 # Get directory of script path
-SCRIPT_DIR="$(dirname $SCRIPT_PATH)"
-PARENT_DIR="$(dirname $SCRIPT_DIR)"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # OPAE afu_synth_setup_std expects a pointer to the release directory
 if [ "$FPGA_RELEASE_DIR" == "" ]; then
-    export FPGA_RELEASE_DIR=${PARENT_DIR}
+    export FPGA_RELEASE_DIR="${PARENT_DIR}"
 fi
 
 # Invoke OPAE common script
-afu_synth_setup_std $*
+afu_synth_setup_std $@
