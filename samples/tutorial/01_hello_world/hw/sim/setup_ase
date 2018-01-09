@@ -8,4 +8,4 @@
 SCRIPT=$(readlink -f "$0")
 SCRIPT_PATH=$(dirname "$SCRIPT")
 
-afu_sim_setup --sources=${SCRIPT_PATH}/../rtl/sources.txt $*
+afu_sim_setup --sources="${SCRIPT_PATH}/../rtl/sources.txt" $@
