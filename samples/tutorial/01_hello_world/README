@@ -33,8 +33,11 @@ demonstrates the following universal AFU requirements:
 
   - All AFUs must implement a read-only device feature header (DFH) in
     MMIO space at MMIO address 0.  The DFH holds a 128 bit AFU ID, mapped
-    to a pair of 64 bit MMIO "registers".  The AFU ID uniquely identifies
-    the design.
+    to a pair of 64 bit MMIO "registers".  The AFU ID that uniquely
+    identifies the design is stored in rtl/cci_hello.json and is
+    extracted by the OPAE afu_json_mgr script into both Verilog and C
+    header files.  afu_json_mgr is invoked by the ASE setup script for
+    RTL and by sw/Makefile for software.
 
   - CCI request rates are limited by off-chip physical bus speeds and by
     buffering inside the Intel-supplied FIU (the blue bitstream).  User RTL
@@ -60,10 +63,10 @@ The software side is contained entirely in sw/cci_hello.c:
 
 
 All of the examples in this tutorial share a framework for configuring ASE
-to simulate RTL.  <example path>/hw/sim/setup_ase checks the environment
-and invokes the common base/hw/sim/setup_ase_sim.py Python script.  The
-Python script uses ASE's standard configuration script to build a
-simulation environment.  setup_ase_sim.py then adjusts the build
-environment to point to a file that loads RTL into the simulator.  This
-file is always called hw/sim/sources.txt.  This framework could be used for
-any application that is simulated with ASE.
+to simulate RTL.  <example path>/hw/sim/setup_ase invokes the OPAE-provided
+afu_sim_setup Python script.  afu_sim_setup constructs an ASE environment
+and populates it to compile sources that are specified in rtl/sources.txt.
+The rtl/sources.txt file is parsed by the OPAE script rtl_src_config.
+Invoke "rtl_src_config --help" for a description of the source file
+specification syntax.  This framework could be used for any application
+that is simulated with ASE.

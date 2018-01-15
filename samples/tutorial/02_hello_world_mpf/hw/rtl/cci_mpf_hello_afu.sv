@@ -30,6 +30,7 @@
 
 `include "cci_mpf_if.vh"
 `include "csr_mgr.vh"
+`include "afu_json_info.vh"
 
 
 module app_afu
@@ -65,8 +66,10 @@ module app_afu
     always_comb
     begin
         // The AFU ID is a unique ID for a given program.  Here we generated
-        // one with the "uuidgen" program.
-        csrs.afu_id = 128'h1cddcf01_c266_44de_af63_9d09858310e5;
+        // one with the "uuidgen" program and stored it in the AFU's JSON file.
+        // ASE and synthesis setup scripts automatically invoke afu_json_mgr
+        // to extract the UUID into afu_json_info.vh.
+        csrs.afu_id = `AFU_ACCEL_UUID;
 
         // Default
         for (int i = 0; i < NUM_APP_CSRS; i = i + 1)
