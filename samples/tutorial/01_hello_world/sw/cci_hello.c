@@ -37,12 +37,8 @@
 
 #include <opae/fpga.h>
 
-//
-// Unique identifier for this application, used in both the accelerator
-// and software components.
-//
-#define AFU_UUID "C6AA954A-9B91-4A37-ABC1-1D9F0709DCC3"
-
+// State from the AFU's JSON file, extracted using OPAE's afu_json_mgr script
+#include "afu_json_info.h"
 
 #define CACHELINE_BYTES 64
 #define CL(x) ((x) * CACHELINE_BYTES)
@@ -138,7 +134,7 @@ int main(int argc, char *argv[])
     uint64_t buf_pa;
 
     // Find and connect to the accelerator
-    accel_handle = connect_to_accel(AFU_UUID);
+    accel_handle = connect_to_accel(AFU_ACCEL_UUID);
 
     // Allocate a single page memory buffer
     buf = (volatile char*)alloc_buffer(accel_handle, getpagesize(),
@@ -166,4 +162,6 @@ int main(int argc, char *argv[])
     // Done
     fpgaReleaseBuffer(accel_handle, wsid);
     disconnect_from_accel(accel_handle);
+
+    return 0;
 }

@@ -28,7 +28,9 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import ccip_if_pkg::*;
+`include "platform_if.vh"
+`include "afu_json_info.vh"
+
 
 module ccip_std_afu
    (
@@ -88,8 +90,10 @@ module ccip_std_afu
     // =========================================================================
 
     // The AFU ID is a unique ID for a given program.  Here we generated
-    // one with the "uuidgen" program.
-    logic [127:0] afu_id = 128'hC6AA954A_9B91_4A37_ABC1_1D9F0709DCC3;
+    // one with the "uuidgen" program and stored it in the AFU's JSON file.
+    // ASE and synthesis setup scripts automatically invoke afu_json_mgr
+    // to extract the UUID into afu_json_info.vh.
+    logic [127:0] afu_id = `AFU_ACCEL_UUID;
 
     //
     // A valid AFU must implement a device feature list, starting at MMIO

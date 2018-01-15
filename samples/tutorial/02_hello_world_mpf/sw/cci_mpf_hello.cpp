@@ -41,10 +41,13 @@ using namespace std;
 #include "opae_svc_wrapper.h"
 #include "csr_mgr.h"
 
+// State from the AFU's JSON file, extracted using OPAE's afu_json_mgr script
+#include "afu_json_info.h"
+
 int main(int argc, char *argv[])
 {
     // Find and connect to the accelerator
-    OPAE_SVC_WRAPPER* fpga = new OPAE_SVC_WRAPPER("1cddcf01-c266-44de-af63-9d09858310e5");
+    OPAE_SVC_WRAPPER* fpga = new OPAE_SVC_WRAPPER(AFU_ACCEL_UUID);
     assert(fpga->isOk());
 
     // Connect the CSR manager
@@ -85,4 +88,6 @@ int main(int argc, char *argv[])
     // Done
     delete csrs;
     delete fpga;
+
+    return 0;
 }
