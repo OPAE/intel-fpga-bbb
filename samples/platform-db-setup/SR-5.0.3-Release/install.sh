@@ -86,7 +86,7 @@ cp ${SCRIPT_DIR}/files/run.sh bin
 #
 # Build restructured hw/lib/build
 #
-mkdir -p hw/lib/build/platform/lib/common
+mkdir -p hw/lib/build/platform
 cp -r Base/HW/bdw_503_pr_pkg/lib/blue/output_files hw/lib/build/output_files
 cp -r Base/HW/bdw_503_pr_pkg/lib/blue/qdb_file/*.qdb hw/lib/build/
 cp -r Base/HW/bdw_503_pr_pkg/lib/green/AFU_debug hw/lib/build/platform
@@ -105,9 +105,6 @@ cp "${SCRIPT_DIR}/files/green_top.sv" hw/lib/build/platform/
 # Copy updated BDW_base_sdc
 cp "${SCRIPT_DIR}/files/BDW_base.sdc" hw/lib/build/
 
-# Copy new afu_json.tcl
-cp "${SCRIPT_DIR}/../common/files/afu_json.tcl" hw/lib/build/platform/lib/common/
-
 # Tag the platform type
 echo intg_xeon > hw/lib/fme-platform-class.txt
 
@@ -125,7 +122,6 @@ set_global_assignment -name SEARCH_PATH ./platform/AFU_debug
 set_global_assignment -name SDC_FILE BDW_base.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE ./platform/green_top.sv
 set_global_assignment -name QSYS_FILE ./platform/AFU_debug/SCJIO.qsys
-set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/lib/common/afu_json.tcl
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/platform_if_addenda.qsf
 set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
