@@ -70,6 +70,9 @@ if [ ! -f hw/lib/build/platform/green_bs.sv ]; then
     not_release "hw/lib/build/platform/green_bs.sv"
 fi
 
+# Copy the updated run.sh
+cp "${SCRIPT_DIR}/files/run.sh" bin
+
 # Add afu_synth_setup to bin
 cp ${SCRIPT_DIR}/../common/files/afu_synth_setup bin
 
@@ -90,8 +93,8 @@ if [ ! -f hw/lib/build/dcp_bbs.sdc.orig ]; then
 fi
 cp "${SCRIPT_DIR}/files/dcp_bbs.sdc" "hw/lib/build/dcp_bbs.sdc"
 
-# Copy new afu_json.tcl
-cp "${SCRIPT_DIR}/../common/files/afu_json.tcl" hw/lib/build/platform/lib/common/
+# Copy new compute_user_clock_freqs.tcl
+cp "${SCRIPT_DIR}/files/compute_user_clock_freqs.tcl" hw/lib/build/a10_partial_reconfig/
 
 # Remove files that are no longer needed
 if [ -f hw/lib/build/platform/ccip_if_pkg.sv ]; then
@@ -117,7 +120,6 @@ for qsf in hw/lib/build/afu_synth.qsf hw/lib/build/afu_fit.qsf; do
 
     # Import the platform interface
     cat >>${qsf} <<EOF
-set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/lib/common/afu_json.tcl
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/platform_if_addenda.qsf
 set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
