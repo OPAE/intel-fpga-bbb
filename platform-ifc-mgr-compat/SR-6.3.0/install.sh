@@ -76,7 +76,6 @@ rm -rf bin hw
 # Set up bin directory
 #
 mkdir bin
-cp ${SCRIPT_DIR}/../common/files/afu_synth_setup bin
 # clean.sh just deletes. No more copying.
 awk '/^rm -rf \*.qdb/ { print "cd build" } /^# Restore/ { exit } 1' skx_pr_pkg/par/clean.sh > bin/clean.sh
 chmod a+x bin/clean.sh
@@ -86,7 +85,8 @@ cp ${SCRIPT_DIR}/files/run.sh bin
 #
 # Build restructured hw/lib/build
 #
-mkdir -p hw/lib/build/platform/lib/common
+mkdir -p hw/lib/build/output_files
+mkdir -p hw/lib/build/platform
 cp -r skx_pr_pkg/lib/blue/output_files hw/lib/build/output_files
 cp -r skx_pr_pkg/lib/blue/qdb_file/*.qdb hw/lib/build/
 cp -r skx_pr_pkg/lib/green/AFU_debug hw/lib/build/platform
@@ -94,6 +94,7 @@ grep -v lnkpr2sr skx_pr_pkg/par/generate_pr_bitstream.sh | grep -v ^ID_ | grep -
 chmod a+x hw/lib/build/generate_pr_bitstream.sh
 cp skx_pr_pkg/par/*.qpf hw/lib/build/
 cp skx_pr_pkg/par/{quartus.ini,readme} hw/lib/build/
+cp skx_pr_pkg/lib/blue/skx_bbs_e10.sdc hw/lib/build/
 
 cp skx_pr_pkg/lib/green/hssi_eth_pkg.sv hw/lib/build/platform
 cp "${SCRIPT_DIR}/files/green_hssi_if_e10_null.sv" hw/lib/build/platform/
@@ -106,17 +107,11 @@ echo "# =====================================" >> hw/lib/build/skx_pr_afu.qsf
 # Copy updated green_bs.sv
 cp "${SCRIPT_DIR}/files/green_bs.sv" hw/lib/build/platform/
 
-# Copy updated BDW_base_sdc
-cp "${SCRIPT_DIR}/files/skx_bbs_e10.sdc" hw/lib/build/
-
-# Copy new afu_json.tcl
-cp "${SCRIPT_DIR}/../common/files/afu_json.tcl" hw/lib/build/platform/lib/common/
+# Copy user clock constraints
+cp "${SCRIPT_DIR}/files/skx_user_clocks.sdc" hw/lib/build/
 
 # Tag the platform type
 echo intg_xeon > hw/lib/fme-platform-class.txt
-
-# Install default platform database files
-afu_platform_config --ifc=ccip_std_afu --qsf --tgt=hw/lib/build/platform intg_xeon
 
 echo e993f64a-7d56-4b53-870c-3bcb1a3a7f02 > hw/lib/fme-ifc-id.txt
 
@@ -136,7 +131,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE ./platform/green_hssi_if_e10_null
 
 set_global_assignment -name SYSTEMVERILOG_FILE ./platform/green_bs.sv
 set_global_assignment -name QSYS_FILE ./platform/AFU_debug/SCJIO.qsys
-set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/lib/common/afu_json.tcl
+set_global_assignment -name SDC_FILE skx_user_clocks.sdc
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/platform_if_addenda.qsf
 set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
