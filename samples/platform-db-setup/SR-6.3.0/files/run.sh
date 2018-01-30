@@ -41,6 +41,7 @@ PACKAGER=${PACKAGER:-packager}
 GBS_FILE=${GBS_FILE:-$(basename "${AFU_JSON}" .json).gbs}
 
 INTERFACE_UUID="$(cat "${BBS_LIB_PATH}/fme-ifc-id.txt")"
+PLATFORM_CLASS="$(cat "${BBS_LIB_PATH}/fme-platform-class.txt")"
 
 if ! "${PACKAGER}" >/dev/null; then
     echo "ERROR: Packager tool '${PACKAGER}' failed to run. Please check \$PATH and installation." 1>&2
@@ -54,9 +55,22 @@ fi
 
 echo "Restoring blue bitstream lib files"
 echo "=================================="
-cp -rLf "${BBS_LIB_PATH}/build/fpga_top.qdb" \
-        "${BBS_LIB_PATH}/build/output_files" \
-        ./build/
+
+if [ -d ./build ]; then
+    # There is already a build directory.  Restore all non-user
+    # configurable files.
+    rm -rf  "./build/output_files"
+    cp -rLf "${BBS_LIB_PATH}/build/fpga_top.qdb" \
+            "${BBS_LIB_PATH}/build/output_files" \
+            ./build/
+else
+    cp -rLf "${BBS_LIB_PATH}/build/fpga_top.qdb" \
+            "${BBS_LIB_PATH}/build/output_files" \
+            ./build/
+
+    # Configure the platform interface
+    afu_platform_config --qsf --src "${AFU_JSON}" --default-ifc ccip_std_afu --tgt ./build/platform "${PLATFORM_CLASS}"
+fi
 
 cd build
 

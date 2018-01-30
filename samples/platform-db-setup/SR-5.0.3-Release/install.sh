@@ -76,7 +76,6 @@ rm -rf bin hw
 # Set up bin directory
 #
 mkdir bin
-cp ${SCRIPT_DIR}/../common/files/afu_synth_setup bin
 # clean.sh just deletes. No more copying.
 awk '/^rm/ { print "cd build"; print $0; exit } 1' Base/HW/bdw_503_pr_pkg/par/clean.sh > bin/clean.sh
 chmod a+x bin/clean.sh
@@ -107,9 +106,6 @@ cp "${SCRIPT_DIR}/files/BDW_base.sdc" hw/lib/build/
 
 # Tag the platform type
 echo intg_xeon > hw/lib/fme-platform-class.txt
-
-# Install default platform database files
-afu_platform_config --ifc=ccip_std_afu --qsf --tgt=hw/lib/build/platform intg_xeon
 
 echo 00000000-0000-0000-0000-000000000000 > hw/lib/fme-ifc-id.txt
 
