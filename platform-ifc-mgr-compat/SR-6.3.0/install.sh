@@ -85,7 +85,6 @@ cp ${SCRIPT_DIR}/files/run.sh bin
 #
 # Build restructured hw/lib/build
 #
-mkdir -p hw/lib/build/output_files
 mkdir -p hw/lib/build/platform
 cp -r skx_pr_pkg/lib/blue/output_files hw/lib/build/output_files
 cp -r skx_pr_pkg/lib/blue/qdb_file/*.qdb hw/lib/build/
