@@ -186,7 +186,7 @@ int TEST_MEM_PERF::test()
              << endl;
 
         // Vary the maximum number of outstanding requests.
-        uint64_t line_credits = 1;
+        uint64_t line_credits = 8;
         while (line_credits <= max_line_credits)
         {
             t_test_stats stats;
