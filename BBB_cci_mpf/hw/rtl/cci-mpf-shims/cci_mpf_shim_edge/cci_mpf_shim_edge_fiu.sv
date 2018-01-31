@@ -345,8 +345,8 @@ module cci_mpf_shim_edge_fiu
     t_ccip_clNum stg1_fiu_wr_beats_rem;
     logic stg1_fiu_c1Tx_sop;
     logic stg1_packet_done;
-    logic stg1_packet_is_new;
     logic stg1_flit_en;
+    logic stg1_fiu_blocked;
 
     // Pipeline stages
     t_if_cci_mpf_c1_Tx stg1_fiu_c1Tx;
@@ -356,7 +356,7 @@ module cci_mpf_shim_edge_fiu
     always_comb
     begin
         // Processing is complete when all beats have been emitted.
-        stg1_packet_done = (stg1_fiu_wr_beats_rem == 0);
+        stg1_packet_done = (stg1_fiu_wr_beats_rem == 0) && ! fiu.c1TxAlmFull;
 
         // Ready to process a write flit?
         stg1_flit_en = cci_mpf_c1TxIsWriteReq(stg1_fiu_c1Tx);
@@ -379,38 +379,39 @@ module cci_mpf_shim_edge_fiu
 
     always_ff @(posedge clk)
     begin
-        stg1_packet_is_new <= deqC1Tx;
-
         // Head of the pipeline
-        if (deqC1Tx)
+        stg1_fiu_blocked <= fiu.c1TxAlmFull;
+        if (! fiu.c1TxAlmFull)
         begin
-            // Pipeline is moving and a new request is available
-            stg1_fiu_c1Tx <= c1Tx;
+            if (deqC1Tx)
+            begin
+                // Pipeline is moving and a new request is available
+                stg1_fiu_c1Tx <= c1Tx;
 
-            // The heap data for the SOP is definitely available
-            // since it arrived with the header.
-            stg1_fiu_c1Tx_sop <= 1'b1;
-            stg1_fiu_wr_beat_idx <= 0;
-            stg1_fiu_wr_beats_rem <= c1Tx.hdr.base.cl_len;
+                // The heap data for the SOP is definitely available
+                // since it arrived with the header.
+                stg1_fiu_c1Tx_sop <= 1'b1;
+                stg1_fiu_wr_beat_idx <= 0;
+                stg1_fiu_wr_beats_rem <= c1Tx.hdr.base.cl_len;
 
-            wr_heap_deq_idx <= t_write_heap_idx'(c1Tx.data);
-        end
-        else if (stg1_packet_done)
-        begin
-            // Pipeline is moving but no new request is available
-            stg1_fiu_c1Tx <= cci_c1Tx_clearValids();
-        end
-        else if (stg1_flit_en)
-        begin
-            // In the middle of a multi-beat request
-            stg1_fiu_c1Tx_sop <= 1'b0;
-            stg1_fiu_wr_beat_idx <= stg1_fiu_wr_beat_idx + 1;
-            stg1_fiu_wr_beats_rem <= stg1_fiu_wr_beats_rem - 1;
+                wr_heap_deq_idx <= t_write_heap_idx'(c1Tx.data);
+            end
+            else if (stg1_packet_done)
+            begin
+                // Pipeline is moving but no new request is available
+                stg1_fiu_c1Tx <= cci_c1Tx_clearValids();
+            end
+            else if (stg1_flit_en)
+            begin
+                // In the middle of a multi-beat request
+                stg1_fiu_c1Tx_sop <= 1'b0;
+                stg1_fiu_wr_beat_idx <= stg1_fiu_wr_beat_idx + 1;
+                stg1_fiu_wr_beats_rem <= stg1_fiu_wr_beats_rem - 1;
+            end
         end
 
-        // Once a multi-beat write request is in the pipeline it continues
-        // to be processed until complete, even if c1TxAlmFull is raised.
-        stg2_fiu_c1Tx <= stg1_fiu_c1Tx;
+        // Continue the pipeline, unless stg1 has stopped producing data.
+        stg2_fiu_c1Tx <= cci_mpf_c1TxMaskValids(stg1_fiu_c1Tx, ! stg1_fiu_blocked);
         // SOP set only first first beat in a multi-beat packet.
         // Only write requests use SOP.
         stg2_fiu_c1Tx.hdr.base.sop <=
@@ -429,7 +430,6 @@ module cci_mpf_shim_edge_fiu
             stg1_fiu_wr_beat_idx <= 1'b0;
             stg1_fiu_wr_beats_rem <= 1'b0;
 
-            stg1_packet_is_new <= 1'b0;
             stg1_fiu_c1Tx <= cci_c1Tx_clearValids();
             stg2_fiu_c1Tx <= cci_c1Tx_clearValids();
             stg3_fiu_c1Tx <= cci_c1Tx_clearValids();
