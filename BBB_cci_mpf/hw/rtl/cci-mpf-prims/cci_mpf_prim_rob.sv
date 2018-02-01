@@ -119,7 +119,10 @@ module cci_mpf_prim_rob
     // Bump the oldest pointer on deq
     always_ff @(posedge clk)
     begin
-        oldest <= oldest + deq_en;
+        if (deq_en)
+        begin
+            oldest <= oldest + t_idx'(1);
+        end
         oldest_q <= oldest;
 
         if (reset)
@@ -204,8 +207,6 @@ module cci_mpf_prim_rob
     logic test_is_valid;
     assign test_is_valid = test_valid_is_set && (&(num_valid) != 1'b1);
 
-    assign notEmpty = (num_valid != t_valid_cnt'(0));
-
     //
     // Update the pointer to the oldest valid entry.
     //
@@ -244,9 +245,18 @@ module cci_mpf_prim_rob
         num_valid <= num_valid - t_valid_cnt'(deq_en) +
                                  t_valid_cnt'(test_is_valid);
 
+        // Not empty if...
+        notEmpty <= // A next entry became ready this cycle
+                    test_is_valid ||
+                    // or there is more than one entry ready
+                    (num_valid > t_valid_cnt'(1)) ||
+                    // or there was at least one entry and it wasn't removed
+                    (num_valid[0] && ! deq_en);
+
         if (reset)
         begin
             num_valid <= t_valid_cnt'(0);
+            notEmpty <= 1'b0;
         end
     end
 
