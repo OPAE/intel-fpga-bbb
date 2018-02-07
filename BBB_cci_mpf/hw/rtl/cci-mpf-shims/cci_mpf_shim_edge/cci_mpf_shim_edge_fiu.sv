@@ -440,7 +440,17 @@ module cci_mpf_shim_edge_fiu
     // Merge FIU-bound data with request
     always_comb
     begin
-        fiu.c1Tx = stg3_fiu_c1Tx;
+        //
+        // It ought to be possible to write this block as:
+        //
+        //     fiu.c1Tx = stg3_fiu_c1Tx;
+        //     fiu.c1Tx.data = wr_data;
+        //
+        // unfortunately, QuestaSim 10.6 ignores the data write.  Separating
+        // the field assignments works, so:
+        //
+        fiu.c1Tx.valid = stg3_fiu_c1Tx.valid;
+        fiu.c1Tx.hdr = stg3_fiu_c1Tx.hdr;
         fiu.c1Tx.data = wr_data;
     end
 

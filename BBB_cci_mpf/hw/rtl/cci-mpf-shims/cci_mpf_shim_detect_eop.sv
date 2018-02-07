@@ -147,14 +147,10 @@ module cci_mpf_shim_detect_eop
         rd_rsp_is_tracked[1] <= rd_rsp_is_tracked[0];
     end
 
-    always_comb
+    always_ff @(posedge clk)
     begin
-        afu.c0Rx = c0Rx[1];
-
-        if (rd_rsp_is_tracked[1])
-        begin
-            afu.c0Rx = cci_mpf_c0Rx_updEOP(afu.c0Rx, rd_rsp_pkt_eop);
-        end
+        afu.c0Rx <= cci_mpf_c0Rx_updEOP(c0Rx[1],
+                                        (rd_rsp_is_tracked[1] && rd_rsp_pkt_eop));
     end
 
 
@@ -326,17 +322,18 @@ module cci_mpf_shim_detect_eop_track_flits
     //
 
     logic T1_rspIsPacked;
-    t_heap_idx T1_rspIdx;
-    logic T1_rsp_en;
-    t_cci_clNum T1_wdata;
+    t_heap_idx T1_rspIdx, T2_rspIdx;
+    logic T1_rsp_en, T2_rsp_en;
+    t_cci_clNum T1_wdata, T2_wdata;
     t_cci_clNum T1_flitCnt;
+    t_cci_clNum T1_flitCnt_ram;
 
     cci_mpf_prim_lutram_init_banked
       #(
         .N_ENTRIES(MAX_ACTIVE_REQS),
         .N_DATA_BITS($bits(t_cci_clNum)),
         .READ_DURING_WRITE("NEW_DATA"),
-        .N_BANKS(4)
+        .N_BANKS(2)
         )
       flit_cnt
        (
@@ -345,11 +342,11 @@ module cci_mpf_shim_detect_eop_track_flits
         .rdy,
 
         .raddr(rspIdx),
-        .T1_rdata(T1_flitCnt),
+        .T1_rdata(T1_flitCnt_ram),
 
-        .waddr(T1_rspIdx),
-        .wen(T1_rsp_en),
-        .wdata(T1_wdata)
+        .waddr(T2_rspIdx),
+        .wen(T2_rsp_en),
+        .wdata(T2_wdata)
         );
 
     always_ff @(posedge clk)
@@ -357,16 +354,34 @@ module cci_mpf_shim_detect_eop_track_flits
         T1_rspIsPacked <= rspIsPacked;
         T1_rspIdx <= rspIdx;
         T1_rsp_en <= rsp_en;
+
+        // Writes are delayed one cycle for timing
+        T2_rspIdx <= T1_rspIdx;
+        T2_rsp_en <= T1_rsp_en;
+        T2_wdata <= T1_wdata;
+
         if (reset)
         begin
             T1_rsp_en <= 1'b0;
+            T2_rsp_en <= 1'b0;
         end
     end
+
+
+    // Is a bypass needed due to delayed writes?
+    logic bypass_en;
+    always_ff @(posedge clk)
+    begin
+        bypass_en <= T1_rsp_en && (T1_rspIdx == rspIdx);
+    end
+
+    assign T1_flitCnt = (bypass_en ? T2_wdata : T1_flitCnt_ram);
+
 
     // Is the packet complete?
     assign T1_pkt_eop = (T1_rspLen == T1_flitCnt) || T1_rspIsPacked;
 
     // Update internal flit count.
-    assign T1_wdata = (T1_pkt_eop ? t_heap_idx'(0) : T1_flitCnt + t_heap_idx'(1));
+    assign T1_wdata = (T1_pkt_eop ? t_cci_clNum'(0) : T1_flitCnt + t_cci_clNum'(1));
 
 endmodule // cci_mpf_shim_detect_eop_track_flits
