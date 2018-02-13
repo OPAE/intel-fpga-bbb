@@ -52,14 +52,13 @@ module ccip_std_afu
 
 
     //
-    // Select the clock that will drive the AFU.
+    // Select the clock that will drive the AFU, specified in the AFU's
+    // JSON file.  The Platform Interface Manager provides these macros.
     //
     logic afu_clk;
+    assign afu_clk = `PLATFORM_PARAM_CCI_P_CLOCK;
     logic afu_reset;
-
-    // Use .* to avoid naming any clocks or resets.  They will match
-    // from top-level interface names.
-    ccip_if_clock pick_clk(.*, .clk(afu_clk), .reset(afu_reset));
+    assign afu_reset = `PLATFORM_PARAM_CCI_P_RESET;
 
 
     //
