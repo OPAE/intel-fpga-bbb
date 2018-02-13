@@ -18,6 +18,10 @@ For detailed documentation of the building blocks, please visit the [BBB Wiki](h
  
 These building blocks are implemented in SystemVerilog RTL and C or C++.
 
+# Versions #
+
+Interfaces and scripts in the BBB repository track changes in the [OPAE SDK](https://github.com/OPAE/opae-sdk). Master here may require OPAE SDK's master as well. There are release branches here in the BBB repository corresponding to OPAE SDK releases.
+
 # [Samples and Tutorial](https://github.com/OPAE/intel-fpga-bbb/wiki/Tutorial) #
 
 A tutorial on CCI-P and Basic Building Blocks (BBB) is in the top-level samples directory.
