@@ -31,6 +31,9 @@
 `include "cci_mpf_if.vh"
 `include "cci_test_csrs.vh"
 
+// Generated from the AFU JSON file by afu_json_mgr
+`include "afu_json_info.vh"
+
 
 module test_afu
    (
@@ -182,8 +185,11 @@ module main_afu
     localparam N_TEST_BUFFERS = 8;
     typedef logic [$clog2(N_TEST_BUFFERS)-1 : 0] t_buffer_idx;
 
-    t_cci_clAddr mem[0 : N_TEST_BUFFERS-1];
-
+    // Three explicit copies of the same memory enables Quartus to infer LUT-based
+    // memory instead of block RAM. For these small arrays, LUTRAM is much faster.
+    t_cci_clAddr memA[0 : N_TEST_BUFFERS-1] /* synthesis ramstyle = "MLAB, no_rw_check" */;
+    t_cci_clAddr memB[0 : N_TEST_BUFFERS-1] /* synthesis ramstyle = "MLAB, no_rw_check" */;
+    t_cci_clAddr memC[0 : N_TEST_BUFFERS-1] /* synthesis ramstyle = "MLAB, no_rw_check" */;
 
     // Offset into a 2MB buffer
     typedef logic [14:0] t_buffer_offset;
@@ -278,7 +284,7 @@ module main_afu
 
     always_comb
     begin
-        csrs.afu_id = 128'hbfd75b03_9608_4e82_ae22_f61a62b8f992;
+        csrs.afu_id = `AFU_ACCEL_UUID;
 
         // Default
         for (int i = 0; i < NUM_TEST_CSRS; i = i + 1)
@@ -355,7 +361,9 @@ module main_afu
 
         if (csrs.cpu_wr_csrs[2].en)
         begin
-            mem[buf_init_idx] <= csrs.cpu_wr_csrs[2].data;
+            memA[buf_init_idx] <= csrs.cpu_wr_csrs[2].data;
+            memB[buf_init_idx] <= csrs.cpu_wr_csrs[2].data;
+            memC[buf_init_idx] <= csrs.cpu_wr_csrs[2].data;
             if (! reset) $display("MEM[%0d]: 0x%x", buf_init_idx, csrs.cpu_wr_csrs[2].data);
         end
     end
@@ -690,7 +698,7 @@ module main_afu
             // Starting a new run.  Writes begin at in the middle buffer.
             // Reads will start in the first buffer.  Reads and writes are
             // never active in the same buffer to avoid requiring flow control.
-            wr_buf_base <= bufBase(mem[N_TEST_BUFFERS >> 1]);
+            wr_buf_base <= bufBase(memA[N_TEST_BUFFERS >> 1]);
             wr_buf_next_idx <= t_buffer_idx'(1 + (N_TEST_BUFFERS >> 1));
             wr_buf_offset <= t_buffer_offset'(0);
             wr_buf_done <= 1'b0;
@@ -716,7 +724,7 @@ module main_afu
         else if (wr_state == WR_STATE_NEXT_BUF)
         begin
             // Wrote entire buffer.  Time to switch to the next buffer.
-            wr_buf_base <= bufBase(mem[wr_buf_next_idx]);
+            wr_buf_base <= bufBase(memA[wr_buf_next_idx]);
             wr_buf_next_idx <= wr_buf_next_idx + t_buffer_idx'(1);
             wr_buf_offset <= 0;
             wr_buf_done <= 1'b0;
@@ -921,7 +929,7 @@ module main_afu
         begin
             // Starting a new run.  Reads from the first buffer.  Even for
             // the first pass, the CPU has initialized the memory.
-            rd_buf_base <= bufBase(mem[0]);
+            rd_buf_base <= bufBase(memB[0]);
             rd_buf_next_idx <= t_buffer_idx'(1);
             rd_buf_offset <= t_buffer_offset'(0);
 
@@ -933,7 +941,7 @@ module main_afu
         begin
             // Write process moved to next buffer.  Move the read to its
             // next buffer, too.
-            rd_buf_base <= bufBase(mem[rd_buf_next_idx]);
+            rd_buf_base <= bufBase(memC[rd_buf_next_idx]);
             rd_buf_next_idx <= rd_buf_next_idx + t_buffer_idx'(1);
             rd_buf_offset <= t_buffer_offset'(0);
 

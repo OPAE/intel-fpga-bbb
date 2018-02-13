@@ -3,8 +3,17 @@ if (! exists("platform")) platform = "SKX Xeon+FPGA"
 if (! exists("channel_name")) channel_name = "VA"
 if (! exists("channel_number")) channel_number = "0"
 
+# Does ROB data exist?
+plot_rob = 0
+file_exists = system("file stats/lat_ord_mcl1_vc0.dat | grep ERROR") 
+if (strlen(file_exists) == 0) {
+    plot_rob = 1
+}
+
 # Cycle time in ns
-cycle_time=2.5
+afu_mhz = system("grep 'AFU MHz' stats/lat_mcl1_vc0.dat | sed -e 's/.*MHz = //'")
+cycle_time = 1000.0 / afu_mhz
+print sprintf("AFU cycle time: %f ns", cycle_time)
 
 set term postscript color enhanced font "Helvetica" 17 butt dashed
 
@@ -49,13 +58,20 @@ if (channel_name eq "VA") {
             set xrange [0:1024]
         }
 
-        plot 'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 1 title "VA Bandwidth", \
-             'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 2 title "VA Latency", \
-             'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 3 title "VC Map Bandwidth", \
-             'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 4 title "VC Map Latency", \
-             'stats/lat_ord_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 5 title "ROB VC Map Bandwidth", \
-             'stats/lat_ord_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 6 title "ROB VC Map Latency"
-
+        if (plot_rob != 0) {
+            plot 'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 1 title "VA Bandwidth", \
+                 'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 2 title "VA Latency", \
+                 'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 3 title "VC Map Bandwidth", \
+                 'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 4 title "VC Map Latency", \
+                 'stats/lat_ord_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 5 title "ROB VC Map Bandwidth", \
+                 'stats/lat_ord_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 6 title "ROB VC Map Latency"
+        }
+        else {
+            plot 'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 1 title "VA Bandwidth", \
+                 'stats/lat_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 2 title "VA Latency", \
+                 'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):($2) with lines ls 3 title "VC Map Bandwidth", \
+                 'stats/lat_map_mcl' . mcl . '_vc0.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 4 title "VC Map Latency"
+        }
 
         set output "| ps2pdf - write_credit_mcl" . mcl . ".pdf"
         set title platform . " Uncached WRITE Varying Request Buffer Credits  (MCL=" . mcl . ")" offset 0,1 font ",18"
@@ -103,15 +119,17 @@ plot 'stats/lat_mcl1_vc' . channel_number . '.dat' index 2 using ($1):($2) with 
      'stats/lat_mcl4_vc' . channel_number . '.dat' index 2 using ($1):($2) with lines ls 5 title channel_name . " Bandwidth (MCL=4)", \
      'stats/lat_mcl4_vc' . channel_number . '.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 6 title channel_name . " Latency (MCL=4)"
 
-mcl = 1
-while (mcl <= 4) {
-    set output "| ps2pdf - read_credit_vc" . channel_number . "_rob_mcl" . mcl . ".pdf"
-    set title platform . " Uncached READ Varying Request Buffer Credits  (MCL=" . mcl . ")" offset 0,1 font ",18"
+if (plot_rob != 0) {
+    mcl = 1
+    while (mcl <= 4) {
+        set output "| ps2pdf - read_credit_vc" . channel_number . "_rob_mcl" . mcl . ".pdf"
+        set title platform . " Uncached READ Varying Request Buffer Credits  (MCL=" . mcl . ")" offset 0,1 font ",18"
 
-    plot 'stats/lat_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):($2) with lines ls 1 title channel_name . " Bandwidth", \
-         'stats/lat_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 2 title channel_name . " Latency", \
-         'stats/lat_ord_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):($2) with lines ls 3 title "ROB " . channel_name . " Bandwidth", \
-         'stats/lat_ord_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 4 title "ROB " . channel_name . " Latency"
+        plot 'stats/lat_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):($2) with lines ls 1 title channel_name . " Bandwidth", \
+             'stats/lat_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 2 title channel_name . " Latency", \
+             'stats/lat_ord_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):($2) with lines ls 3 title "ROB " . channel_name . " Bandwidth", \
+             'stats/lat_ord_mcl' . mcl . '_vc' . channel_number . '.dat' index 2 using ($1):(cycle_time * $10) axes x1y2 with lines ls 4 title "ROB " . channel_name . " Latency"
 
-    mcl = mcl * 2
+        mcl = mcl * 2
+    }
 }

@@ -28,11 +28,10 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+`include "cci_mpf_if.vh"
 `include "cci_mpf_platform.vh"
 `include "cci_mpf_test_conf_default.vh"
 `include "cci_test_csrs.vh"
-
-import ccip_if_pkg::*;
 
 module ccip_std_afu
    (
@@ -55,68 +54,12 @@ module ccip_std_afu
     //
     // Select the clock that will drive the AFU.
     //
-    localparam AFU_CLOCK_FREQ = `AFU_CLOCK_FREQ;
     logic afu_clk;
     logic afu_reset;
 
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-            assign afu_clk = pClk;
-        else if (AFU_CLOCK_FREQ == 200)
-            assign afu_clk = pClkDiv2;
-        else if (AFU_CLOCK_FREQ == 100)
-            assign afu_clk = pClkDiv4;
-        else if (AFU_CLOCK_FREQ == 2)
-            assign afu_clk = uClk_usr;
-        else if (AFU_CLOCK_FREQ == 1)
-            assign afu_clk = uClk_usrDiv2;
-        else
-        begin : ferr
-            always_ff @(posedge pClk)
-            begin
-                $fatal("Unsupported platform clock frequency: %d", AFU_CLOCK_FREQ);
-            end
-        end
-    endgenerate
-
-    t_if_ccip_Rx afck_cp2af_sRx;
-    t_if_ccip_Tx afck_af2cp_sTx;
-
-    //
-    // Clock crossing FIFO to connect the fast CCI-P interface to the
-    // slower AFU.
-    //
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-        begin : nc
-            assign afu_reset = pck_cp2af_softReset;
-            assign afck_cp2af_sRx = pck_cp2af_sRx;
-            assign pck_af2cp_sTx = afck_af2cp_sTx;
-        end
-        else
-        begin : cc
-            ccip_async_shim
-              #(
-                .DEBUG_ENABLE(1)
-                )
-              afu_clock_crossing
-               (
-                // Blue bitstream interface (pClk)
-                .bb_softreset(pck_cp2af_softReset),
-                .bb_clk(pClk),
-                .bb_tx(pck_af2cp_sTx),
-                .bb_rx(pck_cp2af_sRx),
-
-                // AFU
-                .afu_softreset(afu_reset),
-                .afu_clk(afu_clk),
-                .afu_tx(afck_af2cp_sTx),
-                .afu_rx(afck_cp2af_sRx),
-
-                .async_shim_error()
-                );
-        end
-    endgenerate
+    // Use .* to avoid naming any clocks or resets.  They will match
+    // from top-level interface names.
+    ccip_if_clock pick_clk(.*, .clk(afu_clk), .reset(afu_reset));
 
 
     //
@@ -124,24 +67,12 @@ module ccip_std_afu
     //
     logic [1:0] pck_cp2af_pwrState_q;
     logic pck_cp2af_error_q;
-    generate
-        if (AFU_CLOCK_FREQ == 400)
-        begin : pwr_nc
-            // No clock crossing
-            always_ff @(posedge pClk)
-            begin
-                pck_cp2af_pwrState_q <= pck_cp2af_pwrState;
-                pck_cp2af_error_q <= pck_cp2af_error;
-            end
-        end
-        else
-        begin : pwr_cc
-            // We need clock crossing logic for the power and error signals.
-            // For now they are tied to 0.
-            assign pck_cp2af_pwrState_q = 2'b0;
-            assign pck_cp2af_error_q = 1'b0;
-        end
-    endgenerate
+
+    always_ff @(posedge afu_clk)
+    begin
+        pck_cp2af_pwrState_q <= pck_cp2af_pwrState;
+        pck_cp2af_error_q <= pck_cp2af_error;
+    end
 
 
     // ====================================================================
@@ -188,10 +119,37 @@ module ccip_std_afu
        (
         .pClk(afu_clk),
         .pck_cp2af_softReset(afu_reset),
-        .pck_cp2af_sRx(afck_cp2af_sRx),
-        .pck_af2cp_sTx(afck_af2cp_sTx),
+        .fiu,
         .*
         );
+
+
+    // ====================================================================
+    //
+    //  Add flow control to the FIU by adding control over the almost full
+    //  wires.  This is used by some tests to limit the number of requests
+    //  outstanding in the FIU.
+    //
+    // ====================================================================
+
+    cci_mpf_if fiu_flow(.clk(afu_clk));
+    logic c0_force_almost_full;
+    logic c1_force_almost_full;
+
+    always_comb
+    begin
+        fiu_flow.reset = fiu.reset;
+
+        fiu_flow.c0TxAlmFull = fiu.c0TxAlmFull || c0_force_almost_full;
+        fiu_flow.c1TxAlmFull = fiu.c1TxAlmFull || c1_force_almost_full;
+
+        fiu_flow.c0Rx = fiu.c0Rx;
+        fiu_flow.c1Rx = fiu.c1Rx;
+
+        fiu.c0Tx = fiu_flow.c0Tx;
+        fiu.c1Tx = fiu_flow.c1Tx;
+        fiu.c2Tx = fiu_flow.c2Tx;
+    end
 
 
     // ====================================================================
@@ -211,7 +169,7 @@ module ccip_std_afu
       csr_io
        (
         .clk(afu_clk),
-        .fiu,
+        .fiu(fiu_flow),
         .afu(afu_csrs),
         .pck_cp2af_pwrState(pck_cp2af_pwrState_q),
         .pck_cp2af_error(pck_cp2af_error_q),
@@ -350,16 +308,66 @@ module ccip_std_afu
 
     // ====================================================================
     //
+    //  Optional active line tracking and flow control.
+    //
+    // ====================================================================
+
+`ifdef CCI_TEST_FLOW_CONTROL
+
+    localparam MAX_ACTIVE_LINES = ccip_cfg_pkg::C0_MAX_BW_ACTIVE_LINES[0];
+    localparam MAX_ACTIVE_WRFENCES = CCI_TX_ALMOST_FULL_THRESHOLD * 2;
+
+    typedef logic [$clog2(MAX_ACTIVE_LINES) : 0] t_active_cnt;
+    t_active_cnt c0_num_fiu_active, c1_num_fiu_active;
+
+    cci_mpf_prim_track_active_reqs
+      #(
+        .MAX_ACTIVE_LINES(MAX_ACTIVE_LINES),
+        .MAX_ACTIVE_WRFENCES(MAX_ACTIVE_WRFENCES)
+        )
+      tracker
+       (
+        .clk(afu_clk),
+
+        .cci_bus(fiu),
+
+        .c0NotEmpty(),
+        .c1NotEmpty(),
+        .c0ActiveLines(c0_num_fiu_active),
+        .c1ActiveLines(c1_num_fiu_active),
+        .c1ActiveWrFences()
+        );
+
+`else
+
+    assign c0_force_almost_full = 1'b0;
+    assign c1_force_almost_full = 1'b0;
+
+`endif
+
+    // ====================================================================
+    //
     //  Instantiate the test.
     //
     // ====================================================================
 
     test_afu
+`ifdef CCI_TEST_FLOW_CONTROL
+      #(
+        .MAX_ACTIVE_LINES(MAX_ACTIVE_LINES)
+        )
+`endif
       test
        (
         .clk(afu_clk),
         .fiu(afu),
         .csrs,
+`ifdef CCI_TEST_FLOW_CONTROL
+        .c0ActiveLines(c0_num_fiu_active),
+        .c1ActiveLines(c1_num_fiu_active),
+        .c0ForceAlmFull(c0_force_almost_full),
+        .c1ForceAlmFull(c1_force_almost_full),
+`endif
         .c0NotEmpty,
         .c1NotEmpty
         );

@@ -25,6 +25,9 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "test_random.h"
+// Generated from the AFU JSON file by afu_json_mgr
+#include "afu_json_info.h"
+
 #include <time.h>
 #include <boost/format.hpp>
 #include <stdlib.h>
@@ -39,7 +42,7 @@
 
 const char* testAFUID()
 {
-    return "5037B187-E561-4CA2-AD5B-D6C7816273C2";
+    return AFU_ACCEL_UUID;
 }
 
 void testConfigOptions(po::options_description &desc)

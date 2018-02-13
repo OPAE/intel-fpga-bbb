@@ -32,10 +32,6 @@
 `include "cci_mpf_test_conf.vh"
 
 
-`ifndef AFU_CLOCK_FREQ
-  `define AFU_CLOCK_FREQ 400
-`endif
-
 //
 // MPF default configuration.
 //

@@ -195,12 +195,12 @@ module cci_mpf_shim_latency_qos
             //
             // Platform-specific defaults.
             //
-            if (MPF_PLATFORM == "SKX")
+            if (MPF_PLATFORM == "INTG_SKX")
             begin
 //                active_lines_max[0] <= t_active_lines'(272);
                 active_lines_max[0] <= t_active_lines'(328);
             end
-            else if (MPF_PLATFORM == "BDX")
+            else if (MPF_PLATFORM == "INTG_BDX")
             begin
                 active_lines_max[0] <= t_active_lines'(288);
                 epoch_cycles[0] <= 'd511;

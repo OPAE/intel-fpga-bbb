@@ -154,7 +154,7 @@ module cci_mpf_shim_vc_map
         // simultaneously.
         //
 
-        if (MPF_PLATFORM == "SKX")
+        if (MPF_PLATFORM == "INTG_SKX")
         begin
             if (mostlyRead)
             begin
@@ -181,7 +181,7 @@ module cci_mpf_shim_vc_map
                 endcase
             end
         end
-        else if (MPF_PLATFORM == "BDX")
+        else if (MPF_PLATFORM == "INTG_BDX")
         begin
             if (mostlyRead)
             begin

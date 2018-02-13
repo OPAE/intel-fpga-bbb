@@ -3,4 +3,4 @@ compute_latency_qos_params
 test_mem_latency
 test_mem_perf
 *_ase
-*_aal
+obj

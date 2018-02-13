@@ -31,8 +31,14 @@
 `include "cci_mpf_if.vh"
 `include "cci_test_csrs.vh"
 
+// Generated from the AFU JSON file by afu_json_mgr
+`include "afu_json_info.vh"
+
 
 module test_afu
+  #(
+    parameter MAX_ACTIVE_LINES = 512
+    )
    (
     input  logic clk,
 
@@ -41,6 +47,11 @@ module test_afu
 
     // CSR connections
     test_csrs.test csrs,
+
+    input  logic [$clog2(MAX_ACTIVE_LINES) : 0] c0ActiveLines,
+    input  logic [$clog2(MAX_ACTIVE_LINES) : 0] c1ActiveLines,
+    output logic c0ForceAlmFull,
+    output logic c1ForceAlmFull,
 
     input  logic c0NotEmpty,
     input  logic c1NotEmpty
@@ -173,9 +184,9 @@ module test_afu
 
     // Counts of active reads and writes from which average latency
     // can be computed using Little's Law.
-    typedef logic [10:0] t_req_cnt;
-    t_req_cnt rd_req_inflight_now, rd_req_inflight_max;
-    t_req_cnt wr_req_inflight_now, wr_req_inflight_max;
+    typedef logic [$clog2(MAX_ACTIVE_LINES) : 0] t_req_cnt;
+    t_req_cnt rd_req_inflight_max;
+    t_req_cnt wr_req_inflight_max;
     logic [63:0] rd_req_inflight_total;
     logic [63:0] wr_req_inflight_total;
 
@@ -193,7 +204,7 @@ module test_afu
 
     always_comb
     begin
-        csrs.afu_id = 128'h6da50a7d_c76f_42b1_9018_ec1aa7629471;
+        csrs.afu_id = `AFU_ACCEL_UUID;
 
         // Default
         for (int i = 0; i < NUM_TEST_CSRS; i = i + 1)
@@ -203,7 +214,8 @@ module test_afu
 
         // CSR 0 returns random address mapping details so the host can
         // compute the memory size.
-        csrs.cpu_rd_csrs[0].data = { 48'(0),
+        csrs.cpu_rd_csrs[0].data = { 32'(0),
+                                     16'(MAX_ACTIVE_LINES),
                                      16'(N_MEM_REGION_BITS) };
 
         csrs.cpu_rd_csrs[1].data = 64'(dsm);
@@ -244,9 +256,9 @@ module test_afu
     logic rdline_mode_s;
     logic wrline_mode_m;
 
-    // Counters to control the the maximum number of outstanding requests.
-    t_req_cnt rd_req_max_credits;
-    t_req_cnt wr_req_max_credits;
+    // Counters to control the the maximum number of outstanding requests
+    t_req_cnt rd_line_max_credits;
+    t_req_cnt wr_line_max_credits;
 
     //
     // Consume configuration CSR writes
@@ -292,14 +304,14 @@ module test_afu
         if (csrs.cpu_wr_csrs[6].en)
         begin
             // Read credits in the low 32 bits, write in the high 32 bits
-            rd_req_max_credits <= t_req_cnt'(csrs.cpu_wr_csrs[6].data);
-            wr_req_max_credits <= csrs.cpu_wr_csrs[6].data[32 +: $bits(t_req_cnt)];
+            rd_line_max_credits <= t_req_cnt'(csrs.cpu_wr_csrs[6].data);
+            wr_line_max_credits <= csrs.cpu_wr_csrs[6].data[32 +: $bits(t_req_cnt)];
         end
 
         if (reset)
         begin
-            rd_req_max_credits <= ~ t_req_cnt'(0);
-            wr_req_max_credits <= ~ t_req_cnt'(0);
+            rd_line_max_credits <= ~ t_req_cnt'(0);
+            wr_line_max_credits <= ~ t_req_cnt'(0);
         end
     end
 
@@ -330,12 +342,10 @@ module test_afu
     //
     // Update rd/wr enable based on available credits
     //
-    logic rd_req_enable, wr_req_enable;
-
     always_ff @(posedge clk)
     begin
-        rd_req_enable <= (rd_req_inflight_now < rd_req_max_credits);
-        wr_req_enable <= (wr_req_inflight_now < wr_req_max_credits);
+        c0ForceAlmFull <= (c0ActiveLines >= rd_line_max_credits);
+        c1ForceAlmFull <= (c1ActiveLines >= wr_line_max_credits);
     end
 
 
@@ -430,7 +440,7 @@ module test_afu
     // ====================================================================
 
     logic do_read;
-    assign do_read = enable_reads && ! c0TxAlmFull && rd_req_enable;
+    assign do_read = enable_reads && ! c0TxAlmFull;
 
     t_cci_clAddr rd_offset, rd_offset_next;
 
@@ -548,23 +558,15 @@ module test_afu
     // Count in-flight read requests
     always_ff @(posedge clk)
     begin
-        if (rd_req_inflight_now > rd_req_inflight_max)
+        if (c0ActiveLines > rd_req_inflight_max)
         begin
-            rd_req_inflight_max <= rd_req_inflight_now;
+            rd_req_inflight_max <= c0ActiveLines;
         end
 
-        if (do_read != c0Rx_is_read_eop)
-        begin
-            rd_req_inflight_now <=
-                (c0Rx_is_read_eop ? rd_req_inflight_now - 1 :
-                                    rd_req_inflight_now + 1);
-        end
-
-        rd_req_inflight_total <= rd_req_inflight_total + 64'(rd_req_inflight_now);
+        rd_req_inflight_total <= rd_req_inflight_total + 64'(c0ActiveLines);
 
         if (reset || start_new_run)
         begin
-            rd_req_inflight_now <= 0;
             rd_req_inflight_max <= 0;
             rd_req_inflight_total <= 64'b0;
         end
@@ -680,7 +682,7 @@ module test_afu
 
     // New write?  (Not the remainder of a multi-beat write.)
     logic do_write;
-    assign do_write = enable_writes && ! c1TxAlmFull && wr_req_enable &&
+    assign do_write = enable_writes && ! c1TxAlmFull &&
                       (wr_beat_num == t_cci_clNum'(0));
 
     always_ff @(posedge clk)
@@ -701,10 +703,10 @@ module test_afu
             // Normal running state
             if (state == STATE_RUN)
             begin
-                fiu.c1Tx.valid <= enable_writes && wr_req_enable;
+                fiu.c1Tx.valid <= enable_writes;
 
                 // Update beat number
-                if (enable_writes && wr_req_enable)
+                if (enable_writes)
                 begin
                     wr_beat_num <= wr_beat_num_next;
                 end
@@ -768,23 +770,15 @@ module test_afu
     // Count in-flight write requests
     always_ff @(posedge clk)
     begin
-        if (wr_req_inflight_now > wr_req_inflight_max)
+        if (c1ActiveLines > wr_req_inflight_max)
         begin
-            wr_req_inflight_max <= wr_req_inflight_now;
+            wr_req_inflight_max <= c1ActiveLines;
         end
 
-        if (do_write != c1Rx_is_write_rsp)
-        begin
-            wr_req_inflight_now <=
-                (c1Rx_is_write_rsp ? wr_req_inflight_now - 1 :
-                                     wr_req_inflight_now + 1);
-        end
-
-        wr_req_inflight_total <= wr_req_inflight_total + 64'(wr_req_inflight_now);
+        wr_req_inflight_total <= wr_req_inflight_total + 64'(c1ActiveLines);
 
         if (reset || start_new_run)
         begin
-            wr_req_inflight_now <= 0;
             wr_req_inflight_max <= 0;
             wr_req_inflight_total <= 64'b0;
         end

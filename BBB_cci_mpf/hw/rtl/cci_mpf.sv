@@ -145,16 +145,18 @@ module cci_mpf
     );
 
     // Maximum number of outstanding read and write requests per channel
-`ifdef MPF_PLATFORM_SKX
-    localparam MAX_ACTIVE_REQS = 1024;
+`ifdef PLATFORM_IF_AVAIL
+    // Use the platform database.  VA will have the largest buffer requirements.
+    // The value in the database doesn't include the latency effects of reorder
+    // buffers and the other MPF shims.  Add 50%.
+    localparam MAX_ACTIVE_REQS_RAW = (ccip_cfg_pkg::C0_MAX_BW_ACTIVE_LINES[0] +
+                                      (ccip_cfg_pkg::C0_MAX_BW_ACTIVE_LINES[0] >> 1));
+    // Round up to a power of 2.
+    localparam MAX_ACTIVE_REQS = (2 ** $clog2(MAX_ACTIVE_REQS_RAW));
 `elsif MPF_PLATFORM_DCP_PCIE
     localparam MAX_ACTIVE_REQS = 512;
-`elsif MPF_PLATFORM_BDX
-    localparam MAX_ACTIVE_REQS = 1024;
-`elsif MPF_PLATFORM_OME
-    localparam MAX_ACTIVE_REQS = 128;
 `else
-    ** ERROR: Unknown platform
+    localparam MAX_ACTIVE_REQS = 1024;
 `endif
 
     // Reserved bits in the mdata field, used by various modules.

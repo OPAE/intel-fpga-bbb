@@ -22,20 +22,9 @@ if [ -f stats/lat_mcl1_vc1.dat ]; then
     gnuplot -e "platform='${platform}'; channel_name='VA';  channel_number=0" scripts/plot_buffer_credits_rw.gp
     gnuplot -e "platform='${platform}'; channel_name='VL0'; channel_number=1" scripts/plot_buffer_credits_rw.gp
     gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=2" scripts/plot_buffer_credits_rw.gp
-else
-    # Assume just PCIe
-    gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=0" scripts/plot_buffer_credits.gp
-fi
 
-# Crop whitespace
-for fn in read_*.pdf write_*.pdf rw_*.pdf
-do
-    pdfcrop --margins 10 ${fn} crop_${fn} >/dev/null
-    mv -f crop_${fn} ${fn}
-done
-
-# Bookmarks
-cat >/tmp/pdfmark.$$ <<EOF
+    # Bookmarks
+    cat >/tmp/pdfmark.$$ <<EOF
 [/PageMode /UseOutlines /Page 1 /DOCVIEW pdfmark
 [/Count 3 /Page 1 /Title (Read Bandwidth) /OUT pdfmark
 [/Page 1 /Title (VA) /OUT pdfmark
@@ -50,6 +39,20 @@ cat >/tmp/pdfmark.$$ <<EOF
 [/Page 33 /Title (VL0) /OUT pdfmark
 [/Page 39 /Title (VH0) /OUT pdfmark
 EOF
+
+else
+    # Assume just PCIe
+    gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=0" scripts/plot_buffer_credits.gp
+    gnuplot -e "platform='${platform}'; channel_name='VH0'; channel_number=0" scripts/plot_buffer_credits_rw.gp
+    touch /tmp/pdfmark.$$
+fi
+
+# Crop whitespace
+for fn in read_*.pdf write_*.pdf rw_*.pdf
+do
+    pdfcrop --margins 10 ${fn} crop_${fn} >/dev/null
+    mv -f crop_${fn} ${fn}
+done
 
 # Merge into a single PDF
 gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress -dCompatibilityLevel=1.4 -dUseCIEColor -sOutputFile=bw-lat.pdf read_*.pdf write_*.pdf rw_*.pdf /tmp/pdfmark.$$

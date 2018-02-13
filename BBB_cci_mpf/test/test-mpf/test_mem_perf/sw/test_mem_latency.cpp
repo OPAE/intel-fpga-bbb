@@ -96,6 +96,9 @@ int TEST_MEM_PERF::test()
         }
     }
 
+    // How big is the line credits counter?
+    uint64_t max_line_credits = 2 * uint16_t(readTestCSR(0) >> 16);
+    if (max_line_credits > 1024) max_line_credits = 1024;
 
     for (int mode = 0; mode <= 2; mode += 1)
     {
@@ -183,24 +186,21 @@ int TEST_MEM_PERF::test()
              << endl;
 
         // Vary the maximum number of outstanding requests.
-        uint64_t credits = 1;
-        while (credits <= 1024)
+        uint64_t line_credits = 8;
+        while (line_credits <= max_line_credits)
         {
             t_test_stats stats;
             config.clear_caches = true;
 
-            // Convert credits from requests to lines
-            uint64_t line_credits = credits / (config.mcl + 1);
-            if (line_credits == 0) line_credits = 1;
             config.rd_req_max_credits = line_credits;
             config.wr_req_max_credits = line_credits;
 
             assert(runTestN(&config, &stats, 4) == 0);
 
-            cout << credits << " " << stats << endl;
+            cout << line_credits << " " << stats << endl;
 
-            if (credits == 1) credits = 0;
-            credits += 4;
+            if (line_credits == 1) line_credits = 0;
+            line_credits += 4;
         }
     }
 

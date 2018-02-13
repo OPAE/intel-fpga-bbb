@@ -67,16 +67,11 @@ module cci_mpf_null
     );
 
     // Maximum number of outstanding read and write line requests per channel
-`ifdef MPF_PLATFORM_SKX
-    localparam MAX_ACTIVE_LINES = 512;
-`elsif MPF_PLATFORM_DCP_PCIE
-    localparam MAX_ACTIVE_LINES = 512;
-`elsif MPF_PLATFORM_BDX
-    localparam MAX_ACTIVE_LINES = 512;
-`elsif MPF_PLATFORM_OME
-    localparam MAX_ACTIVE_LINES = 128;
+`ifdef PLATFORM_IF_AVAIL
+    // Use the platform database.  VA will have the largest buffer requirements.
+    localparam MAX_ACTIVE_LINES = ccip_cfg_pkg::C0_MAX_BW_ACTIVE_LINES[0];
 `else
-    ** ERROR: Unknown platform
+    localparam MAX_ACTIVE_LINES = 512;
 `endif
 
     localparam MAX_ACTIVE_WRFENCES = CCI_TX_ALMOST_FULL_THRESHOLD * 2;
