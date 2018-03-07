@@ -4,9 +4,10 @@ All samples depend on proper configuration of the OPAE and build
 environments. Both are described below.
 
 This tree contains sample workloads, typically written as small examples of
-specific concepts.  A set of [tutorials](tutorials) progresses through
-defining RTL sources, configuring for simulation or synthesis, and connecting
-to device interfaces.
+specific concepts.  A set of [tutorials]
+(https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial) progresses
+through defining RTL sources, configuring for simulation or synthesis, and
+connecting to device interfaces.
 
 ## OPAE Version
 
@@ -60,7 +61,7 @@ branch names are release/\<number\>.
 
 ## Updating Releases for use with the Platform Interface Manager
 
-A set of scripts are provided in
+A set of scripts is provided in
 [../platform-ifc-mgr-compat](https://github.com/OPAE/intel-fpga-bbb/tree/master/platform-ifc-mgr-compat)
 to update older platform releases.  These one-time scripts must be run in
 order to configure both simulation and Quartus environments with the PIM.
@@ -71,4 +72,4 @@ ${OPAE_PLATFORM_ROOT}/hw/lib/fme-platform-class.txt.
 ASE may still be used for simulation even if no platform specific library is
 installed or OPAE_PLATFORM_ROOT is not defined.  It will default to
 configuring builds for integrated Xeon+FPGA platforms.  Synthesis with
-Quartus requires on a platform release and OPAE_PLATFORM_ROOT.
+Quartus requires a platform release and a valid OPAE_PLATFORM_ROOT.
