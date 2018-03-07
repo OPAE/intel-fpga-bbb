@@ -9,8 +9,12 @@
 source $::env(FPGA_BBB_CCI_SRC)/BBB_cci_mpf/hw/par/qsf_cci_mpf_PAR_files.qsf
 source $::env(FPGA_BBB_CCI_SRC)/BBB_ccip_async/hw/par/ccip_async_addenda.qsf
 
-## Base test sources.  The specific test's configuration file must already
-## have defined CCI_EXAMPLES_SRC.
-set_global_assignment -name SEARCH_PATH $CCI_EXAMPLES_SRC/base/hw/rtl
-set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_SRC/base/hw/rtl/cci_afu_with_mpf.sv
-set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_SRC/base/hw/rtl/csr_mgr.sv
+## Find the source tree relative to this script
+set this_script [dict get [ info frame 0 ] file]
+# Pop 3 levels (including the script name) off the path to find the root
+set CCI_EXAMPLES_BASE [file join {*}[lrange [file split $this_script] 0 end-3]]
+
+## Base test sources.
+set_global_assignment -name SEARCH_PATH $CCI_EXAMPLES_BASE/hw/rtl
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_BASE/hw/rtl/cci_afu_with_mpf.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_EXAMPLES_BASE/hw/rtl/csr_mgr.sv

@@ -26,17 +26,17 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 ##
-## Update the DCP 1.0 beta release for use with the platform database.
+## Update the DCP 1.0 release for use with the platform database.
 ## After the update, the original sample workloads continue to compile.
-## The script adds a new "afu_quartus_setup" script that is the analog
-## of the OPAE "afu_sim_setup" script.
+## After the transformation, the OPAE afu_sim_setup and afu_synth_setup
+## scripts may be used to configure workloads.
 ##
 
 SCRIPTNAME="$(basename -- "$0")"
 SCRIPT_DIR="$(cd "$(dirname -- "$0")" 2>/dev/null && pwd -P)"
 
 function usage {
-    echo "Usage: ${SCRIPTNAME} <dcp_1_0_beta release dir>"
+    echo "Usage: ${SCRIPTNAME} <dcp_1.0 release dir>"
     exit 1
 }
 
@@ -71,6 +71,7 @@ if [ ! -f hw/lib/build/platform/green_bs.sv ]; then
 fi
 
 # Copy the updated run.sh
+echo "Updating bin/run.sh..."
 cp "${SCRIPT_DIR}/files/run.sh" bin
 
 # Drop bin/packager.  OPAE's updated packager will be used instead.
@@ -82,12 +83,15 @@ fi
 if [ ! -f hw/lib/build/platform/green_bs.sv.orig ]; then
     mv hw/lib/build/platform/green_bs.sv hw/lib/build/platform/green_bs.sv.orig
 fi
+echo "Updating hw/lib/build/platform/green_bs.sv..."
 cp "${SCRIPT_DIR}/files/green_bs.sv" "hw/lib/build/platform/green_bs.sv"
 
 # Copy user clock constraints
+echo "Adding hw/lib/build/dcp_user_clocks.sdc..."
 cp "${SCRIPT_DIR}/files/dcp_user_clocks.sdc" "hw/lib/build/dcp_user_clocks.sdc"
 
 # Copy new compute_user_clock_freqs.tcl
+echo "Adding hw/lib/build/a10_partial_reconfig/compute_user_clocks_freqs.tcl..."
 cp "${SCRIPT_DIR}/files/compute_user_clock_freqs.tcl" hw/lib/build/a10_partial_reconfig/
 
 # Remove files that are no longer needed
@@ -97,10 +101,12 @@ if [ -f hw/lib/build/platform/ccip_if_pkg.sv ]; then
 fi
 
 # Tag the platform type
+echo "Storing platform name in hw/lib/fme-platform-class.txt..."
 echo discrete_pcie3 > hw/lib/fme-platform-class.txt
 
 # Update QSF scripts to use the platform configuration
 for qsf in hw/lib/build/afu_synth.qsf hw/lib/build/afu_fit.qsf; do
+    echo "Updating ${qsf}..."
     if [ ! -f ${qsf}.orig ]; then
         cp -p ${qsf} ${qsf}.orig
     fi
@@ -117,3 +123,5 @@ set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
 EOF
 done
+
+echo "Update complete."

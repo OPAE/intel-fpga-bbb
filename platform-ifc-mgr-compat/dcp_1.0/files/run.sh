@@ -61,9 +61,16 @@ if [ $# -eq 0 ]; then
 fi
 AFU_JSON="$1"
 
-BBS_LIB_PATH=${BBS_LIB_PATH:-"${SCRIPT_DIR}/../hw/lib"}
+OPAE_PLATFORM_ROOT=${OPAE_PLATFORM_ROOT:-"$(dirname -- "${SCRIPT_DIR}")"}
+BBS_LIB_PATH=${BBS_LIB_PATH:-"${OPAE_PLATFORM_ROOT}/hw/lib"}
 PACKAGER=${PACKAGER:-packager}
 GBS_FILE=${GBS_FILE:-$(basename "${AFU_JSON}" .json).gbs}
+
+if [ ! -f "${BBS_LIB_PATH}/fme-ifc-id.txt" ]; then
+    echo "ERROR: Release hw/lib directory not found!" 1>&2
+    echo "  Please set OPAE_PLATFORM_ROOT, BBS_LIB_PATH or --bbs-lib" 1>&2
+    exit 1
+fi
 
 INTERFACE_UUID="$(cat "${BBS_LIB_PATH}/fme-ifc-id.txt")"
 PLATFORM_CLASS="$(cat "${BBS_LIB_PATH}/fme-platform-class.txt")"

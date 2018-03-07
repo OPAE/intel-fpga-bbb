@@ -85,6 +85,7 @@ cp ${SCRIPT_DIR}/files/run.sh bin
 #
 # Build restructured hw/lib/build
 #
+echo "Restructuring SR-6.3.0 build tree into new standard hw tree..."
 mkdir -p hw/lib/build/platform
 cp -r skx_pr_pkg/lib/blue/output_files hw/lib/build/output_files
 cp -r skx_pr_pkg/lib/blue/qdb_file/*.qdb hw/lib/build/
@@ -104,18 +105,23 @@ awk '/DO NOT MODIFY/ { print $0; exit } 1' skx_pr_pkg/par/skx_pr_afu.qsf | grep 
 echo "# =====================================" >> hw/lib/build/skx_pr_afu.qsf
 
 # Copy updated green_bs.sv
+echo "Adding hw/lib/build/platform/green_bs.sv..."
 cp "${SCRIPT_DIR}/files/green_bs.sv" hw/lib/build/platform/
 
 # Copy user clock constraints
+echo "Adding hw/lib/build/skx_user_clocks.sdc..."
 cp "${SCRIPT_DIR}/files/skx_user_clocks.sdc" hw/lib/build/
 
 # Tag the platform type
+echo "Storing platform name in hw/lib/fme-platform-class.txt..."
 echo intg_xeon > hw/lib/fme-platform-class.txt
 
+echo "Storing FME interface ID in hw/lib/fme-ifc-id.txt..."
 echo e993f64a-7d56-4b53-870c-3bcb1a3a7f02 > hw/lib/fme-ifc-id.txt
 
 # Update QSF scripts to use the platform configuration
 for qsf in hw/lib/build/skx_pr_afu.qsf hw/lib/build/skx_pr_afu_synth.qsf; do
+    echo "Updating ${qsf}..."
     # Import the platform interface
     cat >>${qsf} <<EOF
 set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
@@ -136,3 +142,5 @@ set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
 EOF
 done
+
+echo "Update complete."

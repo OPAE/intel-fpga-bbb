@@ -85,6 +85,7 @@ cp ${SCRIPT_DIR}/files/run.sh bin
 #
 # Build restructured hw/lib/build
 #
+echo "Restructuring SR-5.0.3 build tree into new standard hw tree..."
 mkdir -p hw/lib/build/platform
 cp -r Base/HW/bdw_503_pr_pkg/lib/blue/output_files hw/lib/build/output_files
 cp -r Base/HW/bdw_503_pr_pkg/lib/blue/qdb_file/*.qdb hw/lib/build/
@@ -92,6 +93,7 @@ cp -r Base/HW/bdw_503_pr_pkg/lib/green/AFU_debug hw/lib/build/platform
 cp Base/HW/bdw_503_pr_pkg/par/generate_pr_bitstream.sh hw/lib/build/
 cp Base/HW/bdw_503_pr_pkg/par/*.qpf hw/lib/build/
 cp Base/HW/bdw_503_pr_pkg/par/{quartus.ini,readme} hw/lib/build/
+cp Base/HW/bdw_503_pr_pkg/lib/blue/BDW_base.sdc hw/lib/build/
 
 # Grab the beginnings of qsf files
 awk '/ccip_if_pkg.sv/ { exit } 1' Base/HW/bdw_503_pr_pkg/par/bdw_503_pr_afu_synth.qsf > hw/lib/build/bdw_503_pr_afu_synth.qsf
@@ -99,27 +101,35 @@ awk '/DO NOT MODIFY/ { print $0; exit } 1' Base/HW/bdw_503_pr_pkg/par/bdw_503_pr
 echo "# =====================================" >> hw/lib/build/bdw_503_pr_afu.qsf
 
 # Copy updated green_bs.sv
+echo "Adding hw/lib/build/platform/green_top.sv..."
 cp "${SCRIPT_DIR}/files/green_top.sv" hw/lib/build/platform/
 
-# Copy updated BDW_base_sdc
-cp "${SCRIPT_DIR}/files/BDW_base.sdc" hw/lib/build/
+# Copy user clock constraints
+echo "Adding hw/lib/build/bdw_user_clocks.sdc..."
+cp "${SCRIPT_DIR}/files/bdw_user_clocks.sdc" hw/lib/build/
 
 # Tag the platform type
+echo "Storing platform name in hw/lib/fme-platform-class.txt..."
 echo intg_xeon > hw/lib/fme-platform-class.txt
 
 echo 00000000-0000-0000-0000-000000000000 > hw/lib/fme-ifc-id.txt
 
 # Update QSF scripts to use the platform configuration
 for qsf in hw/lib/build/bdw_503_pr_afu.qsf hw/lib/build/bdw_503_pr_afu_synth.qsf; do
+    echo "Updating ${qsf}..."
     # Import the platform interface
     cat >>${qsf} <<EOF
 set_global_assignment -name SEARCH_PATH ./platform
 set_global_assignment -name SEARCH_PATH ./platform/AFU_debug
 set_global_assignment -name SDC_FILE BDW_base.sdc
+
 set_global_assignment -name SYSTEMVERILOG_FILE ./platform/green_top.sv
 set_global_assignment -name QSYS_FILE ./platform/AFU_debug/SCJIO.qsys
+set_global_assignment -name SDC_FILE bdw_user_clocks.sdc
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/platform_if_addenda.qsf
 set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf
 EOF
 done
+
+echo "Update complete."
