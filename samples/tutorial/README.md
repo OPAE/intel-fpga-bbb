@@ -4,27 +4,13 @@ of an actual accelerator getting in the way.  The examples grow in
 complexity, starting with "Hello World!" and ending with a design requiring
 FPGA-side virtual memory.
 
-While the designs could be synthesized and run on actual FPGA hardware,
-all run very quickly in simulation with ASE.  Configuration files for
-synthesis with Quartus are provided only for the linked list examples.
+All the designs may either be simulated or synthesized for FPGA hardware.
 
 This tutorial assumes that OPAE has been installed already and that the BBB
-(Basic Building Blocks) release for CCI is present.  The tutorial also
-assumes that the MPF library from BBB is compiled and installed.  An RTL
-simulator, either ModelSim or VCS must be present.  Building and installing
-the environment is not covered here.
-
-The tutorial makes the following assumptions about the environment:
-
-- Header files from OPAE and MPF are either on the default compiler search
-  paths or on both C_INCLUDE_PATH and CPLUS_INCLUDE_PATH.
-- OPAE and MPF libraries are on the default linker search paths or on both
-  LIBRARY_PATH and LD_LIBRARY_PATH.
-- OPAE_BASEDIR points to the top of the OPAE source tree.  ASE depends on
-  sources in ${OPAE_BASEDIR}/ase.
-- FPGA_BBB_CCI_SRC points to the top of the BBB release tree.  RTL for both
-  MPF and clock-crossing shims is found in ${FPGA_BBB_CCI_SRC}/BBB_cci_mpf
-  and ${FPGA_BBB_CCI_SRC}/BBB_ccip_async.
+(Basic Building Blocks) release for CCI is present.  Please follow the
+instructions in the README file in the
+[../samples](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples)
+directory.
 
 
 All of the tutorials have two components: CPU-side software in the sw tree
@@ -43,14 +29,18 @@ are identical for all examples:
    of a directory in which to build an ASE environment.  The following
    sequence constructs an environment in 01_hello_world/hw/build:
 
+   ```
        cd 01_hello_world/hw
        rm -rf build
        ./sim/setup_ase build
        cd build
+   ```
 
 2. Compile the simulator:
 
+   ```
        make
+   ```
 
 
 Execution requires two shells: one to run the RTL simulator and the other
@@ -58,7 +48,9 @@ to run the software.  The RTL simulator is started first.
 
 1. In the build directory (e.g. 01_hello_world/hw/build from above):
 
+   ```
        make sim
+   ```
 
    The simulator will start, eventually printing a message to set the
    ASE_WORKDIR environment variable in the software-side shell.  The
@@ -70,9 +62,11 @@ to run the software.  The RTL simulator is started first.
    ASE_WORKDIR environment variable using the value printed in step 1 and
    run the binary with the _ase suffix:
 
+   ```
        export ASE_WORKDIR=<path from step 1>/01_hello_world/hw/build/work
        ./cci_hello_ase
+   ```
 
-The software will start and connect to ASE.  The ASE RTL simulation will
-indicate that a session has connected.  When the software side is done, ASE
-will also exit.
+   The software will start and connect to ASE.  The ASE RTL simulation will
+   indicate that a session has connected.  When the software side is done, ASE
+   will also exit.
