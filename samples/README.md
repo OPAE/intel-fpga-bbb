@@ -4,10 +4,10 @@ All samples depend on proper configuration of the OPAE and build
 environments. Both are described below.
 
 This tree contains sample workloads, typically written as small examples of
-specific concepts.  A set of [tutorials]
-(https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial) progresses
-through defining RTL sources, configuring for simulation or synthesis, and
-connecting to device interfaces.
+specific concepts.  A set of
+[tutorials](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial)
+progresses through defining RTL sources, configuring for simulation or synthesis,
+and connecting to device interfaces.
 
 ## OPAE Version
 
