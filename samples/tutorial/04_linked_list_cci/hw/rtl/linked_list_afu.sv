@@ -75,47 +75,47 @@ module app_afu
         // Response wires
         //
 
-        mpf2af_sRx.c0 = afu.c0Rx;
-        mpf2af_sRx.c1 = afu.c1Rx;
+        mpf2af_sRx.c0 = fiu.c0Rx;
+        mpf2af_sRx.c1 = fiu.c1Rx;
 
-        mpf2af_sRx.c0TxAlmFull = afu.c0TxAlmFull;
-        mpf2af_sRx.c1TxAlmFull = afu.c1TxAlmFull;
+        mpf2af_sRx.c0TxAlmFull = fiu.c0TxAlmFull;
+        mpf2af_sRx.c1TxAlmFull = fiu.c1TxAlmFull;
 
 
         //
         // Request wires
         //
 
-        afu.c0Tx = cci_mpf_cvtC0TxFromBase(af2mpf_sTx.c0);
-        if (cci_mpf_c0TxIsReadReq(afu.c0Tx))
+        fiu.c0Tx = cci_mpf_cvtC0TxFromBase(af2mpf_sTx.c0);
+        if (cci_mpf_c0TxIsReadReq(fiu.c0Tx))
         begin
             // Treat all addresses as virtual.  If MPF's VTP isn't
             // enabled this field is ignored and addresses will remain
             // physical.
-            afu.c0Tx.hdr.ext.addrIsVirtual = 1'b1;
+            fiu.c0Tx.hdr.ext.addrIsVirtual = 1'b1;
 
             // Enable eVC_VA to physical channel mapping.  This will only
             // be triggered when MPF's ENABLE_VC_MAP is set.
-            afu.c0Tx.hdr.ext.mapVAtoPhysChannel = 1'b1;
+            fiu.c0Tx.hdr.ext.mapVAtoPhysChannel = 1'b1;
 
             // Enforce load/store and store/store ordering within lines.
             // This will only be triggered when ENFORCE_WR_ORDER is set.
-            afu.c0Tx.hdr.ext.checkLoadStoreOrder = 1'b1;
+            fiu.c0Tx.hdr.ext.checkLoadStoreOrder = 1'b1;
         end
 
-        afu.c1Tx = cci_mpf_cvtC1TxFromBase(af2mpf_sTx.c1);
-        if (cci_mpf_c1TxIsWriteReq(afu.c1Tx))
+        fiu.c1Tx = cci_mpf_cvtC1TxFromBase(af2mpf_sTx.c1);
+        if (cci_mpf_c1TxIsWriteReq(fiu.c1Tx))
         begin
             // See comments on the c0Tx fields above
-            afu.c1Tx.hdr.ext.addrIsVirtual = 1'b1;
-            afu.c1Tx.hdr.ext.mapVAtoPhysChannel = 1'b1;
-            afu.c1Tx.hdr.ext.checkLoadStoreOrder = 1'b1;
+            fiu.c1Tx.hdr.ext.addrIsVirtual = 1'b1;
+            fiu.c1Tx.hdr.ext.mapVAtoPhysChannel = 1'b1;
+            fiu.c1Tx.hdr.ext.checkLoadStoreOrder = 1'b1;
 
             // Don't ever request an MPF partial write
-            afu.c1Tx.hdr.pwrite = t_cci_mpf_c1_PartialWriteHdr'(0);
+            fiu.c1Tx.hdr.pwrite = t_cci_mpf_c1_PartialWriteHdr'(0);
         end
 
-        afu.c2Tx = af2mpf_sTx.c2;
+        fiu.c2Tx = af2mpf_sTx.c2;
     end
 
 
