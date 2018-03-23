@@ -4,17 +4,7 @@
       "power": 0,
       "afu-top-interface":
          {
-            "name": "ccip_std_afu",
-            "module-arguments" :
-               [
-                  {
-                     "class": "cci-p",
-                     "params":
-                        {
-                           "add-extra-timing-reg-stages": "auto"
-                        }
-                  }
-               ]
+            "name": "ccip_std_afu"
          },
       "accelerator-clusters":
          [
