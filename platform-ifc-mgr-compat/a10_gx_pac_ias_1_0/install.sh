@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 ##
-## Update the DCP 1.0 release for use with the platform database.
+## Update the a10_gx_pac_ias 1.0 release for use with the platform database.
 ## After the update, the original sample workloads continue to compile.
 ## After the transformation, the OPAE afu_sim_setup and afu_synth_setup
 ## scripts may be used to configure workloads.
@@ -36,7 +36,7 @@ SCRIPTNAME="$(basename -- "$0")"
 SCRIPT_DIR="$(cd "$(dirname -- "$0")" 2>/dev/null && pwd -P)"
 
 function usage {
-    echo "Usage: ${SCRIPTNAME} <dcp_1.0 release dir>"
+    echo "Usage: ${SCRIPTNAME} <a10_gx_pac_ias_1_0 release dir>"
     exit 1
 }
 
@@ -100,9 +100,14 @@ if [ -f hw/lib/build/platform/ccip_if_pkg.sv ]; then
     mv hw/lib/build/platform/ccip_if_pkg.sv hw/lib/build/platform/ccip_if_pkg.sv.orig
 fi
 
+# Copy platform DB
+echo "Creating hw/lib/platform/platform_db..."
+mkdir -p hw/lib/platform/platform_db
+cp "${SCRIPT_DIR}"/files/platform_db/*[^~] hw/lib/platform/platform_db/
+
 # Tag the platform type
 echo "Storing platform name in hw/lib/fme-platform-class.txt..."
-echo discrete_pcie3 > hw/lib/fme-platform-class.txt
+echo a10_gx_pac > hw/lib/fme-platform-class.txt
 
 # Update QSF scripts to use the platform configuration
 for qsf in hw/lib/build/afu_synth.qsf hw/lib/build/afu_fit.qsf; do
