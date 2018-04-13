@@ -112,6 +112,11 @@ echo "# =====================================" >> hw/lib/build/skx_pr_afu.qsf
 echo "Adding hw/lib/build/platform/green_bs.sv..."
 cp "${SCRIPT_DIR}/files/green_bs.sv" hw/lib/build/platform/
 
+# Copy tcl scripts
+echo "Adding hw/lib/build/a10_partial_reconfig..."
+mkdir -p hw/lib/build/a10_partial_reconfig
+cp "${SCRIPT_DIR}"/files/a10_partial_reconfig/*.tcl hw/lib/build/a10_partial_reconfig
+
 # Copy user clock constraints
 echo "Adding hw/lib/build/skx_user_clocks.sdc..."
 cp "${SCRIPT_DIR}/files/skx_user_clocks.sdc" hw/lib/build/

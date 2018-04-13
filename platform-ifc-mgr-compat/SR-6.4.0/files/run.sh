@@ -157,15 +157,24 @@ fi
 # =============
 if [ $ASM_SUCCESS -eq 0 ]
 then
-    quartus_sta --do_report_timing $PROJ_REV1_NAME -c $PROJ_REV3_NAME
+    (quartus_sta --do_report_timing $PROJ_REV1_NAME -c $PROJ_REV3_NAME \
+     && quartus_sh -t ./a10_partial_reconfig/compute_user_clock_freqs.tcl --project=$PROJ_REV1_NAME --revision=$PROJ_REV3_NAME \
+     && quartus_sta -t ./a10_partial_reconfig/report_timing.tcl --project=$PROJ_REV1_NAME --revision=$PROJ_REV3_NAME)
+    TIME_SUCCESS=$?
 else
     echo "AFU bitstream generation failed"
     exit 1
 fi
 
+# Load any user clock frequency updates
+UCLK_CFG=""
+if [ -f output_files/user_clock_freq.txt ]; then
+    UCLK_CFG="$(grep -v '^#' output_files/user_clock_freq.txt)"
+fi
+
 # Generate output files for GBS
 # =============================
-if [ $ASM_SUCCESS -eq 0 ]
+if [ $TIME_SUCCESS -eq 0 ]
 then
     echo "Generating PR rbf file"
     PROJ_REV_NAME="skx_pr_afu"
@@ -193,7 +202,11 @@ then
       # ------------------------------------------------------
       if [ $RBF_CREATED -eq 0 ]
       then
-        packager create-gbs --gbs="${GBS_FILE}" --afu-json="${AFU_JSON}" --rbf=build/output_files/skx_pr_afu.rbf --set-value=interface-uuid:"${INTERFACE_UUID}"
+          packager create-gbs \
+                   --gbs="${GBS_FILE}" \
+                   --afu-json="${AFU_JSON}" \
+                   --rbf=build/output_files/skx_pr_afu.rbf \
+                   --set-value interface-uuid:"${INTERFACE_UUID}" ${UCLK_CFG}
         PACKAGER_RETCODE=$?
         if [ $PACKAGER_RETCODE -ne 0 ]; then
             echo "Package build failed"
