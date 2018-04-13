@@ -213,7 +213,7 @@ bool
 OPAE_SVC_WRAPPER::probeForASE()
 {
     fpga_result r = FPGA_OK;
-    uint32_t device_id = 0;
+    uint16_t device_id = 0;
 
     // Connect to the FPGA management engine
     fpga_properties filter = NULL;
