@@ -64,21 +64,15 @@ import ccip_if_pkg::*;
     `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL ccip_cfg_pkg::VC_DEFAULT
 
     // Figure out the actual platform name, which may be used for tuning.
-    `ifdef PLATFORM_NAME
-        // PLATFORM_NAME is set in Quartus builds
-        localparam MPF_PLATFORM = `PLATFORM_NAME;
-    `elsif FPGA_PLATFORM_DISCRETE
-        // Set by ASE configuration for discrete platforms
+    `ifdef PLATFORM_FPGA_INTG_XEON_SKX
+        localparam MPF_PLATFORM = "INTG_SKX";
+    `elsif PLATFORM_CLASS_NAME_IS_INTG_XEON
+        localparam MPF_PLATFORM = "INTG_BDX";
+        `undef MPF_HOST_IFC_CCIP_WRPUSH
+    `elsif PLATFORM_FPGA_PAC
         localparam MPF_PLATFORM = "DISCRETE_PCIE";
     `else
-        // Assume that the platform is integrated Xeon+FPGA.  For ASE it doesn't
-        // really matter which one.  Honor the MPF platform flags.
-        `ifdef MPF_PLATFORM_BDX
-            localparam MPF_PLATFORM = "INTG_BDX";
-            `undef MPF_HOST_IFC_CCIP_WRPUSH
-        `else
-            localparam MPF_PLATFORM = "INTG_SKX";
-        `endif
+        localparam MPF_PLATFORM = `PLATFORM_CLASS_NAME;
     `endif
 
 `else
