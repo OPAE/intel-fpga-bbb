@@ -1,3 +1,5 @@
+# Tutorial
+
 The sample designs in this tree are deliberately simple.  They are intended
 to demonstrate proper use of CCI (Core-Cache Interface) without the details
 of an actual accelerator getting in the way.  The examples grow in
@@ -12,61 +14,43 @@ instructions in the README file in the
 [../samples](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples)
 directory.
 
+## Structure
 
 All of the tutorials have two components: CPU-side software in the sw tree
-and FPGA-side RTL in the hw tree.  While in a sw directory, run "make".
-One or two binaries will be generated.  The binary with an "_ase" suffix
-connects only to RTL simulated in ASE.  Some examples also generate a
-binary with the same prefix and no "_ase" suffix.  These binaries connect
-to actual FPGAs.  If you run the non-ASE version on a machine without an
-FPGA it will print an error that the target hardware was not found.
+and FPGA-side RTL in the hw tree.
 
-Building RTL for simulation in ASE requires multiple steps.  The steps
-are identical for all examples:
+AFU sources are stored in directories named hw/rtl, which contain:
+ - A file specifying the set of sources to compile: sources.txt.
+ - A JSON file containing meta-data that describes the AFU.
+ - RTL sources.
 
-1. Configure an ASE environment for the RTL.  Each example contains a
-   setup script: hw/sim/setup_ase.  The script takes one argument: the name
-   of a directory in which to build an ASE environment.  The following
-   sequence constructs an environment in 01_hello_world/hw/build:
+Each example also includes software to drive the AFUs. While in a sw directory,
+run "make".  Two binaries will be generated.  The binary with an "\_ase" suffix
+connects only to RTL simulated in ASE.  Binaries without the "\_ase" suffix
+connect to actual FPGAs.  If you run the non-ASE version on a machine without
+an FPGA it will print an error that the target hardware was not found.
 
-   ```
-       cd 01_hello_world/hw
-       rm -rf build
-       ./sim/setup_ase build
-       cd build
-   ```
+## Configuring the Build Environment
 
-2. Compile the simulator:
+The OPAE SDK must be installed.  The SDK is available through multiple
+methods.  Choose one:
 
-   ```
-       make
-   ```
+1. Pre-compiled Linux RPMs are shipped with platform releases.  Follow
+   the installation guide included in a platform release.  Ensure that
+   the optional ASE (the AFU Simulation Environment) RPM is installed.
 
+2. OPAE SDK sources and pre-compiled RPMs are stored on GitHub in
+   https://github.com/OPAE/opae-sdk.  Installation instructions are available
+   at https://opae.github.io.  Ensure that the optional ASE (the AFU
+   Simulation Environment) is installed, either using the pre-compiled RPMs
+   or by following the ASE documentation at https://opae.github.io.
 
-Execution requires two shells: one to run the RTL simulator and the other
-to run the software.  The RTL simulator is started first.
+Ensure that the OPAE SDK and ASE are properly installed.  Confirm that the
+afu_sim_setup program is found on the PATH in a shell.
 
-1. In the build directory (e.g. 01_hello_world/hw/build from above):
-
-   ```
-       make sim
-   ```
-
-   The simulator will start, eventually printing a message to set the
-   ASE_WORKDIR environment variable in the software-side shell.  The
-   ASE run-time environment connects software to the simulator with
-   this pointer.
-
-2. The other shell should be in the corresponding sw directory, e.g.
-   01_hello_world/sw.  The software is compiled by typing "make".  Set the
-   ASE_WORKDIR environment variable using the value printed in step 1 and
-   run the binary with the _ase suffix:
-
-   ```
-       export ASE_WORKDIR=<path from step 1>/01_hello_world/hw/build/work
-       ./cci_hello_ase
-   ```
-
-   The software will start and connect to ASE.  The ASE RTL simulation will
-   indicate that a session has connected.  When the software side is done, ASE
-   will also exit.
+When a platform release is installed, set the OPAE_PLATFORM_ROOT environment
+variable to the root of a platform release directory, as described in the
+platform's quickstart guide.  Confirm that the variable setting appears valid
+by checking that the $OPAE_PLATFORM_ROOT/hw/lib directory exists.  If no
+platform release is installed you will still be able to simulate AFUs with ASE.
+However, you will not be able to synthesize for hardware.
