@@ -75,8 +75,8 @@ endif(DOXYGEN_FOUND)
 ## Allow specification of an alternate path to the FPGA library include files
 ## and binary.
 ##
-set (OPAELIB_LIBS_PATH "" CACHE STRING)
-set (OPAELIB_INC_PATH "" CACHE STRING)
+set (OPAELIB_LIBS_PATH "" CACHE STRING "OPAE libs path")
+set (OPAELIB_INC_PATH "" CACHE STRING "OPAE include path")
 
 if (WIN32)
     if("X$ENV{OPAELIB_ROOT}X" STREQUAL "XX")
