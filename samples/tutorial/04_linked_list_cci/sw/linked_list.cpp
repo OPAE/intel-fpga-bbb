@@ -41,6 +41,9 @@ using namespace std;
 #include "opae_svc_wrapper.h"
 #include "csr_mgr.h"
 
+using namespace opae::fpga::types;
+using namespace opae::fpga::bbb::mpf::types;
+
 // State from the AFU's JSON file, extracted using OPAE's afu_json_mgr script
 #include "afu_json_info.h"
 
@@ -107,8 +110,8 @@ int main(int argc, char *argv[])
     // world examples, here we do not need the physical address of the
     // buffer.  The accelerator instantiates MPF's VTP and will use
     // virtual addresses.
-    volatile uint64_t* result_buf;
-    result_buf = (volatile uint64_t*)fpga->allocBuffer(getpagesize());
+    auto result_buf_handle = fpga->allocBuffer(getpagesize());
+    auto result_buf = (volatile uint64_t*)(result_buf_handle->get());
     assert(NULL != result_buf);
 
     // Set the low word of the shared buffer to 0.  The FPGA will write
@@ -125,8 +128,8 @@ int main(int argc, char *argv[])
     // be composed of physically discontiguous pages.  VTP will construct
     // a private TLB to map virtual addresses from this process to FPGA-side
     // physical addresses.
-    t_linked_list* list_buf;
-    list_buf = (t_linked_list*)fpga->allocBuffer(16 * 1024 * 1024);
+    auto list_buf_handle = fpga->allocBuffer(16 * 1024 * 1024);
+    auto list_buf = (t_linked_list*)(list_buf_handle->get());
     assert(NULL != list_buf);
 
     // Initialize a linked list in the buffer
@@ -152,10 +155,6 @@ int main(int argc, char *argv[])
          << ((0x5726aa1d == r) ? "Correct" : "ERROR")
          << "]" << endl << endl;
 
-    // Release the buffers
-    fpga->freeBuffer((void*)list_buf);
-    fpga->freeBuffer((void*)result_buf);
-
     // Reads CSRs to get some statistics
     cout << "# List length: " << csrs->readCSR(0) << endl
          << "# Linked list data entries read: " << csrs->readCSR(1) << endl;
@@ -165,11 +164,16 @@ int main(int argc, char *argv[])
          << (fpga->hwIsSimulated() ? " [simulated]" : "")
          << endl;
 
+    // Release the buffers
+    list_buf_handle.reset();
+    result_buf_handle.reset();
+
     // MFP VTP (virtual to physical) statistics
-    if (mpfVtpIsAvailable(fpga->mpf_handle))
+    mpf_handle::ptr_t mpf = fpga->mpf;
+    if (mpfVtpIsAvailable(*mpf))
     {
         mpf_vtp_stats vtp_stats;
-        mpfVtpGetStats(fpga->mpf_handle, &vtp_stats);
+        mpfVtpGetStats(*mpf, &vtp_stats);
 
         cout << "#" << endl;
         if (vtp_stats.numFailedTranslations)

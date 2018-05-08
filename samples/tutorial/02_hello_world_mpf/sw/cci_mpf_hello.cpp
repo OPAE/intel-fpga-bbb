@@ -54,9 +54,9 @@ int main(int argc, char *argv[])
     CSR_MGR* csrs = new CSR_MGR(*fpga);
 
     // Allocate a single page memory buffer
-    volatile char* buf;
-    uint64_t buf_pa;
-    buf = (volatile char*)fpga->allocBuffer(getpagesize(), &buf_pa);
+    auto buf_handle = fpga->allocBuffer(getpagesize());
+    auto buf = (volatile char*)(buf_handle->get());
+    uint64_t buf_pa = buf_handle->iova();
     assert(NULL != buf);
 
     // Set the low byte of the shared buffer to 0.  The FPGA will write
@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
          << endl;
 
     // Done
+    buf_handle.reset();
     delete csrs;
     delete fpga;
 
