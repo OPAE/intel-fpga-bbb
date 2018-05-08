@@ -63,12 +63,12 @@ class OPAE_SVC_WRAPPER
     //
     // Wrap MMIO write and read.
     //
-    void mmioWrite64(uint32_t idx, uint64_t v)
+    void write_csr64(uint32_t idx, uint64_t v)
     {
         accel->write_csr64(idx, v);
     }
 
-    uint64_t mmioRead64(uint32_t idx)
+    uint64_t read_csr64(uint32_t idx)
     {
         return accel->read_csr64(idx);
     }
