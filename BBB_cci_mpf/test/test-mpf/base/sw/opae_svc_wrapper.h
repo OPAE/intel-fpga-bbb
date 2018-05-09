@@ -33,20 +33,26 @@
 
 #include <stdint.h>
 
-#include <opae/fpga.h>
-#include <opae/mpf/mpf.h>
+#include <opae/cxx/core/shared_buffer.h>
+#include <opae/cxx/core/handle.h>
+#include <opae/cxx/core/properties.h>
+#include <opae/cxx/core/token.h>
+
+using namespace opae;
+
+#include <opae/mpf/cxx/mpf_handle.h>
+#include <opae/mpf/cxx/mpf_shared_buffer.h>
+
+using namespace opae::fpga::bbb;
 
 typedef class OPAE_SVC_WRAPPER SVC_WRAPPER;
 
 class OPAE_SVC_WRAPPER
 {
   public:
-    // Pass true in use_hw to use FPGA or false to use ASE.
-    OPAE_SVC_WRAPPER(bool use_hw);
+    // The constructor and destructor connect to and disconnect from the FPGA.
+    OPAE_SVC_WRAPPER(const char* accel_uuid);
     ~OPAE_SVC_WRAPPER();
-
-    int initialize(const char* accel_uuid); //< Return 0 if success
-    int terminate();                        //< Return 0 if success
 
     // Any errors in constructor?
     bool isOk(void) const { return is_ok; }
@@ -57,45 +63,36 @@ class OPAE_SVC_WRAPPER
     //
     // Wrap MMIO write and read.
     //
-    fpga_result mmioWrite64(uint32_t idx, uint64_t v)
+    void write_csr64(uint32_t idx, uint64_t v)
     {
-        return fpgaWriteMMIO64(accel_handle, 0, idx, v);
+        accel->write_csr64(idx, v);
     }
 
-    uint64_t mmioRead64(uint32_t idx)
+    uint64_t read_csr64(uint32_t idx)
     {
-        fpga_result r;
-        uint64_t v;
-
-        r = fpgaReadMMIO64(accel_handle, 0, idx, &v);
-        if (r != FPGA_OK) return -1;
-
-        return v;
+        return accel->read_csr64(idx);
     }
-
 
     //
-    // Expose allocate and free interfaces that hide the details of
+    // Expose a buffer allocate method that hides the details of
     // the various allocation interfaces.  When VTP is present, large
     // multi-page, virtually contiguous buffers may be allocated.
-    // The function returns the virtual address of the buffer and also
-    // the I/O (physical) address if ioAddress isn't NULL.
+    // When VTP is not present, the standard physical page allocator
+    // is used.
     //
-    void* allocBuffer(size_t nBytes, uint64_t* ioAddress = NULL);
-    void freeBuffer(void* va);
+    fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes);
 
     // Used during testing to force large or small pages
     void forceSmallPageAlloc(bool small)
     {
-        mpfVtpSetMaxPhysPageSize(mpf_handle, (small ? MPF_VTP_PAGE_4KB :
-                                                      MPF_VTP_PAGE_2MB));
+        mpfVtpSetMaxPhysPageSize(*mpf, (small ? MPF_VTP_PAGE_4KB :
+                                                MPF_VTP_PAGE_2MB));
     }
 
-    mpf_handle_t mpf_handle;
+    fpga::types::handle::ptr_t accel;
+    mpf::types::mpf_handle::ptr_t mpf;
 
   protected:
-    fpga_handle accel_handle;
-
     bool is_ok;
     bool is_simulated;
 
