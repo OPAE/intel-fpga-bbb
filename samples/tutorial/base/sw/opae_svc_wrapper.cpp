@@ -120,7 +120,7 @@ OPAE_SVC_WRAPPER::findAndOpenAccel(const char* accel_uuid)
     {
         tokens = token::enumerate({filter});
     }
-    catch (opae::fpga::types::no_driver nd)
+    catch (const opae::fpga::types::no_driver& nd)
     {
         std::cerr << "Failed to load FPGA driver. Is an FPGA present on the machine?"
                   << std::endl;
@@ -163,7 +163,7 @@ OPAE_SVC_WRAPPER::probeForASE()
         auto dev_props = properties::read(tokens[0]);
         return (0xa5e == dev_props->bbs_id);
     }
-    catch (opae::fpga::types::no_driver nd)
+    catch (const opae::fpga::types::no_driver& nd)
     {
         return false;
     }
