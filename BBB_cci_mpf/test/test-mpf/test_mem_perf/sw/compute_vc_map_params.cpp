@@ -63,13 +63,8 @@ int TEST_MEM_PERF::test()
 
     // Ignore the command line and set VC Map to fixed
     config.vc = 0;
-#ifndef USE_LEGACY_AAL
-    assert(FPGA_OK == mpfVcMapSetMapAll(svc.mpf_handle, false));
-    assert(FPGA_OK == mpfVcMapSetMode(svc.mpf_handle, true, false, 0));
-#else
-    svc.pVCMAPService->vcmapSetMapAll(false);
-    svc.pVCMAPService->vcmapSetMode(true, false);
-#endif
+    assert(FPGA_OK == mpfVcMapSetMapAll(svc.mpf->get(), false));
+    assert(FPGA_OK == mpfVcMapSetMode(svc.mpf->get(), true, false, 0));
     
     config.clear_caches = false;
     config.buf_lines = 32768;
@@ -100,11 +95,7 @@ int TEST_MEM_PERF::test()
             {
                 t_test_stats stats;
 
-#ifndef USE_LEGACY_AAL
-                mpfVcMapSetFixedMapping(svc.mpf_handle, true, map_ratio_vl0);
-#else
-                svc.pVCMAPService->vcmapSetFixedMapping(true, map_ratio_vl0);
-#endif
+                mpfVcMapSetFixedMapping(svc.mpf->get(), true, map_ratio_vl0);
 
                 // Run twice.  The first time is just warmup.
                 config.cycles = 128 * 65536;

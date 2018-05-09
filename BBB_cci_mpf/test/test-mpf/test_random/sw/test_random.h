@@ -63,7 +63,7 @@ class TEST_RANDOM : public CCI_TEST
     uint64_t totalCycles;
 
     // Used to test VTP malloc/free when --buffer-alloc-test=1
-    void* testBuffers[10];
+    fpga::types::shared_buffer::ptr_t testBuffers[10];
     bool doBufferTests;
 };
 
