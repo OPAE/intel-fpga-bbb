@@ -65,7 +65,7 @@ fpga_result mpf_handle::close() {
     return FPGA_OK;
   }
 
-  return FPGA_EXCEPTION;
+  return FPGA_OK;
 }
 
 bool mpf_handle::shim_present(t_cci_mpf_shim_idx mpf_shim_idx) {

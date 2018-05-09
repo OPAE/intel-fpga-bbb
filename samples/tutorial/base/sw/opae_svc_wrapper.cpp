@@ -120,7 +120,7 @@ OPAE_SVC_WRAPPER::findAndOpenAccel(const char* accel_uuid)
     // Assert we have found at least one
     if (tokens.size() < 1)
     {
-        std::cerr << "accelerator not found\n";
+        std::cerr << "Accelerator not found!" << endl;
         return FPGA_NOT_FOUND;
     }
     token::ptr_t tok = tokens[0];
@@ -145,9 +145,16 @@ OPAE_SVC_WRAPPER::probeForASE()
     properties dev_filter;
     dev_filter.type = FPGA_DEVICE;
 
-    auto tokens = token::enumerate({dev_filter});
-    if (tokens.size() == 0) return false;
+    try
+    {
+        auto tokens = token::enumerate({dev_filter});
+        if (tokens.size() == 0) return false;
 
-    auto dev_props = properties::read(tokens[0]);
-    return (0xa5e == dev_props->bbs_id);
+        auto dev_props = properties::read(tokens[0]);
+        return (0xa5e == dev_props->bbs_id);
+    }
+    catch (opae::fpga::types::no_driver nd)
+    {
+        return false;
+    }
 }
