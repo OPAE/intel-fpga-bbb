@@ -38,8 +38,13 @@ using namespace opae::fpga::types;
 mpf_shared_buffer::~mpf_shared_buffer() {
   // If the allocation was successful.
   if (virt_) {
-    ASSERT_FPGA_OK(mpfVtpBufferFree(*mpf_handle_, virt_));
+    fpga_result r = mpfVtpBufferFree(*mpf_handle_, virt_);
     virt_ = nullptr;
+
+    if (FPGA_OK != r) {
+      std::cerr << "mpf_shared_buffer destructor, mpfVtpBufferFree error: "
+                << fpgaErrStr(r) << std::endl;
+    }
   }
 }
 

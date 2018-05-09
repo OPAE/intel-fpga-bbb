@@ -35,6 +35,7 @@
 
 #include <iostream>
 #include <string>
+#include <atomic>
 
 using namespace std;
 
@@ -94,6 +95,10 @@ t_linked_list* initList(t_linked_list* head,
 
         p = p_next;
     }
+
+    // Force all initialization to complete
+    std::atomic<int> mb;
+    mb = 1;
 }
 
 
@@ -111,7 +116,7 @@ int main(int argc, char *argv[])
     // buffer.  The accelerator instantiates MPF's VTP and will use
     // virtual addresses.
     auto result_buf_handle = fpga->allocBuffer(getpagesize());
-    auto result_buf = (volatile uint64_t*)(result_buf_handle->get());
+    auto result_buf = reinterpret_cast<volatile uint64_t*>(result_buf_handle->get());
     assert(NULL != result_buf);
 
     // Set the low word of the shared buffer to 0.  The FPGA will write
@@ -129,11 +134,11 @@ int main(int argc, char *argv[])
     // a private TLB to map virtual addresses from this process to FPGA-side
     // physical addresses.
     auto list_buf_handle = fpga->allocBuffer(16 * 1024 * 1024);
-    auto list_buf = (t_linked_list*)(list_buf_handle->get());
+    auto list_buf = reinterpret_cast<volatile t_linked_list*>(list_buf_handle->get());
     assert(NULL != list_buf);
 
     // Initialize a linked list in the buffer
-    initList(list_buf, 32, 0x80000);
+    initList(const_cast<t_linked_list*>(list_buf), 32, 0x80000);
 
     // Start the FPGA, which is waiting for the list head in CSR 1.
     csrs->writeCSR(1, intptr_t(list_buf));
@@ -168,7 +173,7 @@ int main(int argc, char *argv[])
     list_buf_handle.reset();
     result_buf_handle.reset();
 
-    // MFP VTP (virtual to physical) statistics
+    // MPF VTP (virtual to physical) statistics
     mpf_handle::ptr_t mpf = fpga->mpf;
     if (mpfVtpIsAvailable(*mpf))
     {
