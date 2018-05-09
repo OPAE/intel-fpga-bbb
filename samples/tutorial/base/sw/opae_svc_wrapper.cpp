@@ -115,12 +115,22 @@ OPAE_SVC_WRAPPER::findAndOpenAccel(const char* accel_uuid)
     filter.guid.parse(accel_uuid);
     filter.type = FPGA_ACCELERATOR;
 
-    auto tokens = token::enumerate({filter});
+    std::vector<token::ptr_t> tokens;
+    try
+    {
+        tokens = token::enumerate({filter});
+    }
+    catch (opae::fpga::types::no_driver nd)
+    {
+        std::cerr << "Failed to load FPGA driver. Is an FPGA present on the machine?"
+                  << std::endl;
+        return FPGA_NOT_FOUND;
+    }
 
     // Assert we have found at least one
     if (tokens.size() < 1)
     {
-        std::cerr << "Accelerator not found!" << endl;
+        std::cerr << "FPGA with accelerator UUID " << accel_uuid << " not found." << std::endl;
         return FPGA_NOT_FOUND;
     }
     token::ptr_t tok = tokens[0];
