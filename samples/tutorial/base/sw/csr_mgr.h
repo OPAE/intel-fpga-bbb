@@ -67,12 +67,12 @@ class CSR_MGR
     //
     void writeCSR(uint32_t idx, uint64_t v)
     {
-        svc.mmioWrite64(8 * (USER_CSR_BASE + idx), v);
+        svc.write_csr64(8 * (USER_CSR_BASE + idx), v);
     }
 
     uint64_t readCSR(uint32_t idx)
     {
-        return svc.mmioRead64(8 * (USER_CSR_BASE + idx));
+        return svc.read_csr64(8 * (USER_CSR_BASE + idx));
     }
 
 
@@ -111,7 +111,7 @@ class CSR_MGR
     {
         if (idx >= CSR_COMMON__LAST) return ~uint64_t(0);
 
-        return svc.mmioRead64(8 * uint32_t(idx));
+        return svc.read_csr64(8 * uint32_t(idx));
     }
 
     //
