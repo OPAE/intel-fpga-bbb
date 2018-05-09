@@ -96,9 +96,8 @@ t_linked_list* initList(t_linked_list* head,
         p = p_next;
     }
 
-    // Force all initialization to complete
-    std::atomic<int> mb;
-    mb = 1;
+    // Force all initialization to memory before the buffer is passed to the FPGA.
+    std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
 

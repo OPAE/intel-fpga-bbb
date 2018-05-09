@@ -50,11 +50,18 @@ aux_source_directory(
 add_library(MPF SHARED ${LIBMPF})
 add_library(MPF-cxx SHARED ${LIBMPF_CXX})
 
+get_property(LIB64 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS)
+if ("${LIB64}" STREQUAL "TRUE")
+    set(LIB_DIR "lib64")
+else()
+    set(LIB_DIR "lib")
+endif()
+
 install(
     TARGETS MPF MPF-cxx
     RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib64
-    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION ${LIB_DIR}
+    ARCHIVE DESTINATION ${LIB_DIR}
     )
 
 install(FILES ${HDR} DESTINATION include/opae/mpf)
