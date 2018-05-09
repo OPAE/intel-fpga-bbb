@@ -35,7 +35,14 @@ using namespace opae::fpga::types;
 
 mpf_handle::mpf_handle(mpf_handle_t h) : mpf_handle_(h) {}
 
-mpf_handle::~mpf_handle() { close(); }
+mpf_handle::~mpf_handle() {
+  try {
+    close();
+  }
+  catch (...) {
+    std::cerr << "Error destroying mpf_handle!" << std::endl;
+  }
+}
 
 mpf_handle::ptr_t mpf_handle::open(handle::ptr_t handle,
                                    uint32_t csr_space, uint64_t csr_offset,
