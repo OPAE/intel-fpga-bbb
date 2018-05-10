@@ -22,6 +22,8 @@ following universal AFU requirements:
   afu_json_mgr is invoked by the simulation and synthesis setup scripts
   described below for RTL and by [sw/Makefile](sw/Makefile) for software.
 
+  AFU JSON will be covered in greater detail in [Section 2](../02_platform_ifc/).
+
 - CCI request rates are limited by off-chip physical bus speeds and by
   buffering inside the Intel-supplied FIU (the blue bitstream). User RTL
   must honor the CCI almost full signals to avoid lost requests.
@@ -125,10 +127,11 @@ $ cd build_synth
 $ ${OPAE_PLATFORM_ROOT}/bin/run.sh
 ```
 
-run.sh will invoke Quartus, which must be properly installed. The end
-result will be a file named hello_afu.gbs in the build_synth directory.
-This GBS file may be loaded onto a compatible FPGA using OPAE's fpgaconf
-tool.
+run.sh will invoke Quartus, which must be properly installed. Note that each
+platform release requires a specific Quartus version in order to match the
+FIU. The end result will be a file named hello_afu.gbs in the build_synth
+directory. This GBS file may be loaded onto a compatible FPGA using OPAE's
+fpgaconf tool.
 
 To run the software connected to an FPGA, compile it as above, but invoke the
 main binary. If you have already run ASE simulation, the binary has already
