@@ -4,7 +4,8 @@ The sample designs in this tree are deliberately simple. They are intended
 to demonstrate simulation, synthesis and proper use of CCI (Core-Cache
 Interface) without the details of an actual accelerator getting in the way.
 
-All the designs may either be simulated or synthesized for FPGA hardware.
+All the designs may either be simulated with ASE or synthesized for FPGA
+hardware.
 
 This tutorial assumes that OPAE has been installed already and that the BBB
 (Basic Building Blocks) release for CCI is present. Please follow the
@@ -44,10 +45,11 @@ an FPGA it will print an error that the target hardware was not found.
   user clock frequency is set to the Fmax achieved during compilation.
 
 - [Section 3](03_ccip/) covers basic CCI-P concepts and introduces the Memory
-  Properties Factory (MPF) Basic Building Block (BBB). MPF is a collection of
-  configurable shims that transform CCI-P semantics. MPF adds options such as
-  ordered memory transactions and AFU-side virtual addressing managed by a
-  TLB.
+  Properties Factory
+  ([MPF](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_cci_mpf)) Basic
+  Building Block (BBB). MPF is a collection of configurable shims that
+  transform CCI-P semantics. MPF adds options such as ordered memory
+  transactions and AFU-side virtual addressing managed by a TLB.
 
 - [Section 4](04_local_memory/) covers the top-level interface to local
   memory, including clock management.
