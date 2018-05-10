@@ -1,0 +1,7 @@
+# Include MPF
+C:${FPGA_BBB_CCI_SRC}/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt
+
+# Common RTL shared by multiple examples
++incdir+.
+cci_afu_with_mpf.sv
+csr_mgr.sv

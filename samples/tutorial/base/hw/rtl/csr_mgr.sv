@@ -214,7 +214,33 @@ module csr_mgr
           //
 
           // AFU frequency (MHz)
-          8: c2Tx.data <= `AFU_CLOCK_FREQ;
+          8: c2Tx.data <=
+`ifdef PLATFORM_PARAM_CCI_P_CLOCK_IS_DEFAULT
+                          ccip_cfg_pkg::PCLK_FREQ
+`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLK
+                          ccip_cfg_pkg::PCLK_FREQ
+`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLKDIV2
+                          ccip_cfg_pkg::PCLK_FREQ >> 1
+`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLKDIV4
+                          ccip_cfg_pkg::PCLK_FREQ >> 2
+`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_UCLK_USR
+  `ifdef AFU_IMAGE_CLOCK_FREQUENCY_HIGH
+                          `AFU_IMAGE_CLOCK_FREQUENCY_HIGH
+  `else
+                          2  // uClk_usr unknown frequency
+  `endif
+`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_UCLK_USRDIV2
+  `ifdef AFU_IMAGE_CLOCK_FREQUENCY_LOW
+                          `AFU_IMAGE_CLOCK_FREQUENCY_LOW
+  `elsif AFU_IMAGE_CLOCK_FREQUENCY_HIGH
+                          `AFU_IMAGE_CLOCK_FREQUENCY_HIGH >> 1
+  `else
+                          1  // uClk_usrDiv2 unknown frequency
+  `endif
+`else
+                          0  // unknown frequency
+`endif
+                           ;
 
           // Cache read hits
           9: c2Tx.data <= ctr_rd_cache_hits;

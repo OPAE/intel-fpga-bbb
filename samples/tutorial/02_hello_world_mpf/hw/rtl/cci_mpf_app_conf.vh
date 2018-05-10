@@ -32,10 +32,5 @@
 // Application configuration.
 //
 
-// Run the AFU at 200 MHz.  The base cci_afu_with_mpf.sv wrapper automatically
-// connects the requested clock and instantiates a clock crossing FIFO when
-// necessary.
-`define AFU_CLOCK_FREQ 200
-
 // This application doesn't use MPF
 `define MPF_DISABLED 1

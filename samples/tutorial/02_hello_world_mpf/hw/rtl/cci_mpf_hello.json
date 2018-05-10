@@ -4,7 +4,17 @@
       "power": 0,
       "afu-top-interface":
          {
-            "name": "ccip_std_afu"
+            "name": "ccip_std_afu",
+            "module-ports" :
+               [
+                  {
+                     "class": "cci-p",
+                     "params":
+                        {
+                           "clock": "pClkDiv2"
+                        }
+                  }
+               ]
          },
       "accelerator-clusters":
          [
