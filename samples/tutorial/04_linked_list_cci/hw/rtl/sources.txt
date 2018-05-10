@@ -1,7 +1,6 @@
 linked_list_cci.json
 
-SI:../../../base/hw/sim/base_addenda.txt
-QI:../../../base/hw/par/cci_examples_base_PAR_files.qsf
+C:../../../base/hw/rtl/base_sources.txt
 
 +incdir+.
 hash32.sv

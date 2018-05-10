@@ -31,11 +31,6 @@
 // Application default configuration can override the base configuration.
 `include "cci_mpf_app_conf.vh"
 
-
-`ifndef AFU_CLOCK_FREQ
-  `define AFU_CLOCK_FREQ 400
-`endif
-
 //
 // MPF default configuration.
 //
