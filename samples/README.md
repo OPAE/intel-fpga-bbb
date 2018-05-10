@@ -4,10 +4,9 @@ All samples depend on proper configuration of the OPAE and build
 environments. Both are described below.
 
 This tree contains sample workloads, typically written as small examples of
-specific concepts.  A set of
-[tutorials](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial)
-progresses through defining RTL sources, configuring for simulation or synthesis,
-and connecting to device interfaces.
+specific concepts.  A set of [tutorials](tutorial) progresses through defining
+RTL sources, configuring for simulation or synthesis, and connecting to device
+interfaces.
 
 ## OPAE Version
 
@@ -41,7 +40,7 @@ branch names are release/\<number\>.
 
    - __FPGA_BBB_CCI_SRC__ points to the top of the BBB release tree. RTL for
      MPF is imported by some scripts through
-     [${FPGA_BBB_CCI_SRC}/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt](https://github.com/OPAE/intel-fpga-bbb/blob/master/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt).
+     [${FPGA_BBB_CCI_SRC}/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt](../BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt).
 
    - If you have installed a specific platform release, such as SR-5.0.3 for
      Broadwell Xeon+FPGA or PAC with Arria 10 GX FPGA 1.0 for a discrete PCIe
@@ -62,7 +61,7 @@ branch names are release/\<number\>.
 ## Updating Releases for use with the Platform Interface Manager
 
 A set of scripts is provided in
-[../platform-ifc-mgr-compat](https://github.com/OPAE/intel-fpga-bbb/tree/master/platform-ifc-mgr-compat)
+[../platform-ifc-mgr-compat](../platform-ifc-mgr-compat)
 to update older platform releases. These one-time scripts must be run in
 order to configure both simulation and Quartus environments with the PIM.
 Please follow the instructions there. Once properly configured, the PIM will

@@ -9,7 +9,7 @@ All the designs may either be simulated or synthesized for FPGA hardware.
 This tutorial assumes that OPAE has been installed already and that the BBB
 (Basic Building Blocks) release for CCI is present. Please follow the
 instructions in the README file in the
-[../samples](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples)
+[../samples](../samples)
 directory.
 
 ## Structure
