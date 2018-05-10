@@ -101,7 +101,7 @@ another shell and cd to the directory holding this README. To build and
 run the software:
 
 ```console
-$ <Set ASE_WORKDIR as directed by the simulator>
+# Set ASE_WORKDIR as directed by the simulator
 $ cd sw
 $ make
 $ ./cci_hello_ase
@@ -138,8 +138,13 @@ main binary. If you have already run ASE simulation, the binary has already
 been compiled and make will do nothing:
 
 ```console
-$ <Set ASE_WORKDIR as directed by the simulator>
-$ cd sw
+# Continue in the build_synth directory where run.sh was invoked...
+
+# Load the AFU into the partial reconfiguration region
+$ sudo fpgaconf cci_hello.gbs
+
+$ cd ../sw
 $ make
+# sudo may be required to invoke cci_hello, depending on your environment.
 $ ./cci_hello
 ```
