@@ -24,40 +24,48 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+
 file(
-    GLOB_RECURSE
+    GLOB
     HDR
-    FOLLOW_SYMLINKS
     ${PROJECT_SOURCE_DIR}/include/opae/mpf/*.h
+    )
+file(
+    GLOB
+    HDR_CXX
+    ${PROJECT_SOURCE_DIR}/include/opae/mpf/cxx/*.h
     )
 
 aux_source_directory(
-    ${PROJECT_SOURCE_DIR}/src
-    SRC
+    ${PROJECT_SOURCE_DIR}/src/libmpf
+    LIBMPF
+    )
+aux_source_directory(
+    ${PROJECT_SOURCE_DIR}/src/libmpf++
+    LIBMPF_CXX
     )
 
-add_library(MPF SHARED ${SRC})
+add_library(MPF SHARED ${LIBMPF})
+add_library(MPF-cxx SHARED ${LIBMPF_CXX})
+
+get_property(LIB64 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS)
+if ("${LIB64}" STREQUAL "TRUE")
+    set(LIB_DIR "lib64")
+else()
+    set(LIB_DIR "lib")
+endif()
 
 install(
-    TARGETS MPF
+    TARGETS MPF MPF-cxx
     RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION ${LIB_DIR}
+    ARCHIVE DESTINATION ${LIB_DIR}
     )
 
-##
-## HDR files in the source tree may be links.  Resolve the links and
-## copy them as files.
-##
-set (_resolvedHDR "")
-foreach (_file ${HDR})
-    get_filename_component(_resolvedFile "${_file}" REALPATH)
-    list (APPEND _resolvedHDR "${_resolvedFile}")
-endforeach()
-
-install(
-     FILES ${_resolvedHDR} DESTINATION include/opae/mpf
-     )
+install(FILES ${HDR} DESTINATION include/opae/mpf)
+install(FILES ${HDR_CXX} DESTINATION include/opae/mpf/cxx)
 
 ##
 ## Add pthreads to the generated library.  VTP uses a mutex to guarantee
@@ -66,8 +74,10 @@ install(
 find_package(Threads REQUIRED)
 if(CMAKE_THREAD_LIBS_INIT)
     target_link_libraries(MPF "${CMAKE_THREAD_LIBS_INIT}")
+    target_link_libraries(MPF-cxx "${CMAKE_THREAD_LIBS_INIT}")
 endif()
 
 if(OPAELIB_LIBS_PATH)
     target_link_libraries(MPF OpaeLib)
+    target_link_libraries(MPF-cxx OpaeLib)
 endif()

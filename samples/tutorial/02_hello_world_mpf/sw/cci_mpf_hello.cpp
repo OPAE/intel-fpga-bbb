@@ -47,16 +47,16 @@ using namespace std;
 int main(int argc, char *argv[])
 {
     // Find and connect to the accelerator
-    OPAE_SVC_WRAPPER* fpga = new OPAE_SVC_WRAPPER(AFU_ACCEL_UUID);
-    assert(fpga->isOk());
+    OPAE_SVC_WRAPPER fpga(AFU_ACCEL_UUID);
+    assert(fpga.isOk());
 
     // Connect the CSR manager
-    CSR_MGR* csrs = new CSR_MGR(*fpga);
+    CSR_MGR csrs(fpga);
 
     // Allocate a single page memory buffer
-    volatile char* buf;
-    uint64_t buf_pa;
-    buf = (volatile char*)fpga->allocBuffer(getpagesize(), &buf_pa);
+    auto buf_handle = fpga.allocBuffer(getpagesize());
+    auto buf = reinterpret_cast<volatile char*>(buf_handle->get());
+    uint64_t buf_pa = buf_handle->iova();
     assert(NULL != buf);
 
     // Set the low byte of the shared buffer to 0.  The FPGA will write
@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
     // addresses by writing to application CSR 0.  The CSR manager maps
     // its registers to MMIO space.  The accelerator will respond by
     // writing to the buffer.
-    csrs->writeCSR(0, buf_pa / CL(1));
+    csrs.writeCSR(0, buf_pa / CL(1));
 
     // Spin, waiting for the value in memory to change to something non-zero.
     while (0 == buf[0])
@@ -81,13 +81,11 @@ int main(int argc, char *argv[])
 
     // Ask the FPGA-side CSR manager the AFU's frequency
     cout << endl
-         << "# AFU frequency: " << csrs->getAFUMHz() << " MHz"
-         << (fpga->hwIsSimulated() ? " [simulated]" : "")
+         << "# AFU frequency: " << csrs.getAFUMHz() << " MHz"
+         << (fpga.hwIsSimulated() ? " [simulated]" : "")
          << endl;
 
-    // Done
-    delete csrs;
-    delete fpga;
-
+    // All shared buffers are automatically released and the FPGA connection
+    // is closed when their destructors are invoked here.
     return 0;
 }

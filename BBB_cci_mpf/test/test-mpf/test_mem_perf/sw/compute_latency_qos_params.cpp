@@ -140,17 +140,10 @@ int TEST_MEM_PERF::test()
                                                (c0_qos_epoch_len << 32) |
                                                (c1_qos_epoch_len << 48));
 
-#ifndef USE_LEGACY_AAL
-                        if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_LATENCY_QOS))
+                        if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_LATENCY_QOS))
                         {
-                            mpfLatencyQosSetConfig(svc.mpf_handle, qos_config);
+                            mpfLatencyQosSetConfig(svc.mpf->get(), qos_config);
                         }
-#else
-                        if (svc.pLATQOSService)
-                        {
-                            svc.pLATQOSService->latqosSetConfig(qos_config);
-                        }
-#endif
 
                         assert(runTestN(&config, &stats, 2) == 0);
 

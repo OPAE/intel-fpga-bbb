@@ -28,6 +28,7 @@
 // Generated from the AFU JSON file by afu_json_mgr
 #include "afu_json_info.h"
 
+#include <unistd.h>
 #include <time.h>
 #include <boost/format.hpp>
 #include <stdlib.h>
@@ -82,9 +83,11 @@ CCI_TEST* allocTest(const po::variables_map& vm, SVC_WRAPPER& svc)
 int TEST_RANDOM::test()
 {
     // Allocate memory for control
-    volatile uint64_t* dsm = (uint64_t*) this->malloc(4096);
+    auto dsm_buf_handle = this->allocBuffer(getpagesize());
+    auto dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->get());
+    uint64_t dsm_pa = dsm_buf_handle->iova();
     assert(NULL != dsm);
-    memset((void*)dsm, 0, 4096);
+    memset((void*)dsm, 0, getpagesize());
 
     // Allocate memory for read/write tests.  The HW indicates the size
     // of the memory buffer in CSR 0.
@@ -114,7 +117,8 @@ int TEST_RANDOM::test()
         cout << "Allocating " << n_bytes << " byte test buffer..." << endl;
     }
 
-    volatile uint64_t* mem = (uint64_t*) this->malloc(n_bytes);
+    auto mem_buf_handle = this->allocBuffer(n_bytes);
+    auto mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->get());
     assert(NULL != mem);
     memset((void*)mem, 0, n_bytes);
 
@@ -325,9 +329,8 @@ TEST_RANDOM::reallocTestBuffers()
     for (int i = 0; i < 10; i += 1)
     {
         // Free existing buffers about 20% of the time
-        if ((NULL != testBuffers[i]) && rand20())
+        if (rand20())
         {
-            this->free(testBuffers[i]);
             testBuffers[i] = NULL;
         }
 
@@ -339,7 +342,7 @@ TEST_RANDOM::reallocTestBuffers()
 
             // Allocate up to 32MB
             uint64_t alloc_bytes = rand() & 0x1ffffff;
-            testBuffers[i] = this->malloc(alloc_bytes);
+            testBuffers[i] = this->allocBuffer(alloc_bytes);
             assert(NULL != testBuffers[i]);
 
             // Back to big pages

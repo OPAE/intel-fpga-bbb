@@ -33,8 +33,17 @@
 
 #include <stdint.h>
 
-#include <opae/fpga.h>
-#include <opae/mpf/mpf.h>
+#include <opae/cxx/core/shared_buffer.h>
+#include <opae/cxx/core/handle.h>
+#include <opae/cxx/core/properties.h>
+#include <opae/cxx/core/token.h>
+
+using namespace opae;
+
+#include <opae/mpf/cxx/mpf_handle.h>
+#include <opae/mpf/cxx/mpf_shared_buffer.h>
+
+using namespace opae::fpga::bbb;
 
 typedef class OPAE_SVC_WRAPPER SVC_WRAPPER;
 
@@ -54,37 +63,29 @@ class OPAE_SVC_WRAPPER
     //
     // Wrap MMIO write and read.
     //
-    fpga_result mmioWrite64(uint32_t idx, uint64_t v)
+    void write_csr64(uint32_t idx, uint64_t v)
     {
-        return fpgaWriteMMIO64(accel_handle, 0, idx, v);
+        accel->write_csr64(idx, v);
     }
 
-    uint64_t mmioRead64(uint32_t idx)
+    uint64_t read_csr64(uint32_t idx)
     {
-        fpga_result r;
-        uint64_t v;
-
-        r = fpgaReadMMIO64(accel_handle, 0, idx, &v);
-        if (r != FPGA_OK) return -1;
-
-        return v;
+        return accel->read_csr64(idx);
     }
 
     //
-    // Expose allocate and free interfaces that hide the details of
+    // Expose a buffer allocate method that hides the details of
     // the various allocation interfaces.  When VTP is present, large
     // multi-page, virtually contiguous buffers may be allocated.
-    // The function returns the virtual address of the buffer and also
-    // the I/O (physical) address if ioAddress isn't NULL.
+    // When VTP is not present, the standard physical page allocator
+    // is used.
     //
-    void* allocBuffer(size_t nBytes, uint64_t* ioAddress = NULL);
-    void freeBuffer(void* va);
+    fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes);
 
-    mpf_handle_t mpf_handle;
+    fpga::types::handle::ptr_t accel;
+    mpf::types::mpf_handle::ptr_t mpf;
 
   protected:
-    fpga_handle accel_handle;
-
     bool is_ok;
     bool is_simulated;
 

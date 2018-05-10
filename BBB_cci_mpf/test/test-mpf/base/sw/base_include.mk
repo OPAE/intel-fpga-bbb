@@ -8,7 +8,7 @@ BASE_FILE_INC = $(BASE_FILE_PATH)/opae_svc_wrapper.h
 
 VPATH = .:$(BASE_FILE_PATH)
 
-CPPFLAGS ?=
+CPPFLAGS ?= -std=c++11
 CXX      ?= g++
 LDFLAGS  ?=
 
@@ -41,7 +41,7 @@ LDFLAGS  += -L$(DESTDIR)$(prefix)/lib -Wl,-rpath-link -Wl,$(prefix)/lib -Wl,-rpa
 endif
 
 CPPFLAGS += -I../../base/sw
-LDFLAGS += -lboost_program_options -luuid -lMPF
+LDFLAGS += -lboost_program_options -luuid -lMPF-cxx -lMPF -lopae-cxx-core
 
 FPGA_LIBS = -lopae-c -ljson-c
 ASE_LIBS = -lopae-c-ase

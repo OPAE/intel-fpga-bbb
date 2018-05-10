@@ -28,6 +28,7 @@
 // Generated from the AFU JSON file by afu_json_mgr
 #include "afu_json_info.h"
 
+#include <unistd.h>
 #include <time.h>
 #include <boost/format.hpp>
 #include <stdlib.h>
@@ -76,22 +77,26 @@ CCI_TEST* allocTest(const po::variables_map& vm, SVC_WRAPPER& svc)
 int TEST_CCI_MPF_NULL::test()
 {
     // Allocate memory for control
-    uint64_t dsm_pa;
-    volatile uint64_t* dsm = (uint64_t*) this->malloc(4096, &dsm_pa);
+    auto dsm_buf_handle = this->allocBuffer(getpagesize());
+    auto dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->get());
+    uint64_t dsm_pa = dsm_buf_handle->iova();
     assert(NULL != dsm);
-    memset((void*)dsm, 0, 4096);
+    memset((void*)dsm, 0, getpagesize());
 
     // Allocate memory for read/write tests.  The HW indicates the expected
     // number of 2MB memory buffers in CSR 0.
     uint32_t n_buffers = readTestCSR(0);
     
+    auto buf_handle = new fpga::types::shared_buffer::ptr_t[n_buffers];
     volatile uint64_t** buf = new volatile uint64_t*[n_buffers];
     uint64_t* buf_pa = new uint64_t[n_buffers];
 
     for (uint32_t i = 0; i < n_buffers; i += 1)
     {
         const uint64_t n_bytes = 2 * 1024 * 1024;
-        buf[i] = (uint64_t*) this->malloc(n_bytes, &buf_pa[i]);
+        buf_handle[i] = this->allocBuffer(n_bytes);
+        buf[i] = reinterpret_cast<volatile uint64_t*>(buf_handle[i]->get());
+        buf_pa[i] = buf_handle[i]->iova();
         assert(NULL != buf[i]);
         memset((void*)buf[i], 0, n_bytes);
 
@@ -363,6 +368,10 @@ int TEST_CCI_MPF_NULL::test()
 
     cout << "# Total errors: " << n_errors << endl
          << "#" << endl;
+
+    delete[] buf;
+    delete[] buf_pa;
+    delete[] buf_handle;
 
     return (n_errors ? 1 : 0);
 }

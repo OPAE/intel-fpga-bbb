@@ -147,8 +147,11 @@ class TEST_MEM_PERF : public CCI_TEST
 
     void dbgRegDump(uint64_t r);
 
+    fpga::types::shared_buffer::ptr_t dsm_buf_handle;
     volatile uint64_t* dsm;
+
     uint64_t buffer_bytes;
+    fpga::types::shared_buffer::ptr_t buffer_handle;
     uint64_t* rd_mem;
     uint64_t* wr_mem;
     uint64_t totalCycles;

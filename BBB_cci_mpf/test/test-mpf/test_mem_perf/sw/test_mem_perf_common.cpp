@@ -32,6 +32,7 @@
 // Generated from the AFU JSON file by afu_json_mgr
 #include "afu_json_info.h"
 
+#include <unistd.h>
 #include <time.h>
 
 const char* testAFUID()
@@ -43,9 +44,10 @@ bool
 TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
 {
     // Allocate memory for control
-    dsm = (uint64_t*) this->malloc(4096);
+    dsm_buf_handle = this->allocBuffer(getpagesize());
+    dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->get());
     if (dsm == NULL) return false;
-    memset((void*)dsm, 0, 4096);
+    memset((void*)dsm, 0, getpagesize());
 
     // Allocate memory for read/write tests.  The HW indicates the size
     // of the memory buffer in CSR 0.
@@ -57,10 +59,11 @@ TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
 
     // Allocate two buffers worth plus an extra 2MB page to allow for alignment
     // changes.
-    rd_mem = (uint64_t*) this->malloc(2 * buffer_bytes + 2048 * 1024);
+    buffer_handle = this->allocBuffer(2 * buffer_bytes + 2048 * 1024);
+    rd_mem = (uint64_t*)(buffer_handle->get());
     if (rd_mem == NULL) return false;
     // Align to minimize cache conflicts
-    wr_mem = (uint64_t*) (uint64_t(rd_mem) + buffer_bytes + 512 * CL(1));
+    wr_mem = (uint64_t*)(uint64_t(rd_mem) + buffer_bytes + 512 * CL(1));
 
     memset((void*)rd_mem, 0, buffer_bytes);
     memset((void*)wr_mem, 0, buffer_bytes);

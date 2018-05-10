@@ -1,4 +1,4 @@
-// Copyright(c) 2007-2016, Intel Corporation
+// Copyright(c) 2018, Intel Corporation
 //
 // Redistribution  and  use  in source  and  binary  forms,  with  or  without
 // modification, are permitted provided that the following conditions are met:
@@ -23,48 +23,64 @@
 // CONTRACT,  STRICT LIABILITY,  OR TORT  (INCLUDING NEGLIGENCE  OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
+#include <cstring>
 
-#ifndef __TEST_RANDOM_H__
-#define __TEST_RANDOM_H__ 1
+#include <opae/mpf/cxx/mpf_shared_buffer.h>
 
-#include "cci_test.h"
+namespace opae {
+namespace fpga {
+namespace bbb {
+namespace mpf {
+namespace types {
 
-class TEST_RANDOM : public CCI_TEST
-{
-  private:
-    enum
-    {
-        TEST_CSR_BASE = 32
-    };
+using namespace opae::fpga::types;
 
-  public:
-    TEST_RANDOM(const po::variables_map& vm, SVC_WRAPPER& svc) :
-        CCI_TEST(vm, svc),
-        totalCycles(0),
-        doBufferTests(false)
-    {
-        memset(testBuffers, 0, sizeof(testBuffers));
+mpf_shared_buffer::~mpf_shared_buffer() {
+  // If the allocation was successful.
+  if (virt_) {
+    fpga_result r = mpfVtpBufferFree(*mpf_handle_, virt_);
+    virt_ = nullptr;
+
+    if (FPGA_OK != r) {
+      std::cerr << "mpf_shared_buffer destructor, mpfVtpBufferFree error: "
+                << fpgaErrStr(r) << std::endl;
     }
+  }
+}
 
-    ~TEST_RANDOM() {};
+mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handle,
+                                                     size_t len) {
+  ptr_t p;
 
-    // Returns 0 on success
-    int test();
+  if (!len) {
+    throw except(OPAECXX_HERE);
+  }
 
-    uint64_t testNumCyclesExecuted();
+  if (!mpfVtpIsAvailable(*mpf_handle)) {
+    throw except(OPAECXX_HERE);
+  }
 
-  private:
-    void reallocTestBuffers();
-    // Return true about 20% of the time
-    bool rand20();
+  uint8_t *virt = nullptr;
+  uint64_t wsid = 0;
 
-    void dbgRegDump(uint64_t r);
+  fpga_result res = mpfVtpBufferAllocate(*mpf_handle, len,
+                                         reinterpret_cast<void **>(&virt));
+  ASSERT_FPGA_OK(res);
 
-    uint64_t totalCycles;
+  uint64_t iova = mpfVtpGetIOAddress(*mpf_handle, virt);
 
-    // Used to test VTP malloc/free when --buffer-alloc-test=1
-    fpga::types::shared_buffer::ptr_t testBuffers[10];
-    bool doBufferTests;
-};
+  p.reset(new mpf_shared_buffer(mpf_handle, len, virt, iova));
 
-#endif // _TEST_RANDOM_H_
+  return p;
+}
+
+mpf_shared_buffer::mpf_shared_buffer(mpf_handle::ptr_t mpf_handle,
+                                     size_t len, uint8_t *virt, uint64_t iova)
+    : mpf_handle_(mpf_handle),
+      shared_buffer(nullptr, len, virt, 0, iova) {}
+
+}  // end of namespace types
+}  // end of namespace mpf
+}  // end of namespace bbb
+}  // end of namespace fpga
+}  // end of namespace opae

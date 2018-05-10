@@ -37,9 +37,6 @@ int main(int argc, char *argv[])
     po::options_description desc("Usage");
     desc.add_options()
         ("help", "Print this message")
-#ifdef USE_LEGACY_AAL
-        ("target", po::value<string>()->default_value("fpga"), "RTL target (\"fpga\" or \"ase\")")
-#endif
         ("vcmap-all", po::value<bool>()->default_value(false), "VC MAP: Map all requests, ignoring vc_sel")
         ("vcmap-enable", po::value<bool>()->default_value(VCMAP_ENABLE_DEFAULT), "VC MAP: Enable channel mapping")
         ("vcmap-dynamic", po::value<bool>()->default_value(true), "VC MAP: Use dynamic channel mapping (overridden by --vcmap-fixed)")
@@ -59,30 +56,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // On OPAE we will figure out automatically that the run is either on
-    // real HW or simulated.  AAL had the user choose.
-    bool use_fpga = false;
-#ifdef USE_LEGACY_AAL
-    string tgt = vm["target"].as<string>();
-    use_fpga = (tgt.compare("fpga") == 0);
-    if (! use_fpga && tgt.compare("ase"))
-    {
-        cerr << "Illegal --target" << endl << endl;
-        cerr << desc << endl;
-        exit(1);
-    }
-#endif
-
-    SVC_WRAPPER svc(use_fpga);
-
+    SVC_WRAPPER svc(testAFUID());
     if (!svc.isOk())
     {
-        cout << "Runtime Failed to Start" << endl;
+        cout << "Runtime Failed to Start." << endl;
         exit(1);
     }
-
-    int result = svc.initialize(testAFUID());
-    assert (0 == result);
 
     //
     // Configure VC MAP shim
@@ -100,57 +79,30 @@ int main(int argc, char *argv[])
         vcmap_dynamic = false;
     }
 
-#ifndef USE_LEGACY_AAL
-    if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_VC_MAP))
+    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_VC_MAP))
     {
         cout << "# Configuring VC MAP shim..." << endl;
-        mpfVcMapSetMapAll(svc.mpf_handle, vcmap_all);
+        mpfVcMapSetMapAll(svc.mpf->get(), vcmap_all);
 
         if (! vcmap_only_writes)
         {
             // Normal mode -- map both read and write requests
-            mpfVcMapSetMode(svc.mpf_handle, vcmap_enable, vcmap_dynamic, 0);
+            mpfVcMapSetMode(svc.mpf->get(), vcmap_enable, vcmap_dynamic, 0);
         }
         else
         {
             // Abnormal mode for experimentation -- map only writes
-            mpfVcMapSetMapOnlyReadsOrWrites(svc.mpf_handle, true);
+            mpfVcMapSetMapOnlyReadsOrWrites(svc.mpf->get(), true);
         }
         
         if (vcmap_fixed_vl0_ratio >= 0)
         {
-            mpfVcMapSetFixedMapping(svc.mpf_handle, true, vcmap_fixed_vl0_ratio);
+            mpfVcMapSetFixedMapping(svc.mpf->get(), true, vcmap_fixed_vl0_ratio);
         }
     }
-#else
-    if (svc.pVCMAPService)
-    {
-        cout << "# Configuring VC MAP shim..." << endl;
-        svc.pVCMAPService->vcmapSetMapAll(vcmap_all);
-
-        if (! vcmap_only_writes)
-        {
-            // Normal mode -- map both read and write requests
-            svc.pVCMAPService->vcmapSetMode(vcmap_enable, vcmap_dynamic);
-        }
-        else
-        {
-            // Abnormal mode for experimentation -- map only writes
-            svc.pVCMAPService->vcmapSetMapOnlyReadsOrWrites(true);
-        }
-
-        if (vcmap_fixed_vl0_ratio >= 0)
-        {
-            svc.pVCMAPService->vcmapSetFixedMapping(true, vcmap_fixed_vl0_ratio);
-        }
-    }
-#endif
 
     CCI_TEST* t = allocTest(vm, svc);
-    if (result == 0)
-    {
-        result = t->test();
-    }
+    int result = t->test();
 
     if (0 == result)
     {
@@ -229,21 +181,12 @@ int main(int argc, char *argv[])
          << "#" << endl;
 
     bool vtp_available;
-#ifndef USE_LEGACY_AAL
     mpf_vtp_stats vtp_stats;
-    vtp_available = mpfVtpIsAvailable(svc.mpf_handle);
+    vtp_available = mpfVtpIsAvailable(svc.mpf->get());
     if (vtp_available)
     {
-        mpfVtpGetStats(svc.mpf_handle, &vtp_stats);
+        mpfVtpGetStats(svc.mpf->get(), &vtp_stats);
     }
-#else
-    t_cci_mpf_vtp_stats vtp_stats;
-    vtp_available = (NULL != svc.pVTPService);
-    if (vtp_available)
-    {
-        svc.pVTPService->vtpGetStats(&vtp_stats);
-    }
-#endif
     if (vtp_available)
     {
         cout << "#   VTP failed:         " << vtp_stats.numFailedTranslations << endl;
@@ -258,19 +201,11 @@ int main(int argc, char *argv[])
              << vtp_stats.numTLBMisses2MB << endl;
     }
 
-#ifndef USE_LEGACY_AAL
-    if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_VC_MAP))
+    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_VC_MAP))
     {
         mpf_vc_map_stats vcmap_stats;
-        uint64_t history = mpfVcMapGetMappingHistory(svc.mpf_handle);
-        mpfVcMapGetStats(svc.mpf_handle, &vcmap_stats);
-#else
-    if (svc.pVCMAPService)
-    {
-        t_cci_mpf_vc_map_stats vcmap_stats;
-        uint64_t history = svc.pVCMAPService->vcmapGetMappingHistory();
-        svc.pVCMAPService->vcmapGetStats(&vcmap_stats);
-#endif
+        uint64_t history = mpfVcMapGetMappingHistory(svc.mpf->get());
+        mpfVcMapGetStats(svc.mpf->get(), &vcmap_stats);
         if (! vcmap_enable)
         {
             cout << "#" << endl
@@ -285,27 +220,16 @@ int main(int argc, char *argv[])
         }
     }
 
-#ifndef USE_LEGACY_AAL
-    if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_LATENCY_QOS))
-#else
-    if (svc.pLATQOSService)
-#endif
+    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_LATENCY_QOS))
     {
         cout << "#" << endl
              << "#   Latency QoS enabled" << endl;
     }
 
-#ifndef USE_LEGACY_AAL
-    if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_WRO))
+    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_WRO))
     {
         mpf_wro_stats wro_stats;
-        mpfWroGetStats(svc.mpf_handle, &wro_stats);
-#else
-    if (svc.pWROService)
-    {
-        t_cci_mpf_wro_stats wro_stats;
-        svc.pWROService->wroGetStats(&wro_stats);
-#endif
+        mpfWroGetStats(svc.mpf->get(), &wro_stats);
 
         cout << "#" << endl;
         cout << "#   WRO conflict cycles RR:   " << wro_stats.numConflictCyclesRR;
@@ -335,17 +259,10 @@ int main(int argc, char *argv[])
         cout << endl;
     }
 
-#ifndef USE_LEGACY_AAL
-    if (mpfShimPresent(svc.mpf_handle, CCI_MPF_SHIM_PWRITE))
+    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_PWRITE))
     {
         mpf_pwrite_stats pwrite_stats;
-        mpfPwriteGetStats(svc.mpf_handle, &pwrite_stats);
-#else
-    if (svc.pPWRITEService)
-    {
-        t_cci_mpf_pwrite_stats pwrite_stats;
-        svc.pPWRITEService->pwriteGetStats(&pwrite_stats);
-#endif
+        mpfPwriteGetStats(svc.mpf->get(), &pwrite_stats);
 
         cout << "#" << endl
              << "#   PWRITE partial writes:    " << pwrite_stats.numPartialWrites
@@ -353,7 +270,6 @@ int main(int argc, char *argv[])
     }
 
     delete t;
-    svc.terminate();
 
     return result;
 }

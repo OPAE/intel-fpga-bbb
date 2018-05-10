@@ -1,4 +1,4 @@
-// Copyright(c) 2007-2016, Intel Corporation
+// Copyright(c) 2018, Intel Corporation
 //
 // Redistribution  and  use  in source  and  binary  forms,  with  or  without
 // modification, are permitted provided that the following conditions are met:
@@ -23,48 +23,61 @@
 // CONTRACT,  STRICT LIABILITY,  OR TORT  (INCLUDING NEGLIGENCE  OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
+#include <opae/mpf/cxx/mpf_handle.h>
 
-#ifndef __TEST_RANDOM_H__
-#define __TEST_RANDOM_H__ 1
+namespace opae {
+namespace fpga {
+namespace bbb {
+namespace mpf {
+namespace types {
 
-#include "cci_test.h"
+using namespace opae::fpga::types;
 
-class TEST_RANDOM : public CCI_TEST
-{
-  private:
-    enum
-    {
-        TEST_CSR_BASE = 32
-    };
+mpf_handle::mpf_handle(mpf_handle_t h) : mpf_handle_(h) {}
 
-  public:
-    TEST_RANDOM(const po::variables_map& vm, SVC_WRAPPER& svc) :
-        CCI_TEST(vm, svc),
-        totalCycles(0),
-        doBufferTests(false)
-    {
-        memset(testBuffers, 0, sizeof(testBuffers));
-    }
+mpf_handle::~mpf_handle() {
+  try {
+    close();
+  }
+  catch (...) {
+    std::cerr << "Error destroying mpf_handle!" << std::endl;
+  }
+}
 
-    ~TEST_RANDOM() {};
+mpf_handle::ptr_t mpf_handle::open(handle::ptr_t handle,
+                                   uint32_t csr_space, uint64_t csr_offset,
+                                   uint32_t mpf_flags) {
+  mpf_handle_t c_handle = nullptr;
+  ptr_t p;
 
-    // Returns 0 on success
-    int test();
+  auto res = mpfConnect(*handle, csr_space, csr_offset, &c_handle, mpf_flags);
+  ASSERT_FPGA_OK(res);
+  p.reset(new mpf_handle(c_handle));
 
-    uint64_t testNumCyclesExecuted();
+  return p;
+}
 
-  private:
-    void reallocTestBuffers();
-    // Return true about 20% of the time
-    bool rand20();
+fpga_result mpf_handle::close() {
+  if (mpf_handle_ != nullptr) {
+    auto res = mpfDisconnect(mpf_handle_);
+    ASSERT_FPGA_OK(res);
+    mpf_handle_ = nullptr;
+    return FPGA_OK;
+  }
 
-    void dbgRegDump(uint64_t r);
+  return FPGA_OK;
+}
 
-    uint64_t totalCycles;
+bool mpf_handle::shim_present(t_cci_mpf_shim_idx mpf_shim_idx) {
+  if (mpf_handle_ != nullptr) {
+    return mpfShimPresent(mpf_handle_, mpf_shim_idx);
+  }
 
-    // Used to test VTP malloc/free when --buffer-alloc-test=1
-    fpga::types::shared_buffer::ptr_t testBuffers[10];
-    bool doBufferTests;
-};
+  return false;
+}
 
-#endif // _TEST_RANDOM_H_
+}  // end of namespace types
+}  // end of namespace mpf
+}  // end of namespace bbb
+}  // end of namespace fpga
+}  // end of namespace opae

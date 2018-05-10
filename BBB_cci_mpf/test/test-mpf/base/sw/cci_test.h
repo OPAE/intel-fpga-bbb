@@ -38,11 +38,7 @@ using namespace std;
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
-#ifndef USE_LEGACY_AAL
 #include "opae_svc_wrapper.h"
-#else
-#include "aal_svc_wrapper.h"
-#endif
 
 //
 // Interface to a standard test.
@@ -80,24 +76,19 @@ class CCI_TEST
 
     bool hwIsSimulated(void) const { return svc.hwIsSimulated(); }
 
-    void* malloc(size_t nBytes, uint64_t* ioAddress = NULL)
+    fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes)
     {
-        return svc.allocBuffer(nBytes, ioAddress);
-    }
-
-    void free(void* va)
-    {
-        svc.freeBuffer(va);
+        return svc.allocBuffer(nBytes);
     }
 
     void writeTestCSR(uint32_t idx, uint64_t v)
     {
-        svc.mmioWrite64(8 * (TEST_CSR_BASE + idx), v);
+        svc.write_csr64(8 * (TEST_CSR_BASE + idx), v);
     }
 
     uint64_t readTestCSR(uint32_t idx)
     {
-        return svc.mmioRead64(8 * (TEST_CSR_BASE + idx));
+        return svc.read_csr64(8 * (TEST_CSR_BASE + idx));
     }
 
     //
@@ -123,7 +114,7 @@ class CCI_TEST
 
     uint64_t readCommonCSR(t_csr_common idx)
     {
-        return svc.mmioRead64(8 * uint32_t(idx));
+        return svc.read_csr64(8 * uint32_t(idx));
     }
 
     string vcNumToName(uint32_t vcNum)
