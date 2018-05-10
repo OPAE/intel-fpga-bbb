@@ -1,9 +1,6 @@
 # Include MPF
 C:${FPGA_BBB_CCI_SRC}/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt
 
-SI:${FPGA_BBB_CCI_SRC}/BBB_ccip_async/hw/sim/ccip_async_sim_addenda.txt
-QI:${FPGA_BBB_CCI_SRC}/BBB_ccip_async/hw/par/ccip_async_PAR_files.txt
-
 # Common RTL shared by multiple examples
 +incdir+.
 cci_afu_with_mpf.sv
