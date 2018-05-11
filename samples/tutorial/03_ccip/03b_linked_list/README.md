@@ -78,6 +78,15 @@ After running the example successfully, try the following experiment:
 
 - Edit hw/rtl/cci_mpf_app_conf.vh and set MPF_CONF_SORT_READ_RESPONSES to 0.
 
+- Reconfigure the simulator, choosing intg_xeon as the platform to
+  simulate. We choose Integrated Xeon specifically because it has multiple
+  memory channels active to the host, increasing the probability that read
+  responses will arrive out of order:
+
+```console
+$ afu_sim_setup --source hw/rtl/sources.txt build_sim --platform intg_xeon
+```
+
 - Rebuild the simulator by typing "make" in the ASE shell.
 
 - Rerun the experiment by typing "make sim" in the ASE shell and then
