@@ -1,7 +1,7 @@
 include ../../common/sw/common_include.mk
 
 # Primary test name
-TEST = cci_hello
+TEST = hello_mem_afu
 
 # Build directory
 OBJDIR = obj
