@@ -1,5 +1,5 @@
 //
-// Top-level interface with only CCI-P ports.
+// Top-level interface with CCI-P and optional local memory ports.
 //
 
 `include "platform_if.vh"
