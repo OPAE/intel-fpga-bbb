@@ -26,7 +26,7 @@ and is not repeated here.
   collection of base CSRs, available in all applications, as well as an
   array of application-specific CSRs.  There is corresponding RTL to
   manage the CSRs in the FPGA.  The base CSRs are enumerated in
-  t_csr_common in [..base/sw/csr_mgr.h](..base/sw/csr_mgr.h).
+  t_csr_common in [../base/sw/csr_mgr.h](../base/sw/csr_mgr.h).
 
 - With FPGA management now wrapped in a separate class, the
   application-specific code in cci_mpf_hello.cpp is quite short.  Only
@@ -62,10 +62,10 @@ to subsequent examples.
     module corresponding to the software-side CSR class. The common CSR
     manager implements the required AFU device feature header as well as a
     collection of standard event counters. It also implements a vector of CSRs
-    that are passed to the application using the SystemVerilog app_csrs
-    interface. These CSRs are controlled by simple enable bits, allowing the
-    AFU to access CSRs without the complexity of mapping them to CCI MMIO
-    requests.
+    that are passed to the application using the SystemVerilog
+    [app_csrs](../base/hw/rtl/csr_mgr.vh) interface. These CSRs are controlled
+    by simple enable bits, allowing the AFU to access CSRs without the
+    complexity of mapping them to CCI MMIO requests.
 
   - The top-level wrapper then optionally instantiates an MPF instance
     that transforms CCI semantics to those required by the application.
