@@ -65,7 +65,7 @@ module mem_fsm
   input                  mem_error_clr
 );
 
-parameter ADDRESS_MAX_BIT = 6;
+parameter ADDRESS_MAX_BIT = 10;
 
 state_t state;
 assign fsm_state = state;
@@ -131,7 +131,7 @@ always_ff @(posedge clk) begin
 
       TEST_WRITE: begin
         if (~avs_waitrequest) begin
-          if (address == {ADDRESS_MAX_BIT{1'b1}}) begin  //) begin //[ADDRESS_MAX_BIT] == {ADDRESS_MAX_BIT-1{1'b1}}) begin
+          if (address == {ADDRESS_MAX_BIT{1'b1}}) begin
             state <= TEST_READ;
             avs_write <= 0;
             avs_read <= 1;
