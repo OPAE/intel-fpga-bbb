@@ -3,7 +3,7 @@
 As [described above](..), the PIM's primary responsibility is top-level port
 mapping. The examples here are incomplete and do not compile. They demonstrate
 only the initial mapping process from AFU interface requests to physical
-platform offers.
+platform offerings.
 
 OPAE ships with two generic physical platforms described in the
 [platform_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/platform_db):
@@ -20,24 +20,25 @@ systems. There are three sample AFU top-level interfaces in hw/rtl:
 - [hw/rtl/sources_ccip_only.txt](hw/rtl/sources_ccip_only.txt) requests only
   CCI-P ports by naming [hw/rtl/ccip_only.json](hw/rtl/ccip_only.json), which
   requests interface class
-  [ccip_std_afu](https://github.com/OPAE/opae-sdk/blob/master/platforms/afu_top_ifc_db/ccip_std_afu.json).
+  [ccip_std_afu](hw/rtl/ccip_only.sv).
 
 - [hw/rtl/sources_ccip_with_local_mem.txt](hw/rtl/sources_ccip_with_local_mem.txt)
   requests only CCI-P ports by naming
   [hw/rtl/ccip_with_local_mem.json](hw/rtl/ccip_with_local_mem.json), which
   requests interface class
-  [ccip_std_afu_avalon_mm](https://github.com/OPAE/opae-sdk/blob/master/platforms/afu_top_ifc_db/ccip_std_afu_avalon_mm.json).
+  [ccip_std_afu_avalon_mm](hw/rtl/ccip_with_local_mem.sv).
 
 - [hw/rtl/sources_ccip_with_opt_local_mem.txt](hw/rtl/sources_ccip_with_opt_local_mem.txt)
   requests only CCI-P ports by naming
   [hw/rtl/ccip_with_opt_local_mem.json](hw/rtl/ccip_with_opt_local_mem.json),
   which, like ccip_with_local_mem, requests interface class
-  [ccip_std_afu_avalon_mm](https://github.com/OPAE/opae-sdk/blob/master/platforms/afu_top_ifc_db/ccip_std_afu_avalon_mm.json).
-  However, the JSON declares *local memory* optional. The PIM is thus able to
-  satisfy the local memory request whether or not it is available. The
-  preprocessor variable PLATFORM_PROVIDES_LOCAL_MEMORY indicates whether local
-  memory is actually available. AFUs that can adapt to the available of local
-  memory at compile time can take advantage of this optional mapping.
+  ccip_std_afu_avalon_mm. However, the JSON declares *local memory*
+  optional. The PIM is thus able to satisfy the local memory request whether
+  or not it is available. The preprocessor variable
+  [PLATFORM_PROVIDES_LOCAL_MEMORY](hw/rtl/ccip_with_opt_local_mem.sv)
+  indicates whether local memory is actually available. AFUs that can adapt to
+  the available of local memory at compile time can take advantage of this
+  optional mapping.
 
 ## Experiments
 
