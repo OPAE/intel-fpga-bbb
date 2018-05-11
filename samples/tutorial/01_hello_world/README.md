@@ -32,8 +32,7 @@ The software side is contained entirely in [sw/cci_hello.c](sw/cci_hello.c):
 
 - The AFU ID in the software must match the AFU ID in the hardware's DFH.
 
-- Both the MMIO region and the FPGA-accessible shared memory are mapped
-  explicitly.
+- The FPGA-accessible shared memory is mapped explicitly.
 
 - Memory addresses passed to the FIU's CCI request wires are in a
   physical I/O address space. Since all CCI requests refer to entire 512

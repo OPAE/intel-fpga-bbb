@@ -84,23 +84,10 @@ static fpga_handle connect_to_accel(const char *accel_uuid)
     r = fpgaOpen(accel_token, &accel_handle, 0);
     assert(FPGA_OK == r);
 
-    // Map MMIO space
-    r = fpgaMapMMIO(accel_handle, 0, NULL);
-    assert(FPGA_OK == r);
-
     // Done with token
     fpgaDestroyToken(&accel_token);
 
     return accel_handle;
-}
-
-
-static fpga_result disconnect_from_accel(fpga_handle accel_handle)
-{
-    fpgaUnmapMMIO(accel_handle, 0);
-    fpgaClose(accel_handle);
-
-    return FPGA_OK;
 }
 
 
@@ -161,7 +148,7 @@ int main(int argc, char *argv[])
 
     // Done
     fpgaReleaseBuffer(accel_handle, wsid);
-    disconnect_from_accel(accel_handle);
+    fpgaClose(accel_handle);
 
     return 0;
 }
