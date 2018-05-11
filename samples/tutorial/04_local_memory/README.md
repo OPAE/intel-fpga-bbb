@@ -24,9 +24,9 @@ of hello_mem_afu:
 Both the addition of the local memory port to ccip_std_afu and the automated
 clock crossing are driven by the AFU's JSON:
 [hw/rtl/hello_mem_afu.json](hw/rtl/hello_mem_afu.json). When a build is
-configured using either afu_sim_setup or afu_synth_setup, the OPAE Platform
-Interface Manager is invoked to construct an AFU-specific top-level interface
-(https://github.com/OPAE/opae-sdk/tree/master/platforms). The main Platform
+configured using either afu_sim_setup or afu_synth_setup, the OPAE [Platform
+Interface Manager](https://github.com/OPAE/opae-sdk/tree/master/platforms) is
+invoked to construct an AFU-specific top-level interface. The main Platform
 Interface Manager script, afu_platform_config, manages an abstraction layer
 between the FIU and the AFU. This layer governs the set of ports that will be
 passed to the AFU and the clocks associated with those ports.
@@ -53,7 +53,7 @@ ${OPAE_PLATFORM_ROOT}/hw/lib/fme-platform-class.txt. An entry matching the name
 stored in fme-platform-class.txt must be present in the physical platforms
 database. The AFU's top-level interface is stored in the AFU JSON file in the
 afu-top-interface:class field. For hello_mem_afu, that entry is
-"ccip_std_afu_avalon_mm". The class of an interface defines the ports
+*ccip_std_afu_avalon_mm*. The class of an interface defines the ports
 expected by the AFU's top-level module and corresponds to a file in the
 afu_top_ifc_db described above. Note that the class defines port collections,
 not the AFU's top-level module name. The top-level module name typically
@@ -64,7 +64,7 @@ classes are stored in the
 Given a desired top-level interface and a description of a specific physical
 platform, afu_platform_config attempts to satisfy the demands of the AFU. If
 an AFU requests only ccip_std_afu (the interface requested in the previous
-hello_afu example), the request is satisfiable whether or not the physical
+hello world example), the request is satisfiable whether or not the physical
 platform has local memory. In the current example, afu_platform_config will
 fail when a target physical platform does not offer local memory connected to
 an Avalon MM interface.
@@ -83,13 +83,13 @@ interface requirements of the AFU. Older AFUs can be compiled on new physical
 platforms, despite the fact that a new platform may offer device interfaces
 that were defined after the old AFU was written.
 
-## Port classes and clocking
+## Port Classes and Clocking
 
 Interface ports are broken down into classes.  The AFU JSON in
 [hw/rtl/hello_mem_afu.json](hw/rtl/hello_mem_afu.json) modifies two port
-classes: "cci-p" and "local-memory". The clock field is updated. Setting
-"clock" to something other than it's default ("default") or to the interface's
-native clock (e.g. "pClk" for CCI-P) triggers automatic insertion of clock
+classes: *cci-p* and *local-memory*. The clock field is updated. Setting
+*clock* to something other than it's default (*default*) or to the interface's
+native clock (e.g. *pClk* for CCI-P) triggers automatic insertion of clock
 crossing logic from the native domain to the target domain. Any valid clock
 name may be used. Most AFUs will use one of the standard CCI-P clocks
 (pClkDiv2, uClk_usr, etc.). Specifying a local memory clock
@@ -98,9 +98,9 @@ memory bank may have its own clock.
 
 When no clock is specified in the JSON, a port's native clock is unchanged.
 It is not necessary to specify clocks for all interfaces. For example,
-hello_mem_afu could run in the pClk domain by removing the "clock" field
-from class "cci-p" and specifying "pClk" as the clock in class
-"local-memory".
+hello_mem_afu could run in the pClk domain by removing the *clock* field
+from class *cci-p* and specifying *pClk* as the clock in class
+*local-memory*.
 
 Note that not all module port classes offer automatic clock crossing.
 afu_platform_config will fail if a clock crossing is requested that can not
