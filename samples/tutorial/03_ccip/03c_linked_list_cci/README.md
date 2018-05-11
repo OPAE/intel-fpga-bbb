@@ -23,8 +23,8 @@ algorithm and compilation and execution instructions.
 ## Advanced experiment
 
 Change the assignment setting afu.c0Tx.hdr.ext.addrIsVirtual in
-[hw/rtl/linked_list_afu.sv](hw/rtl/linked_list_afu.sv) to 0 instead of
-1. Compile the simulator again and re-run the example. ASE will abort,
+[hw/rtl/linked_list_afu.sv](hw/rtl/linked_list_afu.sv) to 0 instead of 1.
+Compile the simulator again and re-run the example. ASE will abort,
 reporting a read request to an unallocated address. Clearing addrIsVirtual
 disables VTP address translation and virtual addresses are passed all the way
 to the platform. This is one consequence of choosing to write an AFU using
