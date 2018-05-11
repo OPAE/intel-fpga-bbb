@@ -13,6 +13,12 @@ instructions in the README file in the
 [../samples](..)
 directory.
 
+The tutorial documentation is written in Markdown. We suggest you pull a local
+copy of the tutorial in order to compile the examples and that you read the
+tutorial's documentation with a browser. The current version of the tutorial
+is on GitHub in the
+[OPAE Basic Building Blocks tree](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial).
+
 ## Structure
 
 All of the tutorials have two components: CPU-side software in the sw tree
