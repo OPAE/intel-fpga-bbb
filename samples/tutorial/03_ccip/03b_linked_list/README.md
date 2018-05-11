@@ -3,13 +3,13 @@ including the C++ class wrapping OPAE, the CSR manager and the top-level
 RTL module that manages clocking and instantiates MPF. The procedure for
 building and running is unchanged.
 
-The sw/linked_list.cpp software begins by allocating a buffer shared with
-the FPGA. The software then constructs a linked list, using virtual
-addresses to connect the chain. Unique data is written to each record.
-The linked structure is padded so that each record spans four lines -- in
-this case purely to demonstrate multi-line reads. Once initialized, the
-software sends the virtual address of the head of the list to the hardware
-in CSR 1 and waits for a response.
+The [sw/linked_list.cpp](sw/linked_list.cpp) software begins by allocating a
+buffer shared with the FPGA. The software then constructs a linked list, using
+virtual addresses to connect the chain. Unique data is written to each record.
+The linked structure is padded so that each record spans four lines -- in this
+case purely to demonstrate multi-line reads. Once initialized, the software
+sends the virtual address of the head of the list to the hardware in CSR 1 and
+waits for a response.
 
 The hardware consumes the address of the list, walks all nodes in the list,
 and computes a CRC-like checksum of the data fields. Once all nodes are
@@ -40,9 +40,9 @@ New concepts introduced in this example:
 The base top-level module,
 [../base/hw/rtl/cci_afu_with_mpf.sv](../base/hw/rtl/cci_afu_with_mpf.sv),
 loads application-specific preprocessor variables from
-[hw/rtl/cci_mpf_app_conf_default.vh](hw/rtl/cci_mpf_app_conf_default.vh). Note
-there that two MPF options are set: MPF_CONF_ENABLE_VTP and
-MPF_CONF_SORT_READ_RESPONSES. MPF itself is instantiated in
+[hw/rtl/cci_mpf_app_conf.vh](hw/rtl/cci_mpf_app_conf.vh). Note there that two
+MPF options are set: MPF_CONF_ENABLE_VTP and MPF_CONF_SORT_READ_RESPONSES. MPF
+itself is instantiated in
 [../base/hw/rtl/cci_afu_with_mpf.sv](../base/hw/rtl/cci_afu_with_mpf.sv). The
 configuration options that control MPF's transformation of CCI semantics are
 documented there and in the BBB sources:
