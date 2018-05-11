@@ -37,7 +37,7 @@ systems. There are three sample AFU top-level interfaces in hw/rtl:
   preprocessor variable
   [PLATFORM_PROVIDES_LOCAL_MEMORY](hw/rtl/ccip_with_opt_local_mem.sv)
   indicates whether local memory is actually available. AFUs that can adapt to
-  the available of local memory at compile time can take advantage of this
+  the availability of local memory at compile time can take advantage of this
   optional mapping.
 
 ## Experiments
@@ -56,7 +56,7 @@ and
 $ afu_sim_setup --source hw/rtl/sources_ccip_only.txt --platform discrete_pcie3 build_sim -f
 ```
 
-both work. Similarly,
+both work because they require only CCI-P. Similarly,
 
 ```console
 $ afu_sim_setup --source hw/rtl/sources_ccip_with_opt_local_mem.txt --platform intg_xeon build_sim -f
@@ -70,7 +70,7 @@ $ afu_sim_setup --source hw/rtl/sources_ccip_with_opt_local_mem.txt --platform d
 
 both succeed. The difference is that PLATFORM_PROVIDES_LOCAL_MEMORY is present
 in the file build_sim/rtl/platform_afu_top_config.vh only when mapping to
-discrete_pcie3. The platform_afu_top_config.vh is created by
+discrete_pcie3. The platform_afu_top_config.vh file is created by
 [afu_platform_config](https://github.com/OPAE/opae-sdk/blob/master/platforms/scripts/afu_platform_config),
 which is invoked by afu_sim_setup.
 
