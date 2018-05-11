@@ -1,0 +1,2 @@
+ccip_with_local_mem.json
+ccip_with_local_mem.sv
