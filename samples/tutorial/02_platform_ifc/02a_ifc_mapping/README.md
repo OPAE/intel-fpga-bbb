@@ -31,6 +31,7 @@ systems. There are three sample AFU top-level interfaces in hw/rtl:
 - [hw/rtl/sources_ccip_with_opt_local_mem.txt](hw/rtl/sources_ccip_with_opt_local_mem.txt)
   requests CCI-P and local memory ports by naming
   [hw/rtl/ccip_with_opt_local_mem.json](hw/rtl/ccip_with_opt_local_mem.json),
+  which requests the same ccip_std_afu_avalon_mm class as ccip_with_local_mem.
   However, the JSON declares *local memory* optional. The PIM is thus able to
   satisfy the local memory request whether or not it is available. The
   preprocessor variable
