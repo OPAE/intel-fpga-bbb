@@ -12,8 +12,8 @@ CPPFLAGS += -I./$(OBJDIR)
 SRCS = $(TEST).cpp $(BASE_FILE_SRC)
 OBJS = $(addprefix $(OBJDIR)/,$(patsubst %.cpp,%.o,$(SRCS)))
 
-# Targets (build only $(TEST)_ase by default)
-all: $(TEST)_ase
+# Targets
+all: $(TEST) $(TEST)_ase
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
