@@ -24,7 +24,7 @@ will be described in greater detail in [Section 4](../04_local_memory).
 In addition to managing top-level port mapping, the PIM also handles some
 common top-level tasks such as clock crossings. AFU designers may specify the
 clock that should control incoming interfaces, including both CCI-P and local
-memory. For AFUs with simple clocking requirements, it is possible to have the
+memory. For AFUs with simple clocking requirements it is possible to have the
 PIM move all devices to common clocks and avoid clock management within the
 AFU RTL.
 

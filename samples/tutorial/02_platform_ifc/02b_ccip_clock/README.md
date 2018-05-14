@@ -69,11 +69,11 @@ The frequency of the user clock can be set in the AFU JSON. The setting
 triggers two changes:
 
 1. The Quartus project updates the configuration of the user clock and sets
-the proper frequency, enabling timing analysis to apply the proper
+the proper frequency, enabling timing analysis to apply the chosen
 frequency. The frequency is read directly from the AFU JSON during timing
 analysis.
 
-2. The AFU JSON is packaged with the generated bitstream in the generated GBS
+2. The AFU JSON is packaged with the compiled bitstream in the generated GBS
 file. At load time, fpgaconf configures the user-specified clocks.
 
 __The following examples only have interesting behavior when synthesized for
@@ -132,8 +132,8 @@ $ cd build_uClk_auto
 $ $OPAE_PLATFORM_ROOT/bin/run.sh
 ```
 
-When loading these on hardware, note that the achieved frequency uClk in the pClk
-version is likely higher. This is because the uClk frequency in this case is
-limited mainly by the length of the carry chain in the uClk_usr cycle
+When loading these on hardware, note that the achieved frequency of uClk in
+the pClk version is likely higher. This is because the uClk frequency in this
+case is limited mainly by the length of the carry chain in the uClk_usr cycle
 counter. When CCI-P signals are tied to uClk_usr, CCI-P becomes the rate
 limiter.
