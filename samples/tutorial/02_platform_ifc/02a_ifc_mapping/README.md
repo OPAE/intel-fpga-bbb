@@ -1,9 +1,9 @@
 # Platform Interface Manager Port Mapping
 
 As [described above](..), the PIM's primary responsibility is top-level port
-mapping. The examples here are incomplete and do not compile. They demonstrate
-only the initial mapping process from AFU interface requests to physical
-platform offerings.
+mapping. The examples here demonstrate the initial mapping process from AFU
+interface requests to physical platform offerings. They are not full AFUs and
+do not compile.
 
 OPAE ships with two generic physical platforms described in the
 [platform_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/platform_db):
@@ -83,3 +83,9 @@ $ afu_sim_setup --source hw/rtl/sources_ccip_with_local_mem.txt --platform intg_
 Error: ccip_std_afu_avalon_mm needs port local-memory:avalon_mm that intg_xeon doesn't offer
 ...
 ```
+
+## Details
+
+A complete, working local memory example is available in [Section
+4](../../04_local_memory). Section 4 also describes some PIM implementation
+details, including scripts and generated files.
