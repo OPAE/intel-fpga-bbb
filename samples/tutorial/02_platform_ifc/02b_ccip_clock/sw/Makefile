@@ -1,7 +1,7 @@
-include ../../common/sw/common_include.mk
+include ../../../common/sw/common_include.mk
 
 # Primary test name
-TEST = cci_hello
+TEST = clock_freq_test
 
 # Build directory
 OBJDIR = obj
@@ -17,7 +17,7 @@ all: $(TEST) $(TEST)_ase
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
-$(AFU_JSON_INFO): ../hw/rtl/$(TEST).json | objdir
+$(AFU_JSON_INFO): ../hw/rtl/clock_freq_pClk.json | objdir
 	afu_json_mgr json-info --afu-json=$^ --c-hdr=$@
 $(OBJS): $(AFU_JSON_INFO)
 

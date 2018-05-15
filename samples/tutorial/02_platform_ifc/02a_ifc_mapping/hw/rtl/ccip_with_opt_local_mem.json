@@ -1,0 +1,25 @@
+{
+   "version": 1,
+   "afu-image": {
+      "power": 0,
+      "afu-top-interface":
+         {
+            "class": "ccip_std_afu_avalon_mm",
+            "module-ports" :
+               [
+                  {
+                     "class": "local-memory",
+                     "optional": true
+                  }
+               ]
+         },
+      "accelerator-clusters":
+         [
+            {
+               "name": "ccip_with_local_mem",
+               "total-contexts": 1,
+               "accelerator-type-uuid": "a95e8064-4e64-4945-9f29-7247de61538c"
+            }
+         ]
+   }
+}

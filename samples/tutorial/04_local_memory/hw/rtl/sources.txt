@@ -1,0 +1,7 @@
+hello_mem_afu.json
+
+ccip_interface_reg.sv
+ccip_std_afu.sv
+hello_mem_afu.sv
+mem_csr.sv
+mem_fsm.sv
