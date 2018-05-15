@@ -60,7 +60,7 @@ $ make
 $ make sim
 ```
 
-Rerun the sw/clock_freq_test_ase after updating ASE_WORKDIR and note that the
+Rerun sw/clock_freq_test_ase after updating ASE_WORKDIR and note that the
 CCI-P clock frequency now matches pClkDiv2.
 
 ## User Clock Frequency

@@ -1,9 +1,8 @@
 # Platform Interface Manager Port Mapping
 
-As [described above](..), the PIM's primary responsibility is top-level port
-mapping. The examples here demonstrate the initial mapping process from AFU
-interface requests to physical platform offerings. They are not full AFUs and
-do not compile.
+The PIM's primary responsibility is top-level port mapping. The examples here
+demonstrate the initial mapping process from AFU interface requests to
+physical platform offerings. They are not full AFUs and do not compile.
 
 OPAE ships with two generic physical platforms described in the
 [platform_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/platform_db):

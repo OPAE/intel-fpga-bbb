@@ -10,7 +10,7 @@ releases](https://github.com/OPAE/intel-fpga-bbb/tree/master/platform-ifc-mgr-co
 and make them compatible with the PIM are available.
 
 The PIM abstraction layer allows AFUs that connect only to CCI-P to compile on
-any physical platform, independent of the other local device wires may be
+any physical platform, independent of the other local device wires that may be
 available at the AFU's top-level interface.
 
 ## Ports

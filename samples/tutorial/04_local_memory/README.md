@@ -154,3 +154,30 @@ $ afu_sim_setup --source hw/rtl/sources.txt --platform discrete_pcie3 build_sim
 
 The included [hw/sim/setup_ase](hw/sim/setup_ase) includes this platform
 switch.
+
+## Avalon MM SystemVerilog Interface
+
+The local memory banks are passed to the AFU as a vector of SystemVerilog
+interfaces:
+[avalon_mem_if.vh](https://github.com/OPAE/opae-sdk/blob/master/platforms/platform_if/rtl/device_if/avalon_mem_if.vh).
+The SystemVerilog interface wraps the usual Avalon MM signals. These wrapped
+signals are easily mapped to individual Avalon wire names or ports, if
+desired.
+
+AFU JSON may specify both the minimum and maximum number of banks the AFU will
+accept. (See min-entries and max-entries in
+[afu_top_ifc_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/afu_top_ifc_db).
+While an ideal AFU would adapt to the number of banks available, this is
+sometimes too difficult. When a specific range of banks is specified, the
+Platform Interface Manager will either fail if the target platform has fewer
+banks available than the AFU's minimum or will tie off unused banks beyond the
+AFU's maximum.
+
+## Debugging Local Memory Traffic
+
+The SystemVerilog Avalon MM interface includes an optional traffic logger when
+running in an RTL simulator. By default, logging is enabled at the FIU
+edge. It is also enabled on the AFU side of PIM-instantiated local memory
+clock crossing shims. The traffic log from ASE simulator runs is stored in
+work/avalon_mem_if.tsv. This is the same directory that holds the CCI-P
+transaction log: work/ccip_transactions.tsv.
