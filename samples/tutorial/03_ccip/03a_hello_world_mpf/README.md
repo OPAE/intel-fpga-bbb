@@ -5,21 +5,19 @@ example adds modules on both the software and hardware sides that reduce the
 size and complexity of the algorithm-specific code. The example also switches
 to C++ and instantiates C++ classes included in OPAE.
 
-The process for building this example is identical to the previous ones
-and is not repeated here.
+The process for building this example is identical to the original [hello
+world](../../01_hello_world/) and is not repeated here.
 
 ## Software
 
-- Management of the OPAE code to connect to an accelerator is moved to a common
-  C++ class, found in
+- Management of the OPAE code to connect to an accelerator is moved to a
+  common C++ class, found in
   [../base/sw/opae_svc_wrapper.h](../base/sw/opae_svc_wrapper.h) and
   [../base/sw/opae_svc_wrapper.cpp](../base/sw/opae_svc_wrapper.cpp). The
   class contains methods that wrap a number of OPAE services: connecting to an
-  accelerator, MMIO (CSR register) read and write, and shared buffer allocation.
-  The implementation of these services inside opae_svc_wrapper.cpp is nearly
-  identical to the straight-line implementation in the previous example.  The
-  class adds one new concept: a method that detects at run time whether the
-  software is connected to an actual accelerator or to ASE.
+  accelerator, MMIO (CSR register) read and write, and shared buffer
+  allocation. The class adds one new concept: a method that detects at run
+  time whether the software is connected to an actual accelerator or to ASE.
 
 - A second base class adds a logical vector of CSRs that are layered on
   top of a region of the MMIO address space.  The class defines a
@@ -29,13 +27,14 @@ and is not repeated here.
   t_csr_common in [../base/sw/csr_mgr.h](../base/sw/csr_mgr.h).
 
 - With FPGA management now wrapped in a separate class, the
-  application-specific code in cci_mpf_hello.cpp is quite short.  Only
-  the main steps are needed:
-    1. Connect to an accelerator with the expected UUID.
-    2. Connect to the CSR manager.
-    3. Allocate a shared memory buffer.
-    4. Send the address of the buffer to the accelerator.
-    5. Wait for and print the response.
+  application-specific code in [sw/cci_mpf_hello.cpp](sw/cci_mpf_hello.cpp)
+  is quite short. Only the main steps are needed:
+
+  1. Connect to an accelerator with the expected UUID.
+  2. Connect to the CSR manager.
+  3. Allocate a shared memory buffer.
+  4. Send the address of the buffer to the accelerator.
+  5. Wait for and print the response.
 
 ## Hardware
 
