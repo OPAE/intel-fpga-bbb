@@ -50,12 +50,13 @@ to subsequent examples.
     mechanism was described in [Section 2](../../02_platform_ifc).
 
   - Next, the CCI signals are transformed to the MPF BBB's SystemVerilog
-    interface representation of CCI wires. cci_mpf_if wraps all CCI
-    request and response signals in a single object, thus simplifying
-    module interfaces -- especially when the modules have multiple CCI
-    connections. The transformation to an MPF interface was not required for
-    this hello world example, but will be required in subsequent examples that
-    introduce MPF shims.
+    interface representation of CCI
+    wires. [cci_mpf_if](https://github.com/OPAE/intel-fpga-bbb/blob/master/BBB_cci_mpf/hw/rtl/cci-mpf-if/cci_mpf_if.vh)
+    wraps all CCI request and response signals in a single object, thus
+    simplifying module interfaces -- especially when the modules have multiple
+    CCI connections. The transformation to an MPF interface was not required
+    for this hello world example, but will be required in subsequent examples
+    that introduce MPF shims.
 
   - [csr_mgr](../base/hw/rtl/csr_mgr.sv) is instantiated next. This is the
     module corresponding to the software-side CSR class. The common CSR
@@ -100,7 +101,7 @@ completed, type "make wave" and a waveform viewer will load the result of
 the run.  Note:
 
 - ase_top/platform_shim_ccip_std_afu/ccip_std_afu is the top-level module in
-  cci_afh_with_mpf.sv.
+  cci_afu_with_mpf.sv.
 
 - .../ccip_std_afu/pClk is the primary CCI clock.
 
