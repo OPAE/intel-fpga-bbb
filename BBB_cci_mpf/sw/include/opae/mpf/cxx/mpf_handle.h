@@ -50,7 +50,7 @@ public:
 
   /** Retrieve the underlying mpf_handle.
    */
-  mpf_handle_t get() const { return mpf_handle_; }
+  mpf_handle_t c_type() const { return mpf_handle_; }
 
   /** Retrieve the underlying mpf_handle.
    */

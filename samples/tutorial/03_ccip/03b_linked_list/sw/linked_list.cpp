@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
     // buffer.  The accelerator instantiates MPF's VTP and will use
     // virtual addresses.
     auto result_buf_handle = fpga.allocBuffer(getpagesize());
-    auto result_buf = reinterpret_cast<volatile uint64_t*>(result_buf_handle->get());
+    auto result_buf = reinterpret_cast<volatile uint64_t*>(result_buf_handle->c_type());
     assert(NULL != result_buf);
 
     // Set the low word of the shared buffer to 0.  The FPGA will write
@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
     // a private TLB to map virtual addresses from this process to FPGA-side
     // physical addresses.
     auto list_buf_handle = fpga.allocBuffer(16 * 1024 * 1024);
-    auto list_buf = reinterpret_cast<volatile t_linked_list*>(list_buf_handle->get());
+    auto list_buf = reinterpret_cast<volatile t_linked_list*>(list_buf_handle->c_type());
     assert(NULL != list_buf);
 
     // Initialize a linked list in the buffer
