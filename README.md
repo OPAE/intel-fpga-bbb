@@ -1,7 +1,7 @@
 # Intel FPGA Basic Building Blocks (BBB) #
 
 Basic Building Blocks (BBB) for Intel FPGAs is a suite of application
-building blocks and shims for transforming the CCI-P interface.
+building blocks and shims for transforming the CCI-P interface. 
 
 For detailed documentation of the building blocks, please visit the [BBB
 Wiki](https://github.com/OPAE/intel-fpga-bbb/wiki "BBB Wiki").
