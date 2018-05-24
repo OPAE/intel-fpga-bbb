@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 
     // Allocate a single page memory buffer
     auto buf_handle = fpga.allocBuffer(getpagesize());
-    auto buf = reinterpret_cast<volatile char*>(buf_handle->get());
+    auto buf = reinterpret_cast<volatile char*>(buf_handle->c_type());
     uint64_t buf_pa = buf_handle->iova();
     assert(NULL != buf);
 
