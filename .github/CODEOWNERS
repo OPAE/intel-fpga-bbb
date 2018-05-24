@@ -4,4 +4,4 @@
 # (which is defined by the paths of the files touched by a
 # pull request).
 
-/          @OPAE/bbb
+*          @OPAE/bbb
