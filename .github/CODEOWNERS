@@ -1,0 +1,7 @@
+# List of maintainers for the intel-fpga-bbb
+#
+# Maintainers will be assigned as reviewers on every pull request 
+# (which is defined by the paths of the files touched by a
+# pull request).
+
+/          @OPAE/bbb
