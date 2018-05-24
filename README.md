@@ -1,7 +1,7 @@
 # Intel FPGA Basic Building Blocks (BBB) #
 
 Basic Building Blocks (BBB) for Intel FPGAs is a suite of application
-building blocks and shims for transforming the CCI-P interface.
+building blocks and shims for transforming the CCI-P interface. 
 
 For detailed documentation of the building blocks, please visit the [BBB
 Wiki](https://github.com/OPAE/intel-fpga-bbb/wiki "BBB Wiki").
@@ -10,7 +10,7 @@ Wiki](https://github.com/OPAE/intel-fpga-bbb/wiki "BBB Wiki").
 
 **Memory Properties Factory (MPF)**: MPF shims may be mixed and matched to
 add features to the base CCI-P memory interface. Features include: virtual
-memory, ordered read responses, read/write hazard detection, and masked
+memory, ordered read responses, read/write hazard detection, and masked 
 (partial) writes.
 
 ## [BBB_ccip_async](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_ccip_async) ##
