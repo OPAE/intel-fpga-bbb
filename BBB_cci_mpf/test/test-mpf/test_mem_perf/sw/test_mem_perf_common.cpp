@@ -45,7 +45,7 @@ TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
 {
     // Allocate memory for control
     dsm_buf_handle = this->allocBuffer(getpagesize());
-    dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->get());
+    dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->c_type());
     if (dsm == NULL) return false;
     memset((void*)dsm, 0, getpagesize());
 
@@ -60,7 +60,7 @@ TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
     // Allocate two buffers worth plus an extra 2MB page to allow for alignment
     // changes.
     buffer_handle = this->allocBuffer(2 * buffer_bytes + 2048 * 1024);
-    rd_mem = (uint64_t*)(buffer_handle->get());
+    rd_mem = (uint64_t*)(buffer_handle->c_type());
     if (rd_mem == NULL) return false;
     // Align to minimize cache conflicts
     wr_mem = (uint64_t*)(uint64_t(rd_mem) + buffer_bytes + 512 * CL(1));

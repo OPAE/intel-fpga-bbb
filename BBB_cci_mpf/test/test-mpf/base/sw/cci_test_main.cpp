@@ -79,25 +79,25 @@ int main(int argc, char *argv[])
         vcmap_dynamic = false;
     }
 
-    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_VC_MAP))
+    if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_VC_MAP))
     {
         cout << "# Configuring VC MAP shim..." << endl;
-        mpfVcMapSetMapAll(svc.mpf->get(), vcmap_all);
+        mpfVcMapSetMapAll(svc.mpf->c_type(), vcmap_all);
 
         if (! vcmap_only_writes)
         {
             // Normal mode -- map both read and write requests
-            mpfVcMapSetMode(svc.mpf->get(), vcmap_enable, vcmap_dynamic, 0);
+            mpfVcMapSetMode(svc.mpf->c_type(), vcmap_enable, vcmap_dynamic, 0);
         }
         else
         {
             // Abnormal mode for experimentation -- map only writes
-            mpfVcMapSetMapOnlyReadsOrWrites(svc.mpf->get(), true);
+            mpfVcMapSetMapOnlyReadsOrWrites(svc.mpf->c_type(), true);
         }
         
         if (vcmap_fixed_vl0_ratio >= 0)
         {
-            mpfVcMapSetFixedMapping(svc.mpf->get(), true, vcmap_fixed_vl0_ratio);
+            mpfVcMapSetFixedMapping(svc.mpf->c_type(), true, vcmap_fixed_vl0_ratio);
         }
     }
 
@@ -182,10 +182,10 @@ int main(int argc, char *argv[])
 
     bool vtp_available;
     mpf_vtp_stats vtp_stats;
-    vtp_available = mpfVtpIsAvailable(svc.mpf->get());
+    vtp_available = mpfVtpIsAvailable(svc.mpf->c_type());
     if (vtp_available)
     {
-        mpfVtpGetStats(svc.mpf->get(), &vtp_stats);
+        mpfVtpGetStats(svc.mpf->c_type(), &vtp_stats);
     }
     if (vtp_available)
     {
@@ -201,11 +201,11 @@ int main(int argc, char *argv[])
              << vtp_stats.numTLBMisses2MB << endl;
     }
 
-    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_VC_MAP))
+    if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_VC_MAP))
     {
         mpf_vc_map_stats vcmap_stats;
-        uint64_t history = mpfVcMapGetMappingHistory(svc.mpf->get());
-        mpfVcMapGetStats(svc.mpf->get(), &vcmap_stats);
+        uint64_t history = mpfVcMapGetMappingHistory(svc.mpf->c_type());
+        mpfVcMapGetStats(svc.mpf->c_type(), &vcmap_stats);
         if (! vcmap_enable)
         {
             cout << "#" << endl
@@ -220,16 +220,16 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_LATENCY_QOS))
+    if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_LATENCY_QOS))
     {
         cout << "#" << endl
              << "#   Latency QoS enabled" << endl;
     }
 
-    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_WRO))
+    if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_WRO))
     {
         mpf_wro_stats wro_stats;
-        mpfWroGetStats(svc.mpf->get(), &wro_stats);
+        mpfWroGetStats(svc.mpf->c_type(), &wro_stats);
 
         cout << "#" << endl;
         cout << "#   WRO conflict cycles RR:   " << wro_stats.numConflictCyclesRR;
@@ -259,10 +259,10 @@ int main(int argc, char *argv[])
         cout << endl;
     }
 
-    if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_PWRITE))
+    if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_PWRITE))
     {
         mpf_pwrite_stats pwrite_stats;
-        mpfPwriteGetStats(svc.mpf->get(), &pwrite_stats);
+        mpfPwriteGetStats(svc.mpf->c_type(), &pwrite_stats);
 
         cout << "#" << endl
              << "#   PWRITE partial writes:    " << pwrite_stats.numPartialWrites

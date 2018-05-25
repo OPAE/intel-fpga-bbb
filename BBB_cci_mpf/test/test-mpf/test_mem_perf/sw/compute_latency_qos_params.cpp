@@ -140,9 +140,9 @@ int TEST_MEM_PERF::test()
                                                (c0_qos_epoch_len << 32) |
                                                (c1_qos_epoch_len << 48));
 
-                        if (mpfShimPresent(svc.mpf->get(), CCI_MPF_SHIM_LATENCY_QOS))
+                        if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_LATENCY_QOS))
                         {
-                            mpfLatencyQosSetConfig(svc.mpf->get(), qos_config);
+                            mpfLatencyQosSetConfig(svc.mpf->c_type(), qos_config);
                         }
 
                         assert(runTestN(&config, &stats, 2) == 0);

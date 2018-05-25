@@ -78,7 +78,7 @@ int TEST_CCI_MPF_NULL::test()
 {
     // Allocate memory for control
     auto dsm_buf_handle = this->allocBuffer(getpagesize());
-    auto dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->get());
+    auto dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->c_type());
     uint64_t dsm_pa = dsm_buf_handle->iova();
     assert(NULL != dsm);
     memset((void*)dsm, 0, getpagesize());
@@ -95,7 +95,7 @@ int TEST_CCI_MPF_NULL::test()
     {
         const uint64_t n_bytes = 2 * 1024 * 1024;
         buf_handle[i] = this->allocBuffer(n_bytes);
-        buf[i] = reinterpret_cast<volatile uint64_t*>(buf_handle[i]->get());
+        buf[i] = reinterpret_cast<volatile uint64_t*>(buf_handle[i]->c_type());
         buf_pa[i] = buf_handle[i]->iova();
         assert(NULL != buf[i]);
         memset((void*)buf[i], 0, n_bytes);
