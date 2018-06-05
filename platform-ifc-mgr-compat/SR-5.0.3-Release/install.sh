@@ -104,13 +104,20 @@ echo "# =====================================" >> hw/lib/build/bdw_503_pr_afu.qs
 echo "Adding hw/lib/build/platform/green_top.sv..."
 cp "${SCRIPT_DIR}/files/green_top.sv" hw/lib/build/platform/
 
-# Copy user clock constraints
-echo "Adding hw/lib/build/bdw_user_clocks.sdc..."
-cp "${SCRIPT_DIR}/files/bdw_user_clocks.sdc" hw/lib/build/
+# Copy new a10_partial_reconfig scripts
+echo "Adding hw/lib/build/a10_partial_reconfig..."
+mkdir hw/lib/build/a10_partial_reconfig
+cp "${SCRIPT_DIR}"/files/a10_partial_reconfig/*.sdc hw/lib/build/a10_partial_reconfig/
+cp "${SCRIPT_DIR}"/files/a10_partial_reconfig/*.tcl hw/lib/build/a10_partial_reconfig/
+
+# Copy platform DB
+echo "Creating hw/lib/platform/platform_db..."
+mkdir -p hw/lib/platform/platform_db
+cp "${SCRIPT_DIR}"/files/platform_db/*[^~] hw/lib/platform/platform_db/
 
 # Tag the platform type
 echo "Storing platform name in hw/lib/fme-platform-class.txt..."
-echo intg_xeon > hw/lib/fme-platform-class.txt
+echo a10_gx_intg_xeon_bdx > hw/lib/fme-platform-class.txt
 
 echo 00000000-0000-0000-0000-000000000000 > hw/lib/fme-ifc-id.txt
 
@@ -125,7 +132,7 @@ set_global_assignment -name SDC_FILE BDW_base.sdc
 
 set_global_assignment -name SYSTEMVERILOG_FILE ./platform/green_top.sv
 set_global_assignment -name QSYS_FILE ./platform/AFU_debug/SCJIO.qsys
-set_global_assignment -name SDC_FILE bdw_user_clocks.sdc
+set_global_assignment -name SDC_FILE a10_partial_reconfig/user_clocks.sdc
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ./platform/platform_if_addenda.qsf
 set_global_assignment -name SEARCH_PATH ../hw
 set_global_assignment -name SOURCE_TCL_SCRIPT_FILE ../hw/afu.qsf

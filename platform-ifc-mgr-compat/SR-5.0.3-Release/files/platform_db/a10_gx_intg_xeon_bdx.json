@@ -1,0 +1,46 @@
+{
+   "version": 1,
+   "platform-name": "a10_gx_intg_xeon_bdx",
+   "description": "Integrated Broadwell Xeon + Arria 10 with QPI/UPI and two PCIe host channels",
+   "ase-platform": "intg_xeon",
+
+   "comment":
+      [
+         "These will be defined as Verilog preprocessor macros and may be",
+         "tested in RTL after platform_if.vh is loaded."
+      ],
+   "define":
+      [
+         "PLATFORM_FPGA_FAMILY_A10",
+         "PLATFORM_FPGA_FAMILY_A10_GX",
+         "PLATFORM_FPGA_INTG_XEON",
+         "PLATFORM_FPGA_INTG_XEON_BDX"
+      ],
+
+   "module-ports-offered" :
+      [
+         {
+            "class": "clocks",
+            "interface": "pClk3_usr2"
+         },
+         {
+            "class": "power",
+            "interface": "2bit",
+            "optional": true
+         },
+         {
+            "class": "error",
+            "interface": "1bit",
+            "optional": true
+         },
+         {
+            "class": "cci-p",
+            "interface": "struct",
+            "params":
+               {
+                  "c0-supported-reqs": "(C0_REQ_RDLINE_S | C0_REQ_RDLINE_I)",
+                  "c1-supported-reqs": "(C1_REQ_WRLINE_S | C1_REQ_WRLINE_I | C1_REQ_WRFENCE)"
+               }
+         }
+      ]
+}
