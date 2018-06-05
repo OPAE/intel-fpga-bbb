@@ -111,9 +111,9 @@ fpga_result
 OPAE_SVC_WRAPPER::findAndOpenAccel(const char* accel_uuid)
 {
     // Look for accelerator with AFU ID
-    properties filter;
-    filter.guid.parse(accel_uuid);
-    filter.type = FPGA_ACCELERATOR;
+    auto filter = properties::get();
+    filter->guid.parse(accel_uuid);
+    filter->type = FPGA_ACCELERATOR;
 
     std::vector<token::ptr_t> tokens;
     try
@@ -152,15 +152,15 @@ bool
 OPAE_SVC_WRAPPER::probeForASE()
 {
     // The BBS ID of the ASE device is 0xa5e.
-    properties dev_filter;
-    dev_filter.type = FPGA_DEVICE;
+    auto dev_filter = properties::get();
+    dev_filter->type = FPGA_DEVICE;
 
     try
     {
         auto tokens = token::enumerate({dev_filter});
         if (tokens.size() == 0) return false;
 
-        auto dev_props = properties::read(tokens[0]);
+        auto dev_props = properties::get(tokens[0]);
         return (0xa5e == dev_props->bbs_id);
     }
     catch (const opae::fpga::types::no_driver& nd)
