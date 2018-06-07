@@ -234,5 +234,14 @@ echo ""
 echo "==========================================================================="
 echo " SKX-P 6.4.0 AFU compilation complete"
 echo " AFU gbs file is ${GBS_FILE}"
+
+if [ -s build/output_files/timing_report/clocks.sta.fail.summary ]; then
+    echo
+    echo "  *** Design does not meet timing. See build/output_files/timing_report. ***"
+    echo
+else
+    echo "Design meets timing"
+fi
+
 echo "==========================================================================="
 echo ""

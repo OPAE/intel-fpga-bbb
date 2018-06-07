@@ -9,6 +9,10 @@ namespace eval userClocks {
     variable u_clk_name {uClk_usr}
     variable u_clkdiv2_fmax 600
     variable u_clk_fmax 600
+
+    # Auto mode faster than 500 MHz is triggering timing failures, so limit it
+    # to 500 MHz on BDX.  Most AFUs are significantly slower than this anyway.
+    variable u_clk_auto_fmax 500
 }
 
 ##
