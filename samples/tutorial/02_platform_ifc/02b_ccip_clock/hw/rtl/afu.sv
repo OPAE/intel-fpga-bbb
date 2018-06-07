@@ -45,7 +45,7 @@ module afu
     logic [63:0] reset_counter = 0;
     logic [63:0] enable_counter = 0;
 
-    localparam N_COUNTER_BITS = 48;
+    localparam N_COUNTER_BITS = 40;
 
     logic [N_COUNTER_BITS-1:0] counter_max = 0;
     logic [N_COUNTER_BITS-1:0] counter_pclk_value;
@@ -56,7 +56,7 @@ module afu
     logic [N_COUNTER_BITS-1:0] counter_clk_value;
 
     logic max_value_reached;
-    clock_counter#(N_COUNTER_BITS) counter_pclk_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_pclk_inst (
         .clk(clk),
         .count_clk(pClk),
         .count(counter_pclk_value),
@@ -66,7 +66,7 @@ module afu
         .enable(enable_counter[0])
     );
 
-    clock_counter#(N_COUNTER_BITS) counter_pclk_div2_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_pclk_div2_inst (
         .clk(clk),
         .count_clk(pClkDiv2),
         .count(counter_pclk_div2_value),
@@ -76,7 +76,7 @@ module afu
         .enable(enable_counter[0] & ~max_value_reached)
     );
 
-    clock_counter#(N_COUNTER_BITS) counter_pclk_div4_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_pclk_div4_inst (
         .clk(clk),
         .count_clk(pClkDiv4),
         .count(counter_pclk_div4_value),
@@ -86,7 +86,7 @@ module afu
         .enable(enable_counter[0] & ~max_value_reached)
     );
 
-    clock_counter#(N_COUNTER_BITS) counter_clkusr_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_clkusr_inst (
         .clk(clk),
         .count_clk(uClk_usr),
         .count(counter_clkusr_value),
@@ -96,7 +96,7 @@ module afu
         .enable(enable_counter[0] & ~max_value_reached)
     );
 
-    clock_counter#(N_COUNTER_BITS) counter_clkusr_div2_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_clkusr_div2_inst (
         .clk(clk),
         .count_clk(uClk_usrDiv2),
         .count(counter_clkusr_div2_value),
@@ -106,7 +106,7 @@ module afu
         .enable(enable_counter[0] & ~max_value_reached)
     );
 
-    clock_counter#(N_COUNTER_BITS) counter_clk_inst (
+    clock_counter#(.COUNTER_WIDTH(N_COUNTER_BITS)) counter_clk_inst (
         .clk(clk),
         .count_clk(clk),
         .count(counter_clk_value),
@@ -277,10 +277,8 @@ module clock_counter_impl
     input  logic enable
     );
 
-    reg sync_enable;
-    logic max_value_reached_wire;
-
-    assign max_value_reached_wire = !max_value ? 1'b0 : (count >= max_value);
+    logic sync_enable;
+    logic max_value_is_set;
 
     always_ff @(posedge count_clk)
     begin
@@ -291,7 +289,9 @@ module clock_counter_impl
         end
         else
         begin
-            max_value_reached <= max_value_reached_wire;
+            max_value_reached <= max_value_reached ||
+                                 (max_value_is_set && (count == max_value));
+
             if (sync_enable & ~max_value_reached)
             begin
                 count <= count + 1;
@@ -299,5 +299,6 @@ module clock_counter_impl
         end
 
         sync_enable <= enable;
+        max_value_is_set <= (|(max_value));
     end
 endmodule
