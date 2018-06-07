@@ -240,7 +240,7 @@ if [ -s build/output_files/timing_report/clocks.sta.fail.summary ]; then
     echo "  *** Design does not meet timing. See build/output_files/timing_report. ***"
     echo
 else
-    echo "Design meets timing"
+    echo " Design meets timing"
 fi
 
 echo "==========================================================================="
