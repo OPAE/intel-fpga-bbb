@@ -138,5 +138,15 @@ echo ""
 echo "==========================================================================="
 echo " PR AFU compilation complete"
 echo " AFU gbs file is '${GBS_FILE}'"
+
+TIMING_SUMMARY_FILE="build/output_files/timing_report/clocks.sta.fail.summary"
+if [ -s "${TIMING_SUMMARY_FILE}" ]; then
+    echo
+    echo "  *** Design does not meet timing. See build/output_files/timing_report. ***"
+    echo
+elif [ -f "${TIMING_SUMMARY_FILE}" ]; then
+    echo " Design meets timing"
+fi
+
 echo "==========================================================================="
 echo ""

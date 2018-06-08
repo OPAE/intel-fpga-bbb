@@ -148,15 +148,24 @@ fi
 # -------------
 if [ $ASM_SUCCESS -eq 0 ]
 then
-    quartus_sta --do_report_timing $PROJ_REV1_NAME -c $PROJ_REV3_NAME
+    (quartus_sta --do_report_timing $PROJ_REV1_NAME -c $PROJ_REV3_NAME \
+     && quartus_sh -t ./a10_partial_reconfig/user_clock_freqs_compute.tcl --project=$PROJ_REV1_NAME --revision=$PROJ_REV3_NAME \
+     && quartus_sta -t ./a10_partial_reconfig/report_timing.tcl --project=$PROJ_REV1_NAME --revision=$PROJ_REV3_NAME)
+    TIME_SUCCESS=$?
 else
-    echo "Persona compilation failed"
+    echo "AFU bitstream generation failed"
     exit 1
+fi
+
+# Load any user clock frequency updates
+UCLK_CFG=""
+if [ -f output_files/user_clock_freq.txt ]; then
+    UCLK_CFG="$(grep -v '^#' output_files/user_clock_freq.txt)"
 fi
 
 # Generate output files for PR persona
 # ------------------------------------
-if [ $ASM_SUCCESS -eq 0 ]
+if [ $TIME_SUCCESS -eq 0 ]
 then
     echo "Generating PR rbf file"
     ./generate_pr_bitstream.sh
@@ -171,7 +180,7 @@ cd ..
               --gbs="${GBS_FILE}" \
               --afu-json="${AFU_JSON}" \
               --rbf=./build/output_files/bdw_503_pr_afu.rbf \
-              --set-value=interface-uuid:"${INTERFACE_UUID}"
+              --set-value interface-uuid:"${INTERFACE_UUID}" ${UCLK_CFG}
 PACKAGER_RETCODE=$?
 
 if [ $PACKAGER_RETCODE -ne 0 ]; then
@@ -181,7 +190,17 @@ fi
 
 echo ""
 echo "======================================================="
-echo "BDW 503 PR AFU compilation complete"
-echo "AFU gbs file located at ${GBS_FILE}"
+echo " BDW 503 PR AFU compilation complete"
+echo " AFU gbs file located at ${GBS_FILE}"
+
+TIMING_SUMMARY_FILE="build/output_files/timing_report/clocks.sta.fail.summary"
+if [ -s "${TIMING_SUMMARY_FILE}" ]; then
+    echo
+    echo "  *** Design does not meet timing. See build/output_files/timing_report. ***"
+    echo
+elif [ -f "${TIMING_SUMMARY_FILE}" ]; then
+    echo " Design meets timing"
+fi
+
 echo "======================================================="
 echo ""
