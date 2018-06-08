@@ -190,15 +190,16 @@ fi
 
 echo ""
 echo "======================================================="
-echo "BDW 503 PR AFU compilation complete"
-echo "AFU gbs file located at ${GBS_FILE}"
+echo " BDW 503 PR AFU compilation complete"
+echo " AFU gbs file located at ${GBS_FILE}"
 
-if [ -s build/output_files/timing_report/clocks.sta.fail.summary ]; then
+TIMING_SUMMARY_FILE="build/output_files/timing_report/clocks.sta.fail.summary"
+if [ -s "${TIMING_SUMMARY_FILE}" ]; then
     echo
     echo "  *** Design does not meet timing. See build/output_files/timing_report. ***"
     echo
-else
-    echo "Design meets timing"
+elif [ -f "${TIMING_SUMMARY_FILE}" ]; then
+    echo " Design meets timing"
 fi
 
 echo "======================================================="

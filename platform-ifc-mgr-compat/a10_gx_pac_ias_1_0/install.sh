@@ -90,9 +90,9 @@ cp "${SCRIPT_DIR}/files/green_bs.sv" "hw/lib/build/platform/green_bs.sv"
 echo "Adding hw/lib/build/dcp_user_clocks.sdc..."
 cp "${SCRIPT_DIR}/files/dcp_user_clocks.sdc" "hw/lib/build/dcp_user_clocks.sdc"
 
-# Copy new compute_user_clock_freqs.tcl
-echo "Adding hw/lib/build/a10_partial_reconfig/compute_user_clocks_freqs.tcl..."
-cp "${SCRIPT_DIR}/files/compute_user_clock_freqs.tcl" hw/lib/build/a10_partial_reconfig/
+# Copy new a10_partial_reconfig scripts
+echo "Updating hw/lib/build/a10_partial_reconfig..."
+cp "${SCRIPT_DIR}"/files/a10_partial_reconfig/*.tcl hw/lib/build/a10_partial_reconfig/
 
 # Remove files that are no longer needed
 if [ -f hw/lib/build/platform/ccip_if_pkg.sv ]; then
