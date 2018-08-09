@@ -243,6 +243,12 @@ module cci_mpf
         )
       pwrite();
 
+    cci_mpf_shim_pwrite_lock_if
+      #(
+        .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES)
+        )
+      pwrite_lock();
+
     cci_mpf_shim_vtp_pt_walk_if pt_walk();
 
     cci_mpf_shim_edge_fiu
@@ -264,7 +270,8 @@ module cci_mpf
         .afu(stgm2_mpf_fiu),
         .afu_edge(edge_if),
         .pt_walk,
-        .pwrite
+        .pwrite,
+        .pwrite_lock
         );
 
 
@@ -368,6 +375,8 @@ module cci_mpf
         .mpf_csrs,
         .edge_if,
         .pwrite,
+        .pwrite_afu(pwrite),
+        .pwrite_lock,
         .vtp_svc(vtp_svc_ports[0:1])
         );
 

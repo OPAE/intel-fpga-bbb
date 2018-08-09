@@ -57,6 +57,7 @@ module cci_mpf_shim_pwrite
 
     // Interface to the MPF FIU edge module
     cci_mpf_shim_pwrite_if.pwrite pwrite,
+    cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
 
     cci_mpf_csrs.pwrite_events events
     );
@@ -321,20 +322,19 @@ module cci_mpf_shim_pwrite
         c1Tx.valid = c1_notEmpty;
     end
 
-    cci_mpf_prim_fifo_lutram
+    cci_mpf_shim_pwrite_locked_c1tx
       #(
-        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
-        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 4),
-        .THRESHOLD(CCI_TX_ALMOST_FULL_THRESHOLD),
-        .REGISTER_OUTPUT(1)
+        .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES)
         )
       c1_fifo
-       (.clk,
-        .reset(reset),
+       (
+        .clk,
+        .reset,
+
+        .pwrite_lock,
 
         .enq_data(afu.c1Tx),
         .enq_en(afu.c1Tx.valid),
-        .notFull(),
         .almostFull(afu.c1TxAlmFull),
 
         .first(c1_first),
@@ -544,6 +544,144 @@ module cci_mpf_shim_pwrite
     assign afu.c1Rx = fiu.c1Rx;
 
 endmodule // cci_mpf_shim_pwrite
+
+
+//
+// Buffer the store request stream (c1Tx) and hold requests until the corresponding
+// store data has been written to the heap in the FIU edge module. When partial
+// writes are enabled the heap is shared by AFU store requests and partial write
+// updates from reads.
+//
+module cci_mpf_shim_pwrite_locked_c1tx
+  #(
+    parameter N_WRITE_HEAP_ENTRIES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Receive updates of busy write data entries
+    cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
+
+    input  t_if_cci_mpf_c1_Tx enq_data,
+    input  logic enq_en,
+    output logic almostFull,
+
+    output t_if_cci_mpf_c1_Tx first,
+    input  logic deq_en,
+    output logic notEmpty
+    );
+
+    typedef logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] t_write_heap_idx;
+
+    //
+    // Initial FIFO receives store requests from the AFU.
+    //
+
+    t_if_cci_mpf_c1_Tx in_first;
+    logic in_deq_en;
+    logic in_notEmpty;
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
+        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 4),
+        .THRESHOLD(CCI_TX_ALMOST_FULL_THRESHOLD),
+        .REGISTER_OUTPUT(1)
+        )
+      c1_fifo_in
+       (
+        .clk,
+        .reset,
+
+        .enq_data,
+        .enq_en,
+        .notFull(),
+        .almostFull,
+
+        .first(in_first),
+        .deq_en(in_deq_en),
+        .notEmpty(in_notEmpty)
+        );
+
+    t_write_heap_idx wr_heap_deq_idx;
+    assign wr_heap_deq_idx = t_write_heap_idx'(in_first.data);
+
+    logic out_almostFull;
+    logic wr_heap_not_ready;
+    logic locks_rdy;
+
+    cci_mpf_prim_semaphore_cam
+      #(
+        // This value must match afu_wdata_fifo in cci_mpf_shim_edge_fiu!
+        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 6),
+        .N_IDX_BITS($clog2(N_WRITE_HEAP_ENTRIES))
+        )
+      wr_heap_locks
+       (
+        .clk,
+        .reset,
+        .rdy(locks_rdy),
+
+        .set_en(pwrite_lock.lock_idx_en),
+        .set_idx(pwrite_lock.lock_idx),
+        .clear_en(pwrite_lock.unlock_idx_en),
+        .clear_idx(pwrite_lock.unlock_idx),
+
+        .test_idx(wr_heap_deq_idx),
+        .is_set(wr_heap_not_ready)
+        );
+
+
+    //
+    // One buffer stage for timing
+    //
+    t_if_cci_mpf_c1_Tx c1Tx_pipe;
+    logic c1Tx_pipe_valid;
+
+    always_ff @(posedge clk)
+    begin
+        c1Tx_pipe <= in_first;
+        c1Tx_pipe_valid <= in_deq_en;
+
+        if (reset)
+        begin
+            c1Tx_pipe_valid <= 1'b0;
+        end
+    end
+
+
+    //
+    // Secondary FIFO holds store requests that are data ready.
+    //
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
+        .N_ENTRIES(4),
+        .THRESHOLD(2),
+        .REGISTER_OUTPUT(1)
+        )
+      c1_fifo_out
+       (
+        .clk,
+        .reset,
+
+        .enq_data(c1Tx_pipe),
+        .enq_en(c1Tx_pipe_valid),
+        .notFull(),
+        .almostFull(out_almostFull),
+
+        .first,
+        .deq_en,
+        .notEmpty
+        );
+
+    assign in_deq_en = in_notEmpty && ! out_almostFull &&
+                       ! wr_heap_not_ready && locks_rdy;
+
+endmodule // cci_mpf_shim_pwrite_locked_c1tx
+
 
 
 module cci_mpf_shim_pwrite_eop_tracker

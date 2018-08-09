@@ -71,7 +71,8 @@ module cci_mpf_shim_edge_fiu
     cci_mpf_shim_vtp_pt_walk_if.mem_read pt_walk,
 
     // Interface to the partial write emulator
-    cci_mpf_shim_pwrite_if.pwrite_edge_fiu pwrite
+    cci_mpf_shim_pwrite_if.pwrite_edge_fiu pwrite,
+    cci_mpf_shim_pwrite_lock_if.pwrite_edge_fiu pwrite_lock
     );
 
     logic reset = 1'b1;
@@ -190,6 +191,7 @@ module cci_mpf_shim_edge_fiu
                 .reset,
                 .afu_edge,
                 .pwrite,
+                .pwrite_lock,
                 .wr_heap_deq_en,
                 .wr_heap_deq_idx,
 
@@ -504,6 +506,7 @@ module cci_mpf_shim_edge_fiu_pwrite_mux
 
     cci_mpf_shim_edge_if.edge_fiu afu_edge,
     cci_mpf_shim_pwrite_if.pwrite_edge_fiu pwrite,
+    cci_mpf_shim_pwrite_lock_if.pwrite_edge_fiu pwrite_lock,
 
     input  logic wr_heap_deq_en,
     input  logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] wr_heap_deq_idx,
@@ -525,12 +528,16 @@ module cci_mpf_shim_edge_fiu_pwrite_mux
     // prevents overflow.
     //
     logic fifo_notEmpty;
+    logic fifo_weop;
+    t_write_heap_idx fifo_widx;
+    t_cci_clNum fifo_wclnum;
     t_unique_write_heap_idx fifo_waddr;
     t_cci_clData fifo_wdata;
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_unique_write_heap_idx) + $bits(t_cci_clData)),
+        .N_DATA_BITS(1 + $bits(t_unique_write_heap_idx) + $bits(t_cci_clData)),
+        // This value must match wr_heap_locks in cci_mpf_shim_pwrite!
         .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 6),
         // In normal conditions the FIFO drains immediately.  Signal almost
         // full as soon as partial writes cause the FIFO to block.
@@ -541,16 +548,17 @@ module cci_mpf_shim_edge_fiu_pwrite_mux
         .clk,
         .reset,
 
-        .enq_data({ afu_edge.widx, afu_edge.wclnum, afu_edge.wdata }),
+        .enq_data({ afu_edge.weop, afu_edge.widx, afu_edge.wclnum, afu_edge.wdata }),
         .enq_en(afu_edge.wen),
         .notFull(),
         .almostFull(afu_edge.wAlmFull),
 
-        .first({ fifo_waddr, fifo_wdata }),
+        .first({ fifo_weop, fifo_widx, fifo_wclnum, fifo_wdata }),
         .deq_en(fifo_notEmpty && ! pwrite.upd_en),
         .notEmpty(fifo_notEmpty)
         );
 
+    assign fifo_waddr = { fifo_widx, fifo_wclnum };
 
     //
     // Choose between pwrite and normal data write.
@@ -575,6 +583,27 @@ module cci_mpf_shim_edge_fiu_pwrite_mux
         if (reset)
         begin
             heap_wen <= 1'b0;
+        end
+    end
+
+
+    //
+    // Track pending AFU write data updates. Since these writes may be blocked in
+    // the FIFO above when there are partial write updates, we must prove that
+    // the AFU write data has been written to the heap before trying to access it.
+    //
+    always_ff @(posedge clk)
+    begin
+        pwrite_lock.lock_idx_en <= afu_edge.wsop;
+        pwrite_lock.lock_idx <= afu_edge.widx;
+
+        pwrite_lock.unlock_idx_en <= ! pwrite.upd_en && fifo_notEmpty && fifo_weop;
+        pwrite_lock.unlock_idx <= fifo_widx;
+
+        if (reset)
+        begin
+            pwrite_lock.lock_idx_en <= 1'b0;
+            pwrite_lock.unlock_idx_en <= 1'b0;
         end
     end
 
