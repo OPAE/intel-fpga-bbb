@@ -30,7 +30,7 @@
 //
 
 //
-// Semaphore: test whether an index is set in a set. The implemenation here uses
+// Semaphore: test whether a value is set in a set. The implemenation here uses
 // a CAM, so the number of live entries must be relatively small.
 //
 // Slots in the CAM are allocated round-robin. Code that uses this module
@@ -42,7 +42,7 @@
 module cci_mpf_prim_semaphore_cam
   #(
     parameter N_ENTRIES = 0,
-    parameter N_IDX_BITS = 0
+    parameter N_VALUE_BITS = 0
     )
    (
     input  logic clk,
@@ -50,38 +50,48 @@ module cci_mpf_prim_semaphore_cam
     output logic rdy,
 
     input  logic set_en,
-    input  logic [N_IDX_BITS-1 : 0] set_idx,
+    input  logic [N_VALUE_BITS-1 : 0] set_value,
     input  logic clear_en,
-    input  logic [N_IDX_BITS-1 : 0] clear_idx,
+    input  logic [N_VALUE_BITS-1 : 0] clear_value,
 
-    input  logic [N_IDX_BITS-1 : 0] test_idx,
-    output logic is_set
+    // Test whether a value is present.
+    input  logic [N_VALUE_BITS-1 : 0] test_value,
+    // Response for the current test_value, this cycle.
+    output logic is_set_T0,
+    // Response delayed one cycle for timing
+    output logic is_set_T1
     );
 
     typedef logic [$clog2(N_ENTRIES)-1 : 0] t_bucket_idx;
-    typedef logic [N_IDX_BITS-1 : 0] t_idx;
+    typedef logic [N_VALUE_BITS-1 : 0] t_value;
 
     assign rdy = 1'b1;
 
     logic bucket_valid[0 : N_ENTRIES-1];
-    t_idx bucket_value[0 : N_ENTRIES-1];
+    t_value bucket_value[0 : N_ENTRIES-1];
 
     t_bucket_idx next_idx;
 
     //
     // Test for a value
     //
-    logic [N_ENTRIES-1 : 0] bucket_match;
+    logic [N_ENTRIES-1 : 0] bucket_match, bucket_match_q;
 
     genvar b;
     generate
         for (b = 0; b < N_ENTRIES; b = b + 1)
         begin : match
-            assign bucket_match[b] = bucket_valid[b] && (bucket_value[b] == test_idx);
+            assign bucket_match[b] = bucket_valid[b] && (bucket_value[b] == test_value);
+
+            always_ff @(posedge clk)
+            begin
+                bucket_match_q[b] <= bucket_match[b];
+            end
         end
     endgenerate
 
-    assign is_set = (|(bucket_match));
+    assign is_set_T0 = (|(bucket_match));
+    assign is_set_T1 = (|(bucket_match_q));
 
     //
     // Update buckets
@@ -91,7 +101,7 @@ module cci_mpf_prim_semaphore_cam
         begin : upd
             always_ff @(posedge clk)
             begin
-                if (clear_en && (bucket_value[b] == clear_idx))
+                if (clear_en && (bucket_value[b] == clear_value))
                 begin
                     bucket_valid[b] <= 1'b0;
                 end
@@ -100,7 +110,7 @@ module cci_mpf_prim_semaphore_cam
                 if (set_en && (next_idx == t_bucket_idx'(b)))
                 begin
                     bucket_valid[b] <= 1'b1;
-                    bucket_value[b] <= set_idx;
+                    bucket_value[b] <= set_value;
                 end
 
                 if (reset)
