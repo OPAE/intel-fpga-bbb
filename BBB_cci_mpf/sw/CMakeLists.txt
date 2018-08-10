@@ -46,6 +46,8 @@ find_package(Threads REQUIRED)
 include(CheckIncludeFile)
 
 if (NOT CMAKE_VERSION VERSION_LESS "3.1")
+    set (CMAKE_CXX_STANDARD 11)
+
     if (NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 4.7)
         # New CMake, new enough compiler, ideal case...
         set (CMAKE_C_STANDARD 11)
@@ -58,6 +60,8 @@ if (NOT CMAKE_VERSION VERSION_LESS "3.1")
     endif ()
 else ()
     # Old version of CMake doesn't know how to set C standard
+    set (CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+
     if (NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 4.7)
         set (CMAKE_C_FLAGS "--std=gnu11 ${CMAKE_C_FLAGS}")
     else ()
