@@ -34,6 +34,8 @@
 // enable control.
 //
 
+`include "cci_mpf_platform.vh"
+
 module cci_mpf_prim_ram_dualport_byteena
   #(
     parameter N_ENTRIES = 32,
@@ -93,6 +95,9 @@ module cci_mpf_prim_ram_dualport_byteena
 
     altsyncram
       #(
+`ifdef PLATFORM_INTENDED_DEVICE_FAMILY
+        .intended_device_family(`PLATFORM_INTENDED_DEVICE_FAMILY),
+`endif
         .operation_mode(OPERATION_MODE),
         .byte_size(N_BYTE_BITS),
         .width_a(N_DATA_BITS),
@@ -175,6 +180,12 @@ module cci_mpf_prim_ram_dualport_byteena_init
     // Size of a byte
     parameter N_BYTE_BITS = 8,
 
+    // Operation mode, either "BIDIR_DUAL_PORT" or "DUAL_PORT".
+    // For DUAL_PORT configure only writes on port a and reads
+    // on port b.  This mode can be useful since M20K RAM does
+    // not allow 512 x 32 or 512 x 40 modes in bidirectional mode.
+    parameter OPERATION_MODE = "BIDIR_DUAL_PORT",
+
     // Other options are "OLD_DATA" and "NEW_DATA"
     parameter READ_DURING_WRITE_MODE_MIXED_PORTS = "DONT_CARE",
 
@@ -206,12 +217,10 @@ module cci_mpf_prim_ram_dualport_byteena_init
     output logic [N_DATA_BITS-1 : 0] rdata1
     );
 
+    logic [$clog2(N_ENTRIES)-1 : 0] addr0_local;
     logic wen0_local;
-
-    logic [$clog2(N_ENTRIES)-1 : 0] addr1_local;
-    logic wen1_local;
-    logic [N_DATA_BITS-1 : 0] wdata1_local;
-    logic [(N_DATA_BITS / N_BYTE_BITS)-1 : 0] byteena1_local;
+    logic [N_DATA_BITS-1 : 0] wdata0_local;
+    logic [(N_DATA_BITS / N_BYTE_BITS)-1 : 0] byteena0_local;
 
     cci_mpf_prim_ram_dualport_byteena
       #(
@@ -219,6 +228,7 @@ module cci_mpf_prim_ram_dualport_byteena_init
         .N_DATA_BITS(N_DATA_BITS),
         .N_OUTPUT_REG_STAGES(N_OUTPUT_REG_STAGES),
         .N_BYTE_BITS(N_BYTE_BITS),
+        .OPERATION_MODE(OPERATION_MODE),
         .READ_DURING_WRITE_MODE_MIXED_PORTS(READ_DURING_WRITE_MODE_MIXED_PORTS),
         .READ_DURING_WRITE_MODE_PORT_A(READ_DURING_WRITE_MODE_PORT_A),
         .READ_DURING_WRITE_MODE_PORT_B(READ_DURING_WRITE_MODE_PORT_B)
@@ -226,17 +236,17 @@ module cci_mpf_prim_ram_dualport_byteena_init
       ram
        (
         .clk0,
-        .addr0,
-        .byteena0,
-        .wen0,
-        .wdata0,
+        .addr0(addr0_local),
+        .byteena0(byteena0_local),
+        .wen0(wen0_local),
+        .wdata0(wdata0_local),
         .rdata0,
 
         .clk1,
-        .addr1(addr1_local),
-        .byteena1(byteena1_local),
-        .wen1(wen1_local),
-        .wdata1(wdata1_local),
+        .addr1,
+        .byteena1,
+        .wen1,
+        .wdata1,
         .rdata1
         );
 
@@ -245,24 +255,24 @@ module cci_mpf_prim_ram_dualport_byteena_init
     // Initialization loop
     //
 
-    logic [$clog2(N_ENTRIES)-1 : 0] addr1_init;
+    logic [$clog2(N_ENTRIES)-1 : 0] addr0_init;
 
-    assign addr1_local = rdy ? addr1 : addr1_init;
-    assign byteena1_local = rdy ? byteena1 : ~(($bits(byteena1))'(0));
-    assign wen1_local = rdy ? wen1 : 1'b1;
-    assign wdata1_local = rdy ? wdata1 : INIT_VALUE;
+    assign addr0_local = rdy ? addr0 : addr0_init;
+    assign byteena0_local = rdy ? byteena0 : ~(($bits(byteena0))'(0));
+    assign wen0_local = rdy ? wen0 : 1'b1;
+    assign wdata0_local = rdy ? wdata0 : INIT_VALUE;
 
-    always_ff @(posedge clk1)
+    always_ff @(posedge clk0)
     begin
         if (reset)
         begin
             rdy <= 1'b0;
-            addr1_init <= 0;
+            addr0_init <= 0;
         end
         else if (! rdy)
         begin
-            addr1_init <= addr1_init + 1;
-            rdy <= (addr1_init == (N_ENTRIES-1));
+            addr0_init <= addr0_init + 1;
+            rdy <= (addr0_init == (N_ENTRIES-1));
         end
     end
 

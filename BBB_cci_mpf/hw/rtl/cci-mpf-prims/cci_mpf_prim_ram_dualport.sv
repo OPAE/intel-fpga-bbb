@@ -35,6 +35,8 @@
 // by the other port is don't care.
 //
 
+`include "cci_mpf_platform.vh"
+
 module cci_mpf_prim_ram_dualport
   #(
     parameter N_ENTRIES = 32,
@@ -84,6 +86,9 @@ module cci_mpf_prim_ram_dualport
 
     altsyncram
       #(
+`ifdef PLATFORM_INTENDED_DEVICE_FAMILY
+        .intended_device_family(`PLATFORM_INTENDED_DEVICE_FAMILY),
+`endif
         .operation_mode("BIDIR_DUAL_PORT"),
         .width_a(N_DATA_BITS),
         .widthad_a($clog2(N_ENTRIES)),
