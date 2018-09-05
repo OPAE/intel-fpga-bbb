@@ -44,6 +44,8 @@ interface cci_mpf_shim_edge_if
     //
     logic wen;
     logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] widx;
+    logic wsop;
+    logic weop;
     t_cci_clNum wclnum;
     t_cci_clData wdata;
     logic wAlmFull;
@@ -59,6 +61,8 @@ interface cci_mpf_shim_edge_if
        (
         output wen,
         output widx,
+        output wsop,
+        output weop,
         output wclnum,
         output wdata,
         input  wAlmFull,
@@ -71,6 +75,8 @@ interface cci_mpf_shim_edge_if
        (
         input  wen,
         input  widx,
+        input  wsop,
+        input  weop,
         input  wclnum,
         input  wdata,
         output wAlmFull,
