@@ -61,6 +61,7 @@
 ../rtl/cci-mpf-prims/cci_mpf_prim_repl_lru_pseudo.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_repl_random.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_rob.sv
+../rtl/cci-mpf-prims/cci_mpf_prim_semaphore_cam.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_track_active_reqs.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_track_multi_write.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_buffer_afu.sv

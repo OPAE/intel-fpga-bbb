@@ -190,7 +190,7 @@ module cci_mpf_shim_edge_afu
         end
     endgenerate
 
-endmodule
+endmodule // cci_mpf_shim_edge_afu
 
 
 //
@@ -289,10 +289,34 @@ module cci_mpf_shim_edge_afu_wr_data
     //
     // The heap holding write data is in the FIU edge module.
     //
-    assign fiu_edge.wen = cci_mpf_c1TxIsWriteReq(afu.c1Tx);
-    assign fiu_edge.widx = wr_heap_enq_idx;
-    assign fiu_edge.wclnum = wr_heap_enq_clNum;
-    assign fiu_edge.wdata = afu.c1Tx.data;
+    always_comb
+    begin
+        fiu_edge.wen = cci_mpf_c1TxIsWriteReq(afu.c1Tx);
+        fiu_edge.widx = wr_heap_enq_idx;
+        fiu_edge.wclnum = wr_heap_enq_clNum;
+        fiu_edge.wdata = afu.c1Tx.data;
+
+        if (! fiu_edge.wen)
+        begin
+            fiu_edge.wsop = 1'b0;
+            fiu_edge.weop = 1'b0;
+        end
+        else
+        begin
+            fiu_edge.wsop = afu.c1Tx.hdr.base.sop;
+            // Compute EOP
+            if (afu.c1Tx.hdr.base.sop)
+            begin
+                // Single beat packet?
+                fiu_edge.weop = (afu.c1Tx.hdr.base.cl_len == eCL_LEN_1);
+            end
+            else
+            begin
+                // End of multi-beat packet?
+                fiu_edge.weop = (wr_heap_enq_clNum == c1tx_sop_hdr.base.cl_len);
+            end
+        end
+    end
 
     //
     // Forward partial write requests to the partial write emulator.
@@ -515,4 +539,4 @@ module cci_mpf_shim_edge_afu_wr_data
         end
     end
 
-endmodule // cci_mpf_shim_edge_afu
+endmodule // cci_mpf_shim_edge_afu_wr_data

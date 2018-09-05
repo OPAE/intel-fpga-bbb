@@ -57,6 +57,7 @@ module cci_mpf_shim_pwrite
 
     // Interface to the MPF FIU edge module
     cci_mpf_shim_pwrite_if.pwrite pwrite,
+    cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
 
     cci_mpf_csrs.pwrite_events events
     );
@@ -321,20 +322,19 @@ module cci_mpf_shim_pwrite
         c1Tx.valid = c1_notEmpty;
     end
 
-    cci_mpf_prim_fifo_lutram
+    cci_mpf_shim_pwrite_locked_c1tx
       #(
-        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
-        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 4),
-        .THRESHOLD(CCI_TX_ALMOST_FULL_THRESHOLD),
-        .REGISTER_OUTPUT(1)
+        .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES)
         )
       c1_fifo
-       (.clk,
-        .reset(reset),
+       (
+        .clk,
+        .reset,
+
+        .pwrite_lock,
 
         .enq_data(afu.c1Tx),
         .enq_en(afu.c1Tx.valid),
-        .notFull(),
         .almostFull(afu.c1TxAlmFull),
 
         .first(c1_first),
@@ -544,6 +544,211 @@ module cci_mpf_shim_pwrite
     assign afu.c1Rx = fiu.c1Rx;
 
 endmodule // cci_mpf_shim_pwrite
+
+
+//
+// Buffer the store request stream (c1Tx) and hold requests until the corresponding
+// store data has been written to the heap in the FIU edge module. When partial
+// writes are enabled the heap is shared by AFU store requests and partial write
+// updates from reads.
+//
+module cci_mpf_shim_pwrite_locked_c1tx
+  #(
+    parameter N_WRITE_HEAP_ENTRIES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Receive updates of busy write data entries
+    cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
+
+    input  t_if_cci_mpf_c1_Tx enq_data,
+    input  logic enq_en,
+    output logic almostFull,
+
+    output t_if_cci_mpf_c1_Tx first,
+    input  logic deq_en,
+    output logic notEmpty
+    );
+
+    typedef logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] t_write_heap_idx;
+
+
+    //
+    // Initial FIFO receives store requests from the AFU.
+    //
+
+    t_if_cci_mpf_c1_Tx in_first;
+    logic in_deq_en;
+    logic in_notEmpty;
+    logic in_first_is_write_req;
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
+        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 4),
+        .THRESHOLD(CCI_TX_ALMOST_FULL_THRESHOLD)
+        )
+      c1_fifo_in
+       (
+        .clk,
+        .reset,
+
+        .enq_data,
+        .enq_en,
+        .notFull(),
+        .almostFull,
+
+        .first(in_first),
+        .deq_en(in_deq_en),
+        .notEmpty(in_notEmpty)
+        );
+
+    assign in_first_is_write_req = cci_mpf_c1TxIsWriteReq(in_first);
+
+
+    //
+    // Track MPF FIU edge write data traffic. wr_heap_locks tracks pending writes
+    // to the FIU edge heap and will be used to delay write control messages in
+    // the pipeline here until the heap is ready.
+    //
+    t_write_heap_idx wr_heap_data_idx;
+
+    logic out_almostFull;
+    logic wr_heap_not_ready;
+    logic locks_rdy;
+
+    cci_mpf_prim_semaphore_cam
+      #(
+        // This value must match afu_wdata_fifo in cci_mpf_shim_edge_fiu!
+        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 6),
+        .N_VALUE_BITS($clog2(N_WRITE_HEAP_ENTRIES))
+        )
+      wr_heap_locks
+       (
+        .clk,
+        .reset,
+        .rdy(locks_rdy),
+
+        .set_en(pwrite_lock.lock_idx_en),
+        .set_value(pwrite_lock.lock_idx),
+        .clear_en(pwrite_lock.unlock_idx_en),
+        .clear_value(pwrite_lock.unlock_idx),
+
+        .test_value(wr_heap_data_idx),
+        .is_set_T0(wr_heap_not_ready),
+        .is_set_T1()
+        );
+
+
+    //
+    // Short pipeline in which we confirm that the write data associated with the
+    // write control request here was been written to the buffers in the MPF FIU
+    // edge module.
+    //
+    // The pipeline has two stages: stage 0 tests whether the heap is ready and
+    // stage 1 acts on the result of stage 0. When ready, requests in stage 1 flow
+    // to the output. When not ready, requests in stage 1 wrap back to stage 0.
+    // This may reorder requests, since data ready requests may flow around
+    // wrapping not-ready requests. CCI-P permits this.
+    //
+
+    struct {
+        logic valid;
+        logic isWriteReq;
+        logic writeDataNotReady;
+        t_if_cci_mpf_c1_Tx c1Tx;
+    } pipe[0:1];
+
+    logic pipe_empty;
+    assign pipe_empty = ! (pipe[0].valid || pipe[1].valid);
+
+    assign wr_heap_data_idx = t_write_heap_idx'(pipe[0].c1Tx.data);
+
+    //
+    // Stage 0: Wrap not-ready requests from stage 1 or take new requests.
+    //
+
+    logic wrap_req;
+    assign wrap_req = pipe[1].isWriteReq && pipe[1].writeDataNotReady;
+
+    // Take a new request from the incoming FIFO when:
+    assign in_deq_en = in_notEmpty &&
+	               // There is space in the outbound FIFO.
+                       ! out_almostFull &&
+                       // The pipeline has only write requests or is empty. This keeps
+                       // fences ordered relative to writes.
+                       (pipe_empty || in_first_is_write_req) &&
+                       // A not-ready write isn't wrapping back to pipe[0].
+                       ! wrap_req && locks_rdy;
+
+    always_ff @(posedge clk)
+    begin
+        pipe[0].valid <= in_deq_en;
+        pipe[0].isWriteReq <= in_first_is_write_req && in_deq_en;
+        pipe[0].c1Tx <= in_first;
+
+        if (wrap_req)
+        begin
+            pipe[0].valid <= 1'b1;
+            pipe[0].isWriteReq <= 1'b1;
+            pipe[0].c1Tx <= pipe[1].c1Tx;
+        end
+
+        if (reset)
+        begin
+            pipe[0].valid <= 1'b0;
+            pipe[0].isWriteReq <= 1'b0;
+        end
+    end
+
+    //
+    // Stage 1 comes from 0, plus the result of the check for write data.
+    //
+    always_ff @(posedge clk)
+    begin
+        pipe[1] <= pipe[0];
+        pipe[1].writeDataNotReady <= wr_heap_not_ready;
+
+        if (reset)
+        begin
+            pipe[1].valid <= 1'b0;
+            pipe[1].isWriteReq <= 1'b0;
+            pipe[1].writeDataNotReady <= 1'b0;
+        end
+    end
+
+
+    //
+    // Secondary FIFO holds store requests that are data ready.
+    //
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx)),
+        .N_ENTRIES(6),
+        .THRESHOLD(4),
+        .REGISTER_OUTPUT(1)
+        )
+      c1_fifo_out
+       (
+        .clk,
+        .reset,
+
+        .enq_data(pipe[1].c1Tx),
+        .enq_en(pipe[1].valid && ! wrap_req),
+        .notFull(),
+        .almostFull(out_almostFull),
+
+        .first,
+        .deq_en,
+        .notEmpty
+        );
+
+
+endmodule // cci_mpf_shim_pwrite_locked_c1tx
+
 
 
 module cci_mpf_shim_pwrite_eop_tracker

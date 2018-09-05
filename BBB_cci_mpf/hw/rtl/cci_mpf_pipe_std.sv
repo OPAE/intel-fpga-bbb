@@ -93,7 +93,9 @@ module cci_mpf_pipe_std
     cci_mpf_shim_edge_if.edge_afu edge_if,
 
     // Connect MPF's AFU edge module to its partial write emulation module
-    cci_mpf_shim_pwrite_if pwrite,
+    cci_mpf_shim_pwrite_if.pwrite pwrite,
+    cci_mpf_shim_pwrite_if.pwrite_edge_afu pwrite_afu,
+    cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
 
     // VTP translation service ports.  One port for each request channel.
     cci_mpf_shim_vtp_svc_if.client vtp_svc[0 : 1]
@@ -157,7 +159,8 @@ module cci_mpf_pipe_std
                 .clk,
                 .fiu(stgp1_fiu_eop),
                 .afu(stgp2_pwrite),
-                .pwrite,
+                .pwrite(pwrite),
+                .pwrite_lock(pwrite_lock),
                 .events(mpf_csrs)
                 );
         end
@@ -395,7 +398,7 @@ module cci_mpf_pipe_std
         .fiu(stgp7_fiu_rsp_order),
         .afu,
         .fiu_edge(edge_if),
-        .pwrite
+        .pwrite(pwrite_afu)
         );
 
 endmodule // cci_mpf_pipe_std

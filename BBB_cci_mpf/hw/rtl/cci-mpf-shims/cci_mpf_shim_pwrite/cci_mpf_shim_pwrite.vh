@@ -31,6 +31,8 @@
 `ifndef __CCI_MPF_SHIM_PWRITE_VH__
 `define __CCI_MPF_SHIM_PWRITE_VH__
 
+`include "cci_mpf_if.vh"
+
 //
 // Interface between edge modules and the partial write shim.
 //
@@ -39,12 +41,14 @@ interface cci_mpf_shim_pwrite_if
     parameter N_WRITE_HEAP_ENTRIES = 0
     );
 
+    typedef logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] t_write_heap_idx;
+
     //
     // Forward write masks from AFU to the partial write shim, bypassing
     // the MPF pipeline.
     //
     logic wen;
-    logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] widx;
+    t_write_heap_idx widx;
     t_cci_clNum wclnum;
     t_cci_mpf_c1_PartialWriteHdr wpartial;
 
@@ -52,7 +56,7 @@ interface cci_mpf_shim_pwrite_if
     // Update write data with existing state for the unmodified portion.
     //
     logic upd_en;
-    logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] upd_idx;
+    t_write_heap_idx upd_idx;
     t_cci_clNum upd_clNum;
     t_cci_clData upd_data;
     t_cci_mpf_clDataByteMask upd_mask;
@@ -70,7 +74,7 @@ interface cci_mpf_shim_pwrite_if
         output upd_data,
         output upd_mask
         );
-        
+
     modport pwrite_edge_afu
        (
         output wen,
@@ -88,6 +92,42 @@ interface cci_mpf_shim_pwrite_if
         input  upd_mask
         );
 
-endinterface
+endinterface // cci_mpf_shim_pwrite_if
+
+
+interface cci_mpf_shim_pwrite_lock_if
+  #(
+    parameter N_WRITE_HEAP_ENTRIES = 0
+    );
+
+    typedef logic [$clog2(N_WRITE_HEAP_ENTRIES)-1 : 0] t_write_heap_idx;
+
+    //
+    // Track AFU writes that haven't yet reached the FIU edge write data heap.
+    // These writes may be delayed due to partial write updates. Write requests
+    // can't be released to the FIU until the heap is consistent.
+    //
+    logic lock_idx_en;
+    t_write_heap_idx lock_idx;
+    logic unlock_idx_en;
+    t_write_heap_idx unlock_idx;
+
+    modport pwrite
+       (
+        input  lock_idx_en,
+        input  lock_idx,
+        input  unlock_idx_en,
+        input  unlock_idx
+        );
+
+    modport pwrite_edge_fiu
+       (
+        output lock_idx_en,
+        output lock_idx,
+        output unlock_idx_en,
+        output unlock_idx
+        );
+
+endinterface // cci_mpf_shim_pwrite_lock_if
 
 `endif // __CCI_MPF_SHIM_PWRITE_VH__
