@@ -85,7 +85,7 @@ int TEST_RANDOM::test()
     // Allocate memory for control
     auto dsm_buf_handle = this->allocBuffer(getpagesize());
     auto dsm = reinterpret_cast<volatile uint64_t*>(dsm_buf_handle->c_type());
-    uint64_t dsm_pa = dsm_buf_handle->iova();
+    uint64_t dsm_pa = dsm_buf_handle->io_address();
     assert(NULL != dsm);
     memset((void*)dsm, 0, getpagesize());
 
