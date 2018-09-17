@@ -34,6 +34,8 @@
 //   THRESHOLD or fewer slots are free, stored in block RAM.
 //
 
+`include "cci_mpf_platform.vh"
+
 module cci_mpf_prim_fifo_bram
   #(
     parameter N_DATA_BITS = 32,
@@ -77,6 +79,9 @@ module cci_mpf_prim_fifo_bram
 
     scfifo
       #(
+`ifdef PLATFORM_INTENDED_DEVICE_FAMILY
+        .intended_device_family(`PLATFORM_INTENDED_DEVICE_FAMILY),
+`endif
         .lpm_numwords(N_ENTRIES),
         .lpm_showahead("OFF"),
         .lpm_type("scfifo"),

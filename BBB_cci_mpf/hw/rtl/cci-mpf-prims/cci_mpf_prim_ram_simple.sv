@@ -33,6 +33,8 @@
 // Simple dual port Block RAM.
 //
 
+`include "cci_mpf_platform.vh"
+
 module cci_mpf_prim_ram_simple
   #(
     parameter N_ENTRIES = 32,
@@ -305,6 +307,9 @@ module cci_mpf_prim_ram_simple_base
 
     altsyncram
       #(
+`ifdef PLATFORM_INTENDED_DEVICE_FAMILY
+        .intended_device_family(`PLATFORM_INTENDED_DEVICE_FAMILY),
+`endif
         .operation_mode("DUAL_PORT"),
         .width_a(N_DATA_BITS),
         .widthad_a($clog2(N_ENTRIES)),

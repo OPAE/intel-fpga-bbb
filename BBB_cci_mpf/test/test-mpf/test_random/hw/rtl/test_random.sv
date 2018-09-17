@@ -925,6 +925,8 @@ module test_afu
         .N_ENTRIES(1 << N_CHECKED_ADDR_BITS),
         .N_DATA_BITS($bits(t_mem_tag)),
         .N_OUTPUT_REG_STAGES(2),
+        .OPERATION_MODE("DUAL_PORT"),
+        .PORT1_CLOCK("CLOCK0"),
         .READ_DURING_WRITE_MODE_MIXED_PORTS("OLD_DATA")
         )
       chk_ram

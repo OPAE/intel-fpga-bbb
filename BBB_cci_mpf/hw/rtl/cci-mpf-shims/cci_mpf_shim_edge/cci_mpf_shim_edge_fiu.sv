@@ -210,12 +210,13 @@ module cci_mpf_shim_edge_fiu
         .N_ENTRIES(N_UNIQUE_WRITE_HEAP_ENTRIES),
         .N_DATA_BITS(CCI_CLDATA_WIDTH),
         .N_OUTPUT_REG_STAGES(1),
-        .OPERATION_MODE("DUAL_PORT")
+        .OPERATION_MODE("DUAL_PORT"),
+        .PORT1_CLOCK("CLOCK0")
         )
       wr_heap_data
        (
         .clk0(clk),
-        .clk1(clk),
+        .clk1(),
 
         .wen0(heap_wen),
         .byteena0(heap_wbyteena),

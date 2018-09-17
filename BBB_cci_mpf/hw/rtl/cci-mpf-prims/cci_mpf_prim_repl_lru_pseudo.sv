@@ -145,7 +145,8 @@ module cci_mpf_prim_repl_lru_pseudo
     cci_mpf_prim_ram_dualport_init
       #(
         .N_ENTRIES(N_ENTRIES),
-        .N_DATA_BITS($bits(t_way_vec))
+        .N_DATA_BITS($bits(t_way_vec)),
+        .PORT1_CLOCK("CLOCK0")
         )
       lru_data
         (
@@ -153,11 +154,13 @@ module cci_mpf_prim_repl_lru_pseudo
          .rdy,
 
          .clk0(clk),
+         .clk1(),
+
          .addr0,
          .wen0,
          .wdata0,
          .rdata0,
-         .clk1(clk),
+
          .addr1,
          .wen1,
          .wdata1,
