@@ -121,7 +121,7 @@ module cci_mpf_prim_ram_dualport_byteena
     // binding of the clock1 port. The macro avoids actual source replication.
     //
 
-    `define ALTSYNCRAM_DEF(CLK1_DEF) \
+    `define ALTSYNCRAM_BYTEENA_DEF(CLK1_DEF) \
       altsyncram \
         #( \
           .intended_device_family(PLATFORM_INTENDED_DEVICE_FAMILY), \
@@ -180,11 +180,11 @@ module cci_mpf_prim_ram_dualport_byteena
     generate
         if (PORT1_CLOCK == "CLOCK1")
         begin : c1
-            `ALTSYNCRAM_DEF(.clock1(clk1))
+            `ALTSYNCRAM_BYTEENA_DEF(.clock1(clk1))
         end
         else
         begin : c0
-            `ALTSYNCRAM_DEF(.clock1())
+            `ALTSYNCRAM_BYTEENA_DEF(.clock1())
         end
     endgenerate
 
