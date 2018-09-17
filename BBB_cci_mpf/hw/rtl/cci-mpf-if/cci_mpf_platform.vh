@@ -64,13 +64,21 @@ import ccip_if_pkg::*;
     `define MPF_PLATFORM_DEFAULT_PHYSICAL_CHANNEL ccip_cfg_pkg::VC_DEFAULT
 
     // Figure out the actual platform name, which may be used for tuning.
-    `ifdef PLATFORM_FPGA_INTG_XEON_SKX
+    `ifdef PLATFORM_FPGA_PAC
+        localparam MPF_PLATFORM = "DISCRETE_PCIE";
+
+    `elsif PLATFORM_CLASS_NAME_IS_A10_GX_INTG_XEON_SKX
         localparam MPF_PLATFORM = "INTG_SKX";
+    `elsif PLATFORM_FPGA_INTG_XEON_SKX
+        localparam MPF_PLATFORM = "INTG_SKX";
+
+    `elsif PLATFORM_CLASS_NAME_IS_A10_GX_INTG_XEON_BDX
+        localparam MPF_PLATFORM = "INTG_BDX";
+        `undef MPF_HOST_IFC_CCIP_WRPUSH
     `elsif PLATFORM_CLASS_NAME_IS_INTG_XEON
         localparam MPF_PLATFORM = "INTG_BDX";
         `undef MPF_HOST_IFC_CCIP_WRPUSH
-    `elsif PLATFORM_FPGA_PAC
-        localparam MPF_PLATFORM = "DISCRETE_PCIE";
+
     `else
         localparam MPF_PLATFORM = `PLATFORM_CLASS_NAME;
     `endif
