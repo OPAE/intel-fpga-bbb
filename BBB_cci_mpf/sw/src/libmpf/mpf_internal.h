@@ -60,7 +60,8 @@
 #endif // MPF_FPGA_MSG
 #define MPF_FPGA_MSG(format, ...)\
         printf( "%s:%u:%s() : " format "\n", __MPF_SHORT_FILE__, __LINE__,\
-                                                __func__, ## __VA_ARGS__ )
+                                             __func__, ## __VA_ARGS__ ); \
+        fflush(stdout)
 
 // Forward declaration to avoid circular dependence.
 typedef struct _mpf_handle_t* _mpf_handle_p;

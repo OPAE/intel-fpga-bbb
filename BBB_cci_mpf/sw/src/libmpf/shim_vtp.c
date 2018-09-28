@@ -384,6 +384,11 @@ fpga_result __MPF_API__ mpfVtpBufferFree(
 
     if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
 
+    if (_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("release buffer at VA %p", va);
+    }
+
     // Is the address the beginning of an allocation region?
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, &flags);
     if (FPGA_OK != r) return r;
@@ -396,9 +401,23 @@ fpga_result __MPF_API__ mpfVtpBufferFree(
 
     // Loop through the mapped virtual pages until the end of the region
     // is reached or there is an error.
-    while (FPGA_OK == mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
-                                                &pa, NULL, &wsid, &size, &flags))
+    while (true)
     {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("lookup VA %p", va);
+        }
+
+        if (FPGA_OK != mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
+                                                 &pa, NULL, &wsid, &size, &flags))
+        {
+            if (_mpf_handle->dbg_mode)
+            {
+                MPF_FPGA_MSG("error unmapping VA %p", va);
+            }
+            break;
+        }
+
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("release %s page VA %p, PA 0x%" PRIx64 ", wsid 0x%" PRIx64,
