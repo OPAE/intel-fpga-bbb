@@ -76,7 +76,6 @@ shared_buffer::ptr_t
 OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes)
 {
     fpga_result r;
-    void* va;
 
     //
     // Allocate an I/O buffer shared with the FPGA.  When VTP is present
@@ -101,6 +100,40 @@ OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes)
         // VTP is not available.  Map a page without a TLB entry.  nBytes
         // must not be larger than a page.
         buf = shared_buffer::allocate(accel, nBytes);
+    }
+
+    return buf;
+}
+
+
+shared_buffer::ptr_t
+OPAE_SVC_WRAPPER::attachBuffer(void* addr, size_t nBytes)
+{
+    fpga_result r;
+
+    //
+    // Allocate an I/O buffer shared with the FPGA.  When VTP is present
+    // the FPGA-side address translation allows us to allocate multi-page,
+    // virtually contiguous buffers.  When VTP is not present the
+    // accelerator must manage physical addresses on its own.  In that case,
+    // the I/O buffer allocation (fpgaPrepareBuffer) is limited to
+    // allocating one page per invocation.
+    //
+
+    shared_buffer::ptr_t buf;
+
+    if ((mpf != nullptr) && mpfVtpIsAvailable(*mpf))
+    {
+        // VTP is available.  Use it to get a virtually contiguous region.
+        // The region may be composed of multiple non-contiguous physical
+        // pages.
+        buf = mpf_shared_buffer::attach(mpf, (uint8_t*)addr, nBytes);
+    }
+    else
+    {
+        // VTP is not available.  Map a page without a TLB entry.  nBytes
+        // must not be larger than a page.
+        buf = shared_buffer::attach(accel, (uint8_t*)addr, nBytes);
     }
 
     return buf;

@@ -49,9 +49,14 @@ typedef enum
     // flags are used only in virtual to physical translation tables.
     MPF_VTP_PT_FLAG_ALLOC_START = 2,
     MPF_VTP_PT_FLAG_ALLOC_END = 4,
+    // Entry is invalid. This bit is used on the FPGA side to detect
+    // empty entries.
+    MPF_VTP_PT_FLAG_INVALID = 8,
+    // Buffer was pre-allocated outside MPF.
+    MPF_VTP_PT_FLAG_PREALLOCATED = 16,
 
     // All flags (mask)
-    MPF_VTP_PT_FLAG_MASK = 7
+    MPF_VTP_PT_FLAG_MASK = 31
 }
 mpf_vtp_pt_flag;
 
