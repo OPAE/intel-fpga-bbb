@@ -678,12 +678,13 @@ static void dumpPageTableVAtoPA(
                        nodeGetValue(wsid_table, idx));
 
                 uint32_t flags = nodeGetTranslatedAddrFlags(table, idx);
-                if (flags & (MPF_VTP_PT_FLAG_ALLOC_START |
-                             MPF_VTP_PT_FLAG_ALLOC_END))
+                if (flags & (MPF_VTP_PT_FLAG_MASK - MPF_VTP_PT_FLAG_TERMINAL))
                 {
                     printf(" [");
                     if (flags & MPF_VTP_PT_FLAG_ALLOC_START) printf(" START");
                     if (flags & MPF_VTP_PT_FLAG_ALLOC_END) printf(" END");
+                    if (flags & MPF_VTP_PT_FLAG_INVALID) printf(" INVALID");
+                    if (flags & MPF_VTP_PT_FLAG_PREALLOCATED) printf(" PREALLOC");
                     printf(" ]");
                 }
                 printf("\n");

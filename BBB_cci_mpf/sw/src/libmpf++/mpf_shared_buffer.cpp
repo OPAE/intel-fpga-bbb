@@ -38,7 +38,7 @@ using namespace opae::fpga::types;
 mpf_shared_buffer::~mpf_shared_buffer() {
   // If the allocation was successful.
   if (virt_) {
-    fpga_result r = mpfVtpBufferFree(*mpf_handle_, virt_);
+    fpga_result r = mpfVtpReleaseBuffer(*mpf_handle_, virt_);
     virt_ = nullptr;
 
     if (FPGA_OK != r) {
@@ -63,8 +63,37 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handl
   uint8_t *virt = nullptr;
   uint64_t wsid = 0;
 
-  fpga_result res = mpfVtpBufferAllocate(*mpf_handle, len,
-                                         reinterpret_cast<void **>(&virt));
+  fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
+                                        reinterpret_cast<void **>(&virt),
+                                        0);
+  ASSERT_FPGA_OK(res);
+
+  uint64_t iova = mpfVtpGetIOAddress(*mpf_handle, virt);
+
+  p.reset(new mpf_shared_buffer(mpf_handle, len, virt, iova));
+
+  return p;
+}
+
+mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
+                                                   uint8_t *base,
+                                                   size_t len) {
+  ptr_t p;
+
+  if (!len) {
+    throw except(OPAECXX_HERE);
+  }
+
+  if (!mpfVtpIsAvailable(*mpf_handle)) {
+    throw except(OPAECXX_HERE);
+  }
+
+  uint8_t *virt = base;
+  uint64_t wsid = 0;
+
+  fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
+                                        reinterpret_cast<void **>(&virt),
+                                        FPGA_BUF_PREALLOCATED);
   ASSERT_FPGA_OK(res);
 
   uint64_t iova = mpfVtpGetIOAddress(*mpf_handle, virt);

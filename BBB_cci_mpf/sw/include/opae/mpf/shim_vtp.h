@@ -72,11 +72,41 @@ bool __MPF_API__ mpfVtpIsAvailable(
 /**
  * Allocate a shared host/FPGA buffer.
  *
- * The buffer may be arbitrarily large.  VTP allocates memory shared with
- * an FPGA and populates the VTP page tables.  The calling process may
+ * This function has similar behavior to the OPAE SDK function
+ * fpgaPrepareBuffer, but with a significant difference: the buffer may
+ * may be arbitrarily large. The allocated buffer may be composed of
+ * multiple physical pages that do not have to be physically contiguous.
+ * VTP maintains a page-level translation table. The calling process may
  * pass any virtual address within the returned buffer to the FPGA and
  * the FPGA-side VTP will translate automatically to physical (IOVA)
  * addresses.
+ *
+ * The FPGA_BUF_PREALLOCATED flag has requirements and semantics that
+ * match fpgaPrepareBuffer. When set, buf_addr must point to the
+ * page-aligned start of an existing virtual buffer. VTP will call
+ * OPAE to share the buffer with the FPGA and will also add the
+ * buffer to VTP's address translation table.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  len         Length of the buffer to allocate in bytes.
+ * @param[out] buf_addr    Virtual base address of the allocated buffer.
+ * @param[in]  flags       Flags. FPGA_BUF_PREALLOCATED indicates that memory
+ *                         pointed at in '*buf_addr' is already allocated an
+ *                         mapped into virtual memory.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result __MPF_API__ mpfVtpPrepareBuffer(
+    mpf_handle_t mpf_handle,
+    uint64_t len,
+    void** buf_addr,
+    int flags
+);
+
+
+/**
+ * Legacy function -- replaced by mpfVtpPrepareBuffer.
+ *
+ * Equivalent to mpfVtpPrepareBuffer with flags set to 0.
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  len         Length of the buffer to allocate in bytes.
@@ -93,8 +123,24 @@ fpga_result __MPF_API__ mpfVtpBufferAllocate(
 /**
  * Free a shared host/FPGA buffer.
  *
- * Release a buffer previously allocated with mpfVtpBufferAllocate().
+ * Release a buffer previously allocated with mpfVtpPrepareBuffer().
  * Associated translations are removed from the VTP-managed page table.
+ * If the buffer was allocated without setting FPGA_BUF_PREALLOCATED
+ * this call will deallocate/free the memory. Otherwise, the memory
+ * will only be returned to it's previous state (unpinned).
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  buf_addr    Virtual base address of the allocated buffer.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result __MPF_API__ mpfVtpReleaseBuffer(
+    mpf_handle_t mpf_handle,
+    void* buf_addr
+);
+
+
+/**
+ * Legacy function -- replaced by mpfVtpReleaseBuffer.
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  buf_addr    Virtual base address of the allocated buffer.

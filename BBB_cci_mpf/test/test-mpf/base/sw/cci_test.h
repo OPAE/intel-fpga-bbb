@@ -81,6 +81,11 @@ class CCI_TEST
         return svc.allocBuffer(nBytes);
     }
 
+    fpga::types::shared_buffer::ptr_t attachBuffer(void* addr, size_t nBytes)
+    {
+        return svc.attachBuffer(addr, nBytes);
+    }
+
     void writeTestCSR(uint32_t idx, uint64_t v)
     {
         svc.write_csr64(8 * (TEST_CSR_BASE + idx), v);

@@ -63,6 +63,17 @@ class mpf_shared_buffer : public opae::fpga::types::shared_buffer {
   static mpf_shared_buffer::ptr_t allocate(mpf_handle::ptr_t mpf_handle,
                                            size_t len);
 
+  /** shared_buffer factory method - attach an existing buffer.
+   * @param[in] handle The handle used to allocate the buffer.
+   * @param[in] base   The base of the pre-allocated memory.
+   * @param[in] len    The length in bytes of the requested buffer.
+   * @return A valid shared_buffer smart pointer on success, or an
+   * empty smart pointer on failure.
+   */
+  static mpf_shared_buffer::ptr_t attach(mpf_handle::ptr_t mpf_handle,
+                                         uint8_t *base,
+                                         size_t len);
+
  protected:
   mpf_shared_buffer(mpf_handle::ptr_t mpf_handle, size_t len,
                     uint8_t *virt, uint64_t iova);

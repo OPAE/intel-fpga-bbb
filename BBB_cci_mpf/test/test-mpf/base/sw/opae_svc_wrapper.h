@@ -82,6 +82,12 @@ class OPAE_SVC_WRAPPER
     //
     fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes);
 
+    //
+    // Like allocBuffer(), but attaches an existing buffer so it is
+    // available to the FPGA.
+    //
+    fpga::types::shared_buffer::ptr_t attachBuffer(void* addr, size_t nBytes);
+
     // Used during testing to force large or small pages
     void forceSmallPageAlloc(bool small)
     {
