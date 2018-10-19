@@ -431,7 +431,7 @@ module cci_mpf_shim_edge_afu_wr_data
         // Some header fields in multi-line writes must be preserved from
         // the start packet.
         if (! afu.c1Tx.hdr.base.sop &&
-            ! cci_mpf_c1TxIsWriteFenceReq_noCheckValid(afu.c1Tx))
+            cci_mpf_c1TxIsWriteReq_noCheckValid(afu.c1Tx))
         begin
             afu_canon_c1Tx.hdr.base.cl_len = c1tx_sop_hdr.base.cl_len;
             afu_canon_c1Tx.hdr.base.address = c1tx_sop_hdr.base.address;

@@ -743,6 +743,21 @@ package cci_mpf_if_pkg;
     endfunction
 
 
+    function automatic logic cci_mpf_c1TxIsInterruptReq_noCheckValid(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return (r.hdr.base.req_type == eREQ_INTR);
+    endfunction
+
+    function automatic logic cci_mpf_c1TxIsInterruptReq(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return r.valid && cci_mpf_c1TxIsInterruptReq_noCheckValid(r);
+    endfunction
+
+
     // Generate an MPF C0 TX read request given a header
     function automatic t_if_cci_mpf_c0_Tx cci_mpf_genC0TxReadReq(
         input t_cci_mpf_c0_ReqMemHdr h,

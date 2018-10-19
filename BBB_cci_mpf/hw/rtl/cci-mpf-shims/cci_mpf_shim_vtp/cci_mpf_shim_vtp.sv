@@ -222,9 +222,12 @@ module cci_mpf_shim_vtp
 
     // Block order-sensitive requests until all previous translations are
     // complete so that they aren't reordered in the VTP channel pipeline.
+    t_if_cci_mpf_c1_Tx next_inTx;
+    assign next_inTx = deqC1Tx ? afu_buf.c1Tx : c1chan_inTx;
+
     logic c1_order_sensitive;
-    assign c1_order_sensitive =
-        cci_mpf_c1TxIsWriteFenceReq(deqC1Tx ? afu_buf.c1Tx : c1chan_inTx);
+    assign c1_order_sensitive = cci_mpf_c1TxIsWriteFenceReq(next_inTx) ||
+                                cci_mpf_c1TxIsInterruptReq(next_inTx);
 
     always_ff @(posedge clk)
     begin
