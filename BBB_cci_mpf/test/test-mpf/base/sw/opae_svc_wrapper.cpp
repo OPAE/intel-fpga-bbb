@@ -166,15 +166,29 @@ OPAE_SVC_WRAPPER::findAndOpenAccel(const char* accel_uuid)
         std::cerr << "FPGA with accelerator UUID " << accel_uuid << " not found." << std::endl;
         return FPGA_NOT_FOUND;
     }
-    token::ptr_t tok = tokens[0];
 
-    // Open accelerator and map MMIO
-    accel = handle::open(tok, 0);
+    // Loop through all the matching accelerators, looking for one that isn't busy.
+    for (int f = 0; f < tokens.size(); f += 1)
+    {
+        token::ptr_t tok = tokens[f];
+        try
+        {
+            // Connect to an FPGA and map MMIO
+            accel = handle::open(tok, 0);
 
-    // Connect to MPF
-    mpf = mpf_handle::open(accel, 0, 0, 0);
+            // Connect to MPF
+            mpf = mpf_handle::open(accel, 0, 0, 0);
 
-    return FPGA_OK;
+            return FPGA_OK;
+        }
+        catch (const opae::fpga::types::busy &e)
+        {
+            // No action when an FPGA is busy. We will try all that are available.
+        }
+    }
+
+    std::cerr << ((tokens.size() == 1) ? "FPGA is" : "All FPGAs are") << " busy." << std::endl;
+    return FPGA_BUSY;
 }
 
 
