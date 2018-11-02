@@ -31,6 +31,8 @@
 `ifndef __CCI_MPF_SHIM_VTP_VH__
 `define __CCI_MPF_SHIM_VTP_VH__
 
+`include "cci_mpf_platform.vh"
+
 
 // ************************************************************************
 // **                                                                    **
@@ -46,9 +48,17 @@ localparam CCI_PT_VA_BITS = CCI_MPF_CLADDR_WIDTH;
 // Width of a physical address (line addresses).  Old machines supported
 // only 32 bits.  Recent machines support larger spaces.
 localparam CCI_PT_PA_BITS =
+`ifndef PLATFORM_SIMULATED
+    // Running on hardware
     ((MPF_PLATFORM == "INTG_OME" || MPF_PLATFORM == "INTG_BDX") ?
         32 /* Old, small memory machine */ :
         CCI_MPF_CLADDR_WIDTH);
+`else
+    // Running in simulation. Versions of ASE after Oct. 2018 may generate
+    // addresses outside the 32 bit range. This isn't ideal for simulating
+    // BDX systems, but for now this is the easiest solution.
+    CCI_MPF_CLADDR_WIDTH;
+`endif
 
 
 //
