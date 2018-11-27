@@ -53,7 +53,7 @@ using namespace opae::fpga::bbb::mpf::types;
 // which the last 3 lines hold values in the low word and the 1st line
 // holds a pointer to the next entry in the list.  The pad fields are
 // unused.
-// 
+//
 typedef struct t_linked_list
 {
     t_linked_list* next;
@@ -98,6 +98,8 @@ t_linked_list* initList(t_linked_list* head,
 
     // Force all initialization to memory before the buffer is passed to the FPGA.
     std::atomic_thread_fence(std::memory_order_seq_cst);
+
+    return head;
 }
 
 
