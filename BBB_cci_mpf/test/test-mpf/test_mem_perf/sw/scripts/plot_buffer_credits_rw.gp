@@ -5,7 +5,7 @@ if (! exists("channel_number")) channel_number = "0"
 
 # Does ROB data exist?
 plot_rob = 0
-file_exists = system("file stats/lat_ord_mcl1_vc0.dat | grep ERROR") 
+file_exists = system("file stats/lat_ord_mcl1_vc0.dat | grep -i 'no such file'")
 if (strlen(file_exists) == 0) {
     plot_rob = 1
 }
