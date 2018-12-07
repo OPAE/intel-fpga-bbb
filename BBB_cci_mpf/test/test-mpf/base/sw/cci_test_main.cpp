@@ -43,6 +43,7 @@ int main(int argc, char *argv[])
         ("vcmap-fixed", po::value<int>()->default_value(-1), "VC MAP: Use fixed mapping with VL0 getting <n>/64 of traffic")
         ("vcmap-only-writes", po::value<bool>()->default_value(false), "VC MAP: Apply the chosen mapping mode only to write requests")
         ("uclk-freq", po::value<int>()->default_value(0), "Frequency of uClk_usr (MHz)")
+        ("vtp-force-small-pages", po::value<bool>()->default_value(false), "Force small (4KB) page allocation in VTP")
         ;
 
     testConfigOptions(desc);
@@ -100,6 +101,18 @@ int main(int argc, char *argv[])
             mpfVcMapSetFixedMapping(svc.mpf->c_type(), true, vcmap_fixed_vl0_ratio);
         }
     }
+
+    //
+    // Configure VTP shim
+    //
+    bool vtp_available;
+    vtp_available = mpfVtpIsAvailable(svc.mpf->c_type());
+    bool vtp_small_pages = vm["vtp-force-small-pages"].as<bool>();
+    if (vtp_available && vtp_small_pages)
+    {
+        svc.forceSmallPageAlloc(true);
+    }
+
 
     CCI_TEST* t = allocTest(vm, svc);
     int result = t->test();
@@ -180,9 +193,7 @@ int main(int argc, char *argv[])
          << "#   VH1 line ops:       " << vh1_lines << endl
          << "#" << endl;
 
-    bool vtp_available;
     mpf_vtp_stats vtp_stats;
-    vtp_available = mpfVtpIsAvailable(svc.mpf->c_type());
     if (vtp_available)
     {
         mpfVtpGetStats(svc.mpf->c_type(), &vtp_stats);
