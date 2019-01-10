@@ -282,6 +282,8 @@ module cci_mpf_prim_fifo_lutram_ctrl
         begin
             valid_cnt <= t_counter'(0);
             notEmpty <= 1'b0;
+            notFull <= 1'b0;
+            almostFull <= 1'b1;
         end
     end
 

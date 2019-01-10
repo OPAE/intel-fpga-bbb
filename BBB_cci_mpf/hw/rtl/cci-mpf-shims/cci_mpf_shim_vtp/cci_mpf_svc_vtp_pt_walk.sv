@@ -330,11 +330,12 @@ module cci_mpf_svc_vtp_pt_walk
                 begin
                     state <= STATE_PT_WALK_READ_CACHE_REQ;
                     state_is_walk_idle <= 1'b0;
+
+                    translate_va <= pt_walk.reqVA;
                 end
 
                 // New request: start by searching the local page table
                 // cache (depth first).
-                translate_va <= pt_walk.reqVA;
                 translate_va_idx_vec <= req_va_as_idx_vec;
                 translate_depth <=
                     t_cci_mpf_pt_walk_depth'(CCI_MPF_PT_MAX_DEPTH - 1);
@@ -507,6 +508,7 @@ module cci_mpf_svc_vtp_pt_walk
             pt_walk.notPresent <= 1'b0;
             state_is_walk_idle <= 1'b1;
             state_is_walk_done <= 1'b0;
+            translate_va <= t_tlb_4kb_va_page_idx'(0);
         end
     end
 
