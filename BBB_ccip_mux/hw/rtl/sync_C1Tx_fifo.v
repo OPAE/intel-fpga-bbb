@@ -121,6 +121,7 @@ reg     [DEPTH_BASE2-1:0]       bram_raddr_d;
 (* `NO_RETIMING, maxfan=7 *)    reg     [DEPTH_BASE2:0]     bram_count;
 (* `NO_RETIMING, `NO_MERGE *)   reg                         bram_rena;
 (* `NO_RETIMING, `NO_MERGE *)   reg                         bram_renb;
+reg                             bram_do_write, bram_do_read;
 
 wire                    T0_fifo_dout_v     = dram_v;
 wire [DATA_WIDTH-1:0]   T2_fifo_dout       = bram_rdout;
@@ -178,19 +179,25 @@ begin
         bram_renb = fifo_rdack;
         bram_wdin = fifo_din;
         bram_full = bram_count[DEPTH_BASE2];
+
+        bram_do_write = bram_wen & ~bram_full;
+        bram_do_read = bram_renb & ~bram_empty;
 end
 
 always @(posedge Clk)
 begin
-        if(bram_wen & ~bram_full)
+        if(bram_do_write)
                 bram_waddr <= bram_waddr + 1'b1;
-        if(bram_renb & ~bram_empty)
+        if(bram_do_read)
         begin
                 bram_raddr <= bram_raddr + 1'b1;
                 bram_raddr_next <= bram_raddr+2'h2;
         end
 
-        bram_count      <= bram_count + (~bram_full & bram_wen) - (~bram_empty & bram_renb);
+        if (bram_do_write & ~bram_do_read)
+                bram_count <= bram_count + 1'b1;
+        else if (~bram_do_write & bram_do_read)
+                bram_count <= bram_count - 1'b1;
         
         case(bram_empty)
                 1'b0: if(bram_count==1'b1 && ~bram_wen && bram_renb)
