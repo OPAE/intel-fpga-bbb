@@ -164,6 +164,7 @@ module cci_mpf_shim_detect_eop
     // Monitor flow of requests and responses.
     //
 
+    t_if_cci_c1_Rx c1Rx[0:1];
     t_cci_clNum wr_rsp_packet_len;
     logic wr_rsp_pkt_eop;
 
@@ -181,9 +182,9 @@ module cci_mpf_shim_detect_eop
         .reqIdx(t_req_idx'(afu.c1Tx.hdr.base.mdata)),
         .reqLen(afu.c1Tx.hdr.base.cl_len),
 
-        .rsp_en(cci_c1Rx_isWriteRsp(fiu.c1Rx)),
-        .rspIdx(t_req_idx'(fiu.c1Rx.hdr.mdata)),
-        .rspIsPacked(fiu.c1Rx.hdr.format),
+        .rsp_en(cci_c1Rx_isWriteRsp(c1Rx[0])),
+        .rspIdx(t_req_idx'(c1Rx[0].hdr.mdata)),
+        .rspIsPacked(c1Rx[0].hdr.format),
 
         .T1_pkt_eop(wr_rsp_pkt_eop),
         .T1_rspLen(wr_rsp_packet_len)
@@ -197,13 +198,13 @@ module cci_mpf_shim_detect_eop
 
 
     //
-    // Responses
+    // Responses. The latency of write responses isn't that important, within reason.
+    // Register c1Rx[0] to relax timing.
     //
-    t_if_cci_c1_Rx c1Rx[0:1];
-    assign c1Rx[0] = fiu.c1Rx;
-
+    //
     always_ff @(posedge clk)
     begin
+        c1Rx[0] <= fiu.c1Rx;
         c1Rx[1] <= c1Rx[0];
     end
 

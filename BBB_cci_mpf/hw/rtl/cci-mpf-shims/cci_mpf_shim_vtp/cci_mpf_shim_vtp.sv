@@ -300,6 +300,14 @@ module cci_mpf_shim_vtp_chan_lookup
     cci_mpf_csrs.vtp csrs
     );
 
+    // Register incoming almost full for timing. The FIFOs below respond quickly
+    // enough despite the delay.
+    logic almostFullFromFIU_q;
+    always_ff @(posedge clk)
+    begin
+        almostFullFromFIU_q <= almostFullFromFIU;
+    end
+
     // L1 lookup result wires
     logic l1_fifo_deq;
     logic l1_fifo_notEmpty;
@@ -396,7 +404,7 @@ module cci_mpf_shim_vtp_chan_lookup
         .cTx_out(l2_cTx_out),
         .cTxPhysAddr_out(l2_cTxPhysAddr_out),
         .cTxAddrIsBigPage_out(l2_cTxAddrIsBigPage_out),
-        .cTxAlmostFull(almostFullFromFIU),
+        .cTxAlmostFull(almostFullFromFIU_q),
 
         .insertVA,
         .insertPA,
@@ -426,7 +434,7 @@ module cci_mpf_shim_vtp_chan_lookup
             begin
                 // Yes: forward directly to FIU unless there is conflicting
                 // output from the L2 pipeline.
-                l1_fwd_to_fiu = ! almostFullFromFIU && ! l2_cTxValid_out;
+                l1_fwd_to_fiu = ! almostFullFromFIU_q && ! l2_cTxValid_out;
             end
             else
             begin
@@ -1211,7 +1219,7 @@ module cci_mpf_shim_vtp_chan_l1_caches
     //
     // ====================================================================
 
-    localparam DEBUG_MESSAGES = 1;
+    localparam DEBUG_MESSAGES = 0;
     always_ff @(posedge clk)
     begin
         if (DEBUG_MESSAGES && ! reset)
