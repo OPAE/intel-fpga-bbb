@@ -160,10 +160,13 @@ interface cci_mpf_csrs();
         output vtp_out_event_4kb_hit,
         output vtp_out_event_4kb_miss,
         output vtp_out_event_2mb_hit,
-        output vtp_out_event_2mb_miss,
+        output vtp_out_event_2mb_miss
+        );
+    modport vtp_events_pt_walk
+       (
         output vtp_out_event_pt_walk_busy,
-        output vtp_out_event_failed_translation,
-        output vtp_out_pt_walk_last_vaddr
+        output vtp_out_pt_walk_last_vaddr,
+        output vtp_out_event_failed_translation
         );
 
     modport vc_map

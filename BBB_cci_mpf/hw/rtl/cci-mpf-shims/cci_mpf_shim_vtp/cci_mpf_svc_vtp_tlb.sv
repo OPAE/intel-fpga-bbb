@@ -175,7 +175,7 @@ module cci_mpf_svc_vtp_tlb
 
     initial
     begin
-        n_reset_tlb[0] = 1'b0;
+        n_reset_tlb[1] = 1'b0;
         n_reset_tlb[0] = 1'b0;
     end
 
@@ -230,6 +230,8 @@ module cci_mpf_svc_vtp_tlb
     // Structures holding state for each lookup pipeline stage
     //
 
+    localparam NUM_PIPE_STAGES = `CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES;
+
     //
     // Primary state
     //
@@ -238,8 +240,7 @@ module cci_mpf_svc_vtp_tlb
         t_tlb_va_page_idx lookup_page_va;
     } t_tlb_stage_state;
 
-    localparam NUM_TLB_LOOKUP_PIPE_STAGES = 5;
-    t_tlb_stage_state stg_state[1 : NUM_TLB_LOOKUP_PIPE_STAGES];
+    t_tlb_stage_state stg_state[1 : NUM_PIPE_STAGES];
 
     // Pass primary state through the pipeline
     always_ff @(posedge clk)
@@ -256,7 +257,7 @@ module cci_mpf_svc_vtp_tlb
 
         stg_state[1].lookup_page_va <= tlbVAIdxFrom4K(tlb_if.lookupPageVA);
 
-        for (int s = 1; s < NUM_TLB_LOOKUP_PIPE_STAGES; s = s + 1)
+        for (int s = 1; s < NUM_PIPE_STAGES; s = s + 1)
         begin
             stg_state[s + 1] <= stg_state[s];
         end
@@ -281,14 +282,13 @@ module cci_mpf_svc_vtp_tlb
     //
     // TLB read response data arrives in stage 2.
     //
-    t_tlb_entry stg_tlb_rdata[2 : NUM_TLB_LOOKUP_PIPE_STAGES][0 : NUM_TLB_SET_WAYS-1];
+    t_tlb_entry stg_tlb_rdata[2 : NUM_PIPE_STAGES][0 : NUM_TLB_SET_WAYS-1];
 
     assign stg_tlb_rdata[2] = tlb_rdata;
 
     always_ff @(posedge clk)
     begin
-        stg_tlb_rdata[3 : NUM_TLB_LOOKUP_PIPE_STAGES] <=
-            stg_tlb_rdata[2 : NUM_TLB_LOOKUP_PIPE_STAGES-1];
+        stg_tlb_rdata[3 : NUM_PIPE_STAGES] <= stg_tlb_rdata[2 : NUM_PIPE_STAGES-1];
     end
 
 
@@ -428,13 +428,11 @@ module cci_mpf_svc_vtp_tlb
     always_ff @(posedge clk)
     begin
         // Lookup is valid if some way hit
-        tlb_if.lookupRspValid <= lookup_valid;
+        tlb_if.lookupRspHit <= lookup_valid;
 
         // Flag misses.
         tlb_if.lookupMiss <= lookup_miss;
-
-        tlb_if.lookupMissVA <=
-            tlbVAIdxTo4K(stg_state[NUM_TLB_LOOKUP_PIPE_STAGES].lookup_page_va);
+        tlb_if.lookupMissVA <= tlbVAIdxTo4K(stg_state[NUM_PIPE_STAGES].lookup_page_va);
 
         // Get the physical page index from the chosen way
         tlb_if.lookupRspPagePA <= lookup_page_pa;
@@ -566,7 +564,7 @@ module cci_mpf_svc_vtp_tlb
          .lookupVecRsp(repl_lookup_vec_rsp),
          .lookupRsp(),
          .lookupRspRdy(repl_lookup_rsp_rdy),
-         .refIdx0(target_tlb_idx(stg_state[NUM_TLB_LOOKUP_PIPE_STAGES].lookup_page_va)),
+         .refIdx0(target_tlb_idx(stg_state[NUM_PIPE_STAGES].lookup_page_va)),
          .refWayVec0(lookup_way_hit_vec),
          .refEn0(lookup_valid),
          // Update port 1 not used
@@ -643,9 +641,9 @@ module cci_mpf_svc_vtp_tlb
             begin
                 $display("VTP TLB %s: Hit idx %0d, way %0d, VA 0x%x, PA 0x%x",
                          DEBUG_NAME,
-                         target_tlb_idx(stg_state[NUM_TLB_LOOKUP_PIPE_STAGES].lookup_page_va),
+                         target_tlb_idx(stg_state[NUM_PIPE_STAGES].lookup_page_va),
                          lookup_way_hit,
-                         {stg_state[NUM_TLB_LOOKUP_PIPE_STAGES].lookup_page_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {stg_state[NUM_PIPE_STAGES].lookup_page_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
                          {lookup_page_pa, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0});
             end
 

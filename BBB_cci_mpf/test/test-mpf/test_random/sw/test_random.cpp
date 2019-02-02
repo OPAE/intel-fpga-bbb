@@ -308,6 +308,23 @@ int TEST_RANDOM::test()
             }
         }
 
+        // Wait for the AFU's reads and writes to complete
+        uint64_t iter_quiet = 0;
+        bool mem_active = (0 != ((readTestCSR(7) >> 5) & 3));
+
+        while (mem_active)
+        {
+            nanosleep(&ms, NULL);
+
+            if (iter_quiet++ == 5)
+            {
+                // Give up and signal an error
+                break;
+            }
+
+            mem_active = (0 != ((readTestCSR(7) >> 5) & 3));
+        }
+
         totalCycles += cycles;
 
         uint64_t read_cnt = readTestCSR(4);
@@ -335,7 +352,7 @@ int TEST_RANDOM::test()
         vh0_lines = vh0_lines_n;
         vh1_lines = vh1_lines_n;
 
-        if (*dsm != 1)
+        if ((*dsm != 1) || mem_active)
         {
             // Error!
             dbgRegDump(readTestCSR(7));
@@ -380,7 +397,9 @@ TEST_RANDOM::dbgRegDump(uint64_t r)
          << "  FIU C1 Alm Full: " << ((r >> 1) & 1) << endl
          << "  Error:           " << ((r >> 2) & 1) << endl
          << "  CHK FIFO Full:   " << ((r >> 3) & 1) << endl
-         << "  CHK RAM Ready:   " << ((r >> 4) & 1) << endl;
+         << "  CHK RAM Ready:   " << ((r >> 4) & 1) << endl
+         << "  C0 Active:       " << ((r >> 5) & 1) << endl
+         << "  C1 Active:       " << ((r >> 6) & 1) << endl;
 }
 
 

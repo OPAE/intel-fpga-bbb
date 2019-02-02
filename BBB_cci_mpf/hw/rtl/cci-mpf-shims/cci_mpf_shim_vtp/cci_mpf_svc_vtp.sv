@@ -56,8 +56,7 @@ module cci_mpf_svc_vtp
     cci_mpf_shim_vtp_svc_if.server vtp_svc[0 : N_VTP_PORTS-1],
 
     // Page table walker bus
-    cci_mpf_shim_vtp_pt_walk_if.pt_walk pt_walk_walker,
-    cci_mpf_shim_vtp_pt_walk_if.client pt_walk_client,
+    cci_mpf_shim_vtp_pt_walk_if.client pt_walk,
 
     // CSRs
     cci_mpf_csrs.vtp csrs,
@@ -110,6 +109,23 @@ module cci_mpf_svc_vtp
                 .notEmpty(new_req_rdy[p]),
                 .almostFull()
                 );
+
+            always_ff @(posedge clk)
+            begin
+                // synthesis translate_off
+                if (! reset && DEBUG_MESSAGES)
+                begin
+                    if (vtp_svc[p].lookupEn)
+                    begin
+                        $display("VTP SVC %0t: Incoming REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                                 $time,
+                                 {vtp_svc[p].lookupReq.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {vtp_svc[p].lookupReq.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                                 p, vtp_svc[p].lookupReq.tag);
+                    end
+                end
+                // synthesis translate_on
+            end
         end
     endgenerate
 
@@ -151,7 +167,6 @@ module cci_mpf_svc_vtp
 
     t_cci_mpf_shim_vtp_lookup_req first;
     t_cci_mpf_shim_vtp_port_idx first_port_idx;
-    logic first_deq;
     logic first_rdy;
 
     always_ff @(posedge clk)
@@ -174,7 +189,8 @@ module cci_mpf_svc_vtp
         .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
                      $bits(t_cci_mpf_shim_vtp_port_idx)),
         .N_ENTRIES(4),
-        .THRESHOLD(2)
+        .THRESHOLD(2),
+        .REGISTER_OUTPUT(1)
         )
       merged_fifo
        (
@@ -187,48 +203,231 @@ module cci_mpf_svc_vtp
         .almostFull(merged_fifo_almFull),
 
         .first({ first, first_port_idx }),
-        .deq_en(first_deq),
+        .deq_en(tlb_if.lookupEn),
         .notEmpty(first_rdy)
         );
 
+    always_ff @(posedge clk)
+    begin
+        // synthesis translate_off
+        if (! reset && DEBUG_MESSAGES)
+        begin
+            if (winner_req_en)
+            begin
+                $display("VTP SVC %0t: Arb winner REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                         $time,
+                         {winner_req.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {winner_req.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         winner_req_port_idx, winner_req.tag);
+            end
+        end
+        // synthesis translate_on
+    end
+
 
     // ====================================================================
     //
-    //   Construct the pipeline that searches the TLB and send the
-    //   merged request stream through it.
+    //  Construct a unified TLB lookup interface here, composed of
+    //  parallel pipelines for each page size.
     //
     // ====================================================================
-
-    // Interface to main VTP translation pipeline
-    cci_mpf_shim_vtp_svc_if vtp_pipe();
 
     // Interface to the TLB
     cci_mpf_shim_vtp_tlb_if tlb_if();
 
-    t_cci_mpf_shim_vtp_port_idx rsp_port_idx;
+    cci_mpf_svc_vtp_multi_size_tlb
+      #(
+        .DEBUG_MESSAGES(DEBUG_MESSAGES)
+        )
+      tlb
+       (
+        .clk,
+        .reset,
+        .tlb_if,
+        .csrs,
+        .events
+        );
 
-    cci_mpf_svc_vtp_pipe
+
+    // ====================================================================
+    //
+    //  Pass requests to the TLB and store responses in a FIFO.
+    //
+    // ====================================================================
+
+    //
+    // A FIFO holds the requests passed to the TLB in case the TLB does
+    // not hold the requested translation. In that case, the request
+    // must be forwarded to the page miss handler.
+    //
+    // The FIFO is large enough to hold all requests outstanding in the
+    // TLB. The almost full signal in the FIFO limits traffic to the
+    // TLB pipeline.
+    //
+    logic tlb_lookup_rsp_deq_en;
+    logic tlb_almostFull;
+    t_cci_mpf_shim_vtp_lookup_req tlb_processed_req;
+    t_cci_mpf_shim_vtp_port_idx tlb_processed_port;
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
+                     $bits(t_cci_mpf_shim_vtp_port_idx)),
+        .N_ENTRIES(`CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .THRESHOLD(3),
+        .REGISTER_OUTPUT(1)
+        )
+      processed_reqs
+       (
+        .clk,
+        .reset,
+
+        .enq_data({ first, first_port_idx }),
+        .enq_en(tlb_if.lookupEn),
+        .almostFull(tlb_almostFull),
+
+        .first({ tlb_processed_req, tlb_processed_port }),
+        .deq_en(tlb_lookup_rsp_deq_en),
+        // Ignored since TLB will respond only when there is an entry here
+        .notEmpty(),
+        .notFull()
+        );
+
+    //
+    // Send requests to the TLB.
+    //
+    always_comb
+    begin
+        tlb_if.lookupEn = first_rdy && ! tlb_almostFull && tlb_if.lookupRdy;
+        tlb_if.lookupPageVA = first.pageVA;
+    end
+
+    always_ff @(posedge clk)
+    begin
+        // synthesis translate_off
+        if (! reset && DEBUG_MESSAGES)
+        begin
+            if (tlb_if.lookupEn)
+            begin
+                $display("VTP SVC %0t: TLB lookup REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                         $time,
+                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         first_port_idx, first.tag);
+            end
+        end
+        // synthesis translate_on
+    end
+
+    //
+    // Store TLB responses in a FIFO. Dequeues from the FIFO may stall
+    // if there are a lot of TLB misses and the page walker pipeline
+    // fills. As a consequence, the FIFO here must be at least as deep
+    // as the processed_reqs FIFO.
+    //
+    typedef struct packed
+    {
+        t_tlb_4kb_pa_page_idx pagePA;
+        logic tlbHit;
+        logic tlbMiss;
+        logic isBigPage;
+    }
+    t_cci_mpf_shim_vtp_tlb_rsp;
+
+    t_cci_mpf_shim_vtp_tlb_rsp tlb_rsp_in, tlb_lookup_rsp;
+    logic tlb_lookup_rsp_valid;
+
+    always_ff @(posedge clk)
+    begin
+        tlb_rsp_in.pagePA <= tlb_if.lookupRspPagePA;
+        tlb_rsp_in.tlbHit <= tlb_if.lookupRspHit;
+        tlb_rsp_in.tlbMiss <= tlb_if.lookupMiss;
+        tlb_rsp_in.isBigPage <= tlb_if.lookupRspIsBigPage;
+    end
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_tlb_rsp)),
+        .N_ENTRIES(`CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .THRESHOLD(3),
+        .REGISTER_OUTPUT(1)
+        )
+      processed_rsps
+       (
+        .clk,
+        .reset,
+
+        .enq_data(tlb_rsp_in),
+        .enq_en(tlb_rsp_in.tlbHit || tlb_rsp_in.tlbMiss),
+        // Ignored. Space is managed by processed_reqs FIFO.
+        .almostFull(),
+
+        .first(tlb_lookup_rsp),
+        .deq_en(tlb_lookup_rsp_deq_en),
+        .notEmpty(tlb_lookup_rsp_valid),
+        .notFull()
+        );
+
+    always_ff @(posedge clk)
+    begin
+        // synthesis translate_off
+        if (! reset && DEBUG_MESSAGES)
+        begin
+            if (tlb_rsp_in.tlbHit)
+            begin
+                $display("VTP SVC %0t: TLB lookup RESP hit PA 0x%x (line 0x%x), %0s page",
+                         $time,
+                         {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         (tlb_rsp_in.isBigPage ? "2MB" : "4KB"));
+            end
+            if (tlb_rsp_in.tlbHit || tlb_rsp_in.tlbMiss)
+            begin
+                $display("VTP SVC %0t: TLB lookup RESP miss", $time);
+            end
+        end
+        // synthesis translate_on
+    end
+
+
+    // ====================================================================
+    //
+    //   Page walker.
+    //
+    // ====================================================================
+
+    logic pt_walk_req_valid;
+    logic pt_walk_rsp_valid;
+    t_cci_mpf_shim_vtp_lookup_rsp pt_walk_rsp;
+    t_cci_mpf_shim_vtp_port_idx pt_walk_rsp_port_idx;
+    logic pt_walk_notFull;
+
+    cci_mpf_svc_vtp_do_pt_walk
       #(
         .N_VTP_PORTS(N_VTP_PORTS),
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
         )
-      pipe
+      do_pt_walk
        (
         .clk,
         .reset,
-        .vtp_svc(vtp_pipe),
-        .reqPortIdx(first_port_idx),
-        .rspPortIdx(rsp_port_idx),
-        .tlb_if
+
+        .pt_walk_req_valid,
+        .pt_walk_req(tlb_processed_req),
+        .pt_walk_req_port_idx(tlb_processed_port),
+
+        .pt_walk_rsp_valid,
+        .pt_walk_rsp,
+        .pt_walk_rsp_port_idx,
+        .pt_walk_notFull,
+
+        .tlb_if(tlb_if),
+        .pt_walk(pt_walk),
+        .csrs(csrs)
         );
 
-    always_comb
-    begin
-        vtp_pipe.lookupEn = vtp_pipe.lookupRdy && first_rdy;
-        vtp_pipe.lookupReq = first;
-
-        first_deq = vtp_pipe.lookupEn;
-    end
+    assign pt_walk_req_valid = tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbMiss &&
+                               pt_walk_notFull;
 
 
     // ====================================================================
@@ -237,27 +436,93 @@ module cci_mpf_svc_vtp
     //
     // ====================================================================
 
+    //
+    // Responses may come either directly from the TLB caches or from
+    // the page walker.
+    //
+
+    // Is there a TLB response to forward back to the client? The page
+    // walker has precedence.
+    logic do_tlb_hit_rsp;
+    assign do_tlb_hit_rsp = tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbHit &&
+                            ! pt_walk_rsp_valid;
+
+    assign tlb_lookup_rsp_deq_en = do_tlb_hit_rsp || pt_walk_req_valid;
+
+    logic pt_walk_rsp_valid_q;
+    always_ff @(posedge clk)
+    begin
+        pt_walk_rsp_valid_q <= pt_walk_rsp_valid;
+    end
+
     generate
         for (p = 0; p < N_VTP_PORTS; p = p + 1)
         begin : rsp
             always_ff @(posedge clk)
             begin
-                vtp_svc[p].lookupRspValid <=
-                    vtp_pipe.lookupRspValid &&
-                    (rsp_port_idx == t_cci_mpf_shim_vtp_port_idx'(p));
+                if (pt_walk_rsp_valid)
+                begin
+                    // Response from page table walker
+                    vtp_svc[p].lookupRspValid <=
+                        (pt_walk_rsp_port_idx == t_cci_mpf_shim_vtp_port_idx'(p));
+                    vtp_svc[p].lookupRsp <= pt_walk_rsp;
+                end
+                else
+                begin
+                    // Response from TLB cache
+                    vtp_svc[p].lookupRspValid <=
+                        tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbHit &&
+                        (tlb_processed_port == t_cci_mpf_shim_vtp_port_idx'(p));
 
-                vtp_svc[p].lookupRsp <= vtp_pipe.lookupRsp;
+                    vtp_svc[p].lookupRsp.pagePA <= tlb_lookup_rsp.pagePA;
+                    vtp_svc[p].lookupRsp.isBigPage <= tlb_lookup_rsp.isBigPage;
+                    vtp_svc[p].lookupRsp.tag <= tlb_processed_req.tag;
+                end
+            end
+
+
+            always_ff @(posedge clk)
+            begin
+                // synthesis translate_off
+                if (! reset && DEBUG_MESSAGES)
+                begin
+                    if (vtp_svc[p].lookupRspValid)
+                    begin
+                        $display("VTP SVC %0t: Completed RESP (from %0s) PA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
+                                 $time,
+                                 (pt_walk_rsp_valid_q ? "PT" : "TLB"),
+                                 {vtp_svc[p].lookupRsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {vtp_svc[p].lookupRsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                                 p, vtp_svc[p].lookupRsp.tag,
+                                 (vtp_svc[p].lookupRsp.isBigPage ? "2MB" : "4KB"));
+                    end
+                end
+                // synthesis translate_on
             end
         end
     endgenerate
 
+endmodule // cci_mpf_svc_vtp
 
-    // ====================================================================
-    //
-    //  TLB: the VTP pipe was handed a TLB interface.  Construct the
-    //  TLB here.
-    //
-    // ====================================================================
+
+//
+// TLB cache lookup interface that checks all pages sizes in parallel.
+//
+module cci_mpf_svc_vtp_multi_size_tlb
+  #(
+    parameter DEBUG_MESSAGES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // TLB lookup
+    cci_mpf_shim_vtp_tlb_if.server tlb_if,
+
+    // CSRs
+    cci_mpf_csrs.vtp csrs,
+    cci_mpf_csrs.vtp_events events
+    );
 
     //
     // Allocate two TLBs.  One manages 4KB pages and the other manages
@@ -310,12 +575,12 @@ module cci_mpf_svc_vtp
 
     // The TLB pipeline is fixed length, so responses arrive together.
     // At most one TLB should have a translation for a given address.
-    assign tlb_if.lookupRspValid = tlb_if_4kb.lookupRspValid ||
-                                   tlb_if_2mb.lookupRspValid;
-    assign tlb_if.lookupRspIsBigPage = tlb_if_2mb.lookupRspValid;
+    assign tlb_if.lookupRspHit = tlb_if_4kb.lookupRspHit ||
+                                 tlb_if_2mb.lookupRspHit;
+    assign tlb_if.lookupRspIsBigPage = tlb_if_2mb.lookupRspHit;
     assign tlb_if.lookupRspPagePA =
-        tlb_if_4kb.lookupRspValid ? tlb_if_4kb.lookupRspPagePA :
-                                    tlb_if_2mb.lookupRspPagePA;
+        tlb_if_4kb.lookupRspHit ? tlb_if_4kb.lookupRspPagePA :
+                                  tlb_if_2mb.lookupRspPagePA;
 
     // Read the page table if both TLBs miss
     assign tlb_if.lookupMiss = tlb_if_4kb.lookupMiss && tlb_if_2mb.lookupMiss;
@@ -326,7 +591,7 @@ module cci_mpf_svc_vtp
     begin
         if (! reset)
         begin
-            assert(! tlb_if_4kb.lookupRspValid || ! tlb_if_2mb.lookupRspValid) else
+            assert(! tlb_if_4kb.lookupRspHit || ! tlb_if_2mb.lookupRspHit) else
                 $fatal("cci_mpf_svc_vtp: Both TLBs valid!");
 
             if (tlb_if.lookupMiss)
@@ -355,6 +620,9 @@ module cci_mpf_svc_vtp
         tlb_if_2mb.fillVA <= tlb_if.fillVA;
         tlb_if_2mb.fillPA <= tlb_if.fillPA;
 
+        tlb_if_4kb.fillBigPage <= 1'b0;
+        tlb_if_2mb.fillBigPage <= 1'b1;
+
         tlb_if.fillRdy <= tlb_if_4kb.fillRdy && tlb_if_2mb.fillRdy &&
                           ! tlb_if.fillEn && ! fill_en_q;
 
@@ -381,98 +649,184 @@ module cci_mpf_svc_vtp
         end
         else
         begin
-            events.vtp_out_event_4kb_hit <= tlb_if_4kb.lookupRspValid;
-            events.vtp_out_event_2mb_hit <= tlb_if_2mb.lookupRspValid;
+            events.vtp_out_event_4kb_hit <= tlb_if_4kb.lookupRspHit;
+            events.vtp_out_event_2mb_hit <= tlb_if_2mb.lookupRspHit;
 
             events.vtp_out_event_4kb_miss <= tlb_if_4kb.fillEn;
             events.vtp_out_event_2mb_miss <= tlb_if_2mb.fillEn;
         end
     end
 
+endmodule // cci_mpf_svc_vtp_multi_size_tlb
 
-    // ====================================================================
+
+module cci_mpf_svc_vtp_do_pt_walk
+  #(
+    parameter N_VTP_PORTS = 0,
+    parameter DEBUG_MESSAGES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Incoming requests
+    input  logic pt_walk_req_valid,
+    input  t_cci_mpf_shim_vtp_lookup_req pt_walk_req,
+    input  logic [$clog2(N_VTP_PORTS)-1 : 0] pt_walk_req_port_idx,
+    output logic pt_walk_notFull,
+
+    // Outgoing walk responses
+    output logic pt_walk_rsp_valid,
+    output t_cci_mpf_shim_vtp_lookup_rsp pt_walk_rsp,
+    output logic [$clog2(N_VTP_PORTS)-1 : 0] pt_walk_rsp_port_idx,
+
+    // Outgoing fill messages to the TLBs
+    cci_mpf_shim_vtp_tlb_if.fill tlb_if,
+
+    // Page table walker bus
+    cci_mpf_shim_vtp_pt_walk_if.client pt_walk,
+
+    // CSRs
+    cci_mpf_csrs.vtp csrs
+    );
+
+    typedef logic [$clog2(N_VTP_PORTS)-1 : 0] t_cci_mpf_shim_vtp_port_idx;
+
     //
-    //   Page walker.
+    // Push incoming requests to a FIFO. This allows the primary TLB pipeline
+    // to flow around multiple translations that miss.
     //
-    // ====================================================================
+    logic first_rdy;
+    t_cci_mpf_shim_vtp_lookup_req first;
+    t_cci_mpf_shim_vtp_port_idx first_port_idx;
+    logic deq_first;
 
-    //
-    // Both pt_walk_client and pt_walk_walker passed in to this module are
-    // interfaces to the same bus.  pt_walk_client is used here to generate
-    // requests to the page table walker.  pt_walk_walker is passed to
-    // the walker itself and combines both the pt_walk_client request bus and
-    // a bus for reading the page table from host memory.
-    //
-
-    // Add a register stage to walk requests for travel across the FPGA
-    logic pt_walk_req_en;
-    t_tlb_4kb_va_page_idx pt_walk_req_va;
-
-    always_ff @(posedge clk)
-    begin
-        //
-        // In addition to the page walker being ready we also require
-        // that the TLB be ready to fill. This is done solely to handle
-        // a corner case in which the TLB is processing a fill to the
-        // same address that is signalling a miss. Processing the fill
-        // would be technically correct but wasteful, since the
-        // translation will be added to the TLB within a few cycles.
-        //
-        // If the page table walker or TLB isn't ready the lookup request
-        // is simply dropped.  It will be reissued by the translation
-        // pipeline.
-        //
-        pt_walk_req_en <= tlb_if.lookupMiss && pt_walk_client.reqRdy &&
-                          tlb_if.fillRdy;
-
-        pt_walk_req_va <= tlb_if.lookupMissVA;
-
-        pt_walk_client.reqEn <= pt_walk_req_en;
-        pt_walk_client.reqVA <= pt_walk_req_va;
-
-        if (reset)
-        begin
-            pt_walk_client.reqEn <= 1'b0;
-            pt_walk_req_en <= 1'b0;
-        end
-    end
-
-    always_ff @(posedge clk)
-    begin
-        if (! reset && pt_walk_client.reqEn && DEBUG_MESSAGES)
-        begin
-            $display("VTP: Request page walk VA 0x%x",
-                     {pt_walk_client.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)});
-        end
-    end
-
-    always_ff @(posedge clk)
-    begin
-        events.vtp_out_event_failed_translation <= pt_walk_client.notPresent;
-
-        if (! reset)
-        begin
-            assert (! pt_walk_client.notPresent) else
-                $fatal("cci_mpf_svc_vtp: VA not present in page table");
-        end
-    end
-
-
-    cci_mpf_svc_vtp_pt_walk
+    cci_mpf_prim_fifo_lutram
       #(
-        .DEBUG_MESSAGES(DEBUG_MESSAGES)
+        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
+                     $bits(t_cci_mpf_shim_vtp_port_idx)),
+        .N_ENTRIES(8),
+        .REGISTER_OUTPUT(1)
         )
-      walker
+      merged_fifo
        (
         .clk,
         .reset,
 
-        .pt_walk(pt_walk_walker),
-        .csrs,
-        .tlb_fill_if(tlb_if),
+        .enq_data({ pt_walk_req, pt_walk_req_port_idx }),
+        .enq_en(pt_walk_req_valid),
+        .notFull(pt_walk_notFull),
+        .almostFull(),
 
-        .statBusy(events.vtp_out_event_pt_walk_busy),
-        .statLastTranslateVA(events.vtp_out_pt_walk_last_vaddr)
+        .first({ first, first_port_idx }),
+        .deq_en(deq_first),
+        .notEmpty(first_rdy)
         );
 
-endmodule // cci_mpf_svc_vtp
+
+    //
+    // Forward requests to the page walker.
+    //
+    assign deq_first = first_rdy && pt_walk.reqRdy && ! pt_walk.reqEn;
+
+    always_ff @(posedge clk)
+    begin
+        pt_walk.reqEn <= deq_first;
+        pt_walk.reqVA <= first.pageVA;
+        pt_walk.reqMeta <= t_cci_mpf_shim_vtp_pt_walk_meta'(first_port_idx);
+        pt_walk.reqTag <= first.tag;
+
+        if (reset)
+        begin
+            pt_walk.reqEn <= 1'b0;
+        end
+    end
+
+
+    //
+    // Return responses from the page walker.
+    //
+    always_ff @(posedge clk)
+    begin
+        pt_walk_rsp_valid <= pt_walk.rspEn && ! pt_walk.rspNotPresent;
+        pt_walk_rsp.pagePA <= pt_walk.rspPA;
+        pt_walk_rsp.tag <= pt_walk.rspTag;
+        pt_walk_rsp.isBigPage <= pt_walk.rspIsBigPage;
+        pt_walk_rsp_port_idx <= t_cci_mpf_shim_vtp_port_idx'(pt_walk.rspMeta);
+
+        if (reset)
+        begin
+            pt_walk_rsp_valid <= 1'b0;
+        end
+    end
+
+
+    //
+    // Insert new translations in the TLB.
+    //
+    always_ff @(posedge clk)
+    begin
+        tlb_if.fillEn <= pt_walk.rspEn && ! pt_walk.rspNotPresent &&
+                         // Skip the fill if the TLB isn't ready. It's just a cache,
+                         // so can be filled again later. This will be rare.
+                         tlb_if.fillRdy;
+
+        tlb_if.fillVA <= pt_walk.rspVA;
+        tlb_if.fillPA <= pt_walk.rspPA;
+        tlb_if.fillBigPage <= pt_walk.rspIsBigPage;
+
+        if (reset)
+        begin
+            tlb_if.fillEn <= 1'b0;
+        end
+    end
+
+
+    always_ff @(posedge clk)
+    begin
+        // synthesis translate_off
+        if (! reset && DEBUG_MESSAGES)
+        begin
+            if (pt_walk.reqEn)
+            begin
+                $display("VTP SVC %0t: REQ page walk VA 0x%x, tag (%0d, %0d)",
+                         $time,
+                         {pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         pt_walk.reqMeta, pt_walk.reqTag);
+            end
+
+            if (pt_walk_rsp_valid)
+            begin
+                $display("VTP SVC %0t: RESP page walk PA 0x%x, %0s, tag (%0d, %0d)",
+                         $time,
+                         {pt_walk_rsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         (pt_walk_rsp.isBigPage ? "2MB" : "4KB"),
+                         pt_walk_rsp_port_idx, pt_walk_rsp.tag);
+            end
+
+            if (tlb_if.fillEn)
+            begin
+                $display("VTP SVC %0t: TLB fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x), %0s",
+                         $time,
+                         {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         (tlb_if.fillBigPage ? "2MB" : "4KB"));
+            end
+        end
+        // synthesis translate_on
+    end
+
+    // Detect errors
+    always_ff @(posedge clk)
+    begin
+        if (! reset)
+        begin
+            assert (! pt_walk.rspNotPresent) else
+                $fatal("cci_mpf_svc_vtp: VA 0x%x not present in page table",
+                       {pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+        end
+    end
+
+endmodule // cci_mpf_svc_vtp_do_pt_walk
