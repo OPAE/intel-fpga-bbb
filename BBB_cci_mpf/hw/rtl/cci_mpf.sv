@@ -315,7 +315,7 @@ module cci_mpf
 
     localparam N_VTP_PORTS = 2;
 
-    cci_mpf_shim_vtp_svc_if vtp_svc_ports[0 : N_VTP_PORTS-1] ();
+    cci_mpf_shim_vtp_svc_if vtp_svc_ports[N_VTP_PORTS] ();
 
     generate
         if (ENABLE_VTP)

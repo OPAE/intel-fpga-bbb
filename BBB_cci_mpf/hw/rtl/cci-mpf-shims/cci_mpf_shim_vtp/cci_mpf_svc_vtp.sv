@@ -53,7 +53,7 @@ module cci_mpf_svc_vtp
     input  logic reset,
 
     // Clients
-    cci_mpf_shim_vtp_svc_if.server vtp_svc[0 : N_VTP_PORTS-1],
+    cci_mpf_shim_vtp_svc_if.server vtp_svc[N_VTP_PORTS],
 
     // Page table walker bus
     cci_mpf_shim_vtp_pt_walk_if.client pt_walk,
@@ -449,52 +449,56 @@ module cci_mpf_svc_vtp
 
     assign tlb_lookup_rsp_deq_en = do_tlb_hit_rsp || pt_walk_req_valid;
 
+    t_cci_mpf_shim_vtp_lookup_rsp rsp_data;
+    logic [N_VTP_PORTS-1 : 0] rsp_port_onehot;
     logic pt_walk_rsp_valid_q;
+
+    // Merge the two possible response paths (TLB cache and page table walker).
     always_ff @(posedge clk)
     begin
+        rsp_port_onehot <= {N_VTP_PORTS{1'b0}};
         pt_walk_rsp_valid_q <= pt_walk_rsp_valid;
+
+        if (pt_walk_rsp_valid)
+        begin
+            // Response from page table walker
+            rsp_port_onehot[pt_walk_rsp_port_idx] <= 1'b1;
+            rsp_data <= pt_walk_rsp;
+        end
+        else
+        begin
+            // Response from TLB cache
+            rsp_port_onehot[tlb_processed_port] <= tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbHit;
+            rsp_data.pagePA <= tlb_lookup_rsp.pagePA;
+            rsp_data.isBigPage <= tlb_lookup_rsp.isBigPage;
+            rsp_data.tag <= tlb_processed_req.tag;
+        end
     end
 
+    // Forward responses back to the clients.
     generate
         for (p = 0; p < N_VTP_PORTS; p = p + 1)
         begin : rsp
-            always_ff @(posedge clk)
+            always_comb
             begin
-                if (pt_walk_rsp_valid)
-                begin
-                    // Response from page table walker
-                    vtp_svc[p].lookupRspValid <=
-                        (pt_walk_rsp_port_idx == t_cci_mpf_shim_vtp_port_idx'(p));
-                    vtp_svc[p].lookupRsp <= pt_walk_rsp;
-                end
-                else
-                begin
-                    // Response from TLB cache
-                    vtp_svc[p].lookupRspValid <=
-                        tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbHit &&
-                        (tlb_processed_port == t_cci_mpf_shim_vtp_port_idx'(p));
-
-                    vtp_svc[p].lookupRsp.pagePA <= tlb_lookup_rsp.pagePA;
-                    vtp_svc[p].lookupRsp.isBigPage <= tlb_lookup_rsp.isBigPage;
-                    vtp_svc[p].lookupRsp.tag <= tlb_processed_req.tag;
-                end
+                vtp_svc[p].lookupRspValid = rsp_port_onehot[p];
+                vtp_svc[p].lookupRsp = rsp_data;
             end
-
 
             always_ff @(posedge clk)
             begin
                 // synthesis translate_off
                 if (! reset && DEBUG_MESSAGES)
                 begin
-                    if (vtp_svc[p].lookupRspValid)
+                    if (rsp_port_onehot[p])
                     begin
                         $display("VTP SVC %0t: Completed RESP (from %0s) PA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
                                  $time,
                                  (pt_walk_rsp_valid_q ? "PT" : "TLB"),
-                                 {vtp_svc[p].lookupRsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                                 {vtp_svc[p].lookupRsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
-                                 p, vtp_svc[p].lookupRsp.tag,
-                                 (vtp_svc[p].lookupRsp.isBigPage ? "2MB" : "4KB"));
+                                 {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                                 p, rsp_data.tag,
+                                 (rsp_data.isBigPage ? "2MB" : "4KB"));
                     end
                 end
                 // synthesis translate_on
