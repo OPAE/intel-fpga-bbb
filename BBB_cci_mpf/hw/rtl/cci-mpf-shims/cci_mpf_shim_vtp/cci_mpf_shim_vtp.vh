@@ -232,12 +232,12 @@ endinterface // cci_mpf_shim_vtp_svc_if
 // ========================================================================
 
 // For use only inside the TLB server. Clients should use
-// `CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES.
-`define CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES 5
+// CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES.
+localparam CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES = 5;
 // The minimum depth of the server's pipeline from the client's
 // perspective. The two extra cycles allow for registering both
 // incoming requests and outgoing responses.
-`define CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES (`CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES + 2)
+localparam CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES = CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES + 2;
 
 interface cci_mpf_shim_vtp_tlb_if;
     // These parameters determine the length of the server pipeline and may
@@ -268,7 +268,6 @@ interface cci_mpf_shim_vtp_tlb_if;
     t_tlb_4kb_pa_page_idx fillPA;
     // 2MB page? If 0 then it is a 4KB page.
     logic fillBigPage;
-    logic fillRdy;
 
     modport server
        (
@@ -285,8 +284,7 @@ interface cci_mpf_shim_vtp_tlb_if;
         input  fillEn,
         input  fillVA,
         input  fillPA,
-        input  fillBigPage,
-        output fillRdy
+        input  fillBigPage
         );
 
     modport client
@@ -311,8 +309,7 @@ interface cci_mpf_shim_vtp_tlb_if;
         output fillEn,
         output fillVA,
         output fillPA,
-        output fillBigPage,
-        input  fillRdy
+        output fillBigPage
         );
 
 endinterface

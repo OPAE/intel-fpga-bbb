@@ -273,7 +273,7 @@ module cci_mpf_svc_vtp
       #(
         .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
                      $bits(t_cci_mpf_shim_vtp_port_idx)),
-        .N_ENTRIES(`CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .N_ENTRIES(CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
         .THRESHOLD(3),
         .REGISTER_OUTPUT(1)
         )
@@ -348,7 +348,7 @@ module cci_mpf_svc_vtp
     cci_mpf_prim_fifo_lutram
       #(
         .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_tlb_rsp)),
-        .N_ENTRIES(`CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .N_ENTRIES(CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
         .THRESHOLD(3),
         .REGISTER_OUTPUT(1)
         )
@@ -611,13 +611,10 @@ module cci_mpf_svc_vtp_multi_size_tlb
     //
     // Direct fills to the appropriate TLB depending on the page size
     //
-    logic fill_en_q;
-
     always_ff @(posedge clk)
     begin
         tlb_if_4kb.fillEn <= tlb_if.fillEn && ! tlb_if.fillBigPage;
         tlb_if_2mb.fillEn <= tlb_if.fillEn && tlb_if.fillBigPage;
-        fill_en_q <= tlb_if.fillEn;
 
         tlb_if_4kb.fillVA <= tlb_if.fillVA;
         tlb_if_4kb.fillPA <= tlb_if.fillPA;
@@ -627,15 +624,10 @@ module cci_mpf_svc_vtp_multi_size_tlb
         tlb_if_4kb.fillBigPage <= 1'b0;
         tlb_if_2mb.fillBigPage <= 1'b1;
 
-        tlb_if.fillRdy <= tlb_if_4kb.fillRdy && tlb_if_2mb.fillRdy &&
-                          ! tlb_if.fillEn && ! fill_en_q;
-
         if (reset)
         begin
             tlb_if_4kb.fillEn <= 1'b0;
             tlb_if_2mb.fillEn <= 1'b0;
-            tlb_if.fillRdy <= 1'b0;
-            fill_en_q <= 1'b0;
         end
     end
 
@@ -656,6 +648,8 @@ module cci_mpf_svc_vtp_multi_size_tlb
             events.vtp_out_event_4kb_hit <= tlb_if_4kb.lookupRspHit;
             events.vtp_out_event_2mb_hit <= tlb_if_2mb.lookupRspHit;
 
+            // Wait to record misses until the corresponding fill. Until the
+            // fill we don't know whether it was a 4KB or a 2MB page miss.
             events.vtp_out_event_4kb_miss <= tlb_if_4kb.fillEn;
             events.vtp_out_event_2mb_miss <= tlb_if_2mb.fillEn;
         end
@@ -770,11 +764,7 @@ module cci_mpf_svc_vtp_do_pt_walk
     //
     always_ff @(posedge clk)
     begin
-        tlb_if.fillEn <= pt_walk.rspEn && ! pt_walk.rspNotPresent &&
-                         // Skip the fill if the TLB isn't ready. It's just a cache,
-                         // so can be filled again later. This will be rare.
-                         tlb_if.fillRdy;
-
+        tlb_if.fillEn <= pt_walk.rspEn && ! pt_walk.rspNotPresent;
         tlb_if.fillVA <= pt_walk.rspVA;
         tlb_if.fillPA <= pt_walk.rspPA;
         tlb_if.fillBigPage <= pt_walk.rspIsBigPage;

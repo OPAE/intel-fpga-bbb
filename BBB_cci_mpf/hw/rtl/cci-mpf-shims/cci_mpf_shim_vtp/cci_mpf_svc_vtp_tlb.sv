@@ -230,7 +230,7 @@ module cci_mpf_svc_vtp_tlb
     // Structures holding state for each lookup pipeline stage
     //
 
-    localparam NUM_PIPE_STAGES = `CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES;
+    localparam NUM_PIPE_STAGES = CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES;
 
     //
     // Primary state
@@ -448,44 +448,85 @@ module cci_mpf_svc_vtp_tlb
     typedef enum logic [2:0]
     {
         STATE_TLB_FILL_IDLE,
+        STATE_TLB_FILL_CHECK_HISTORY,
+        STATE_TLB_FILL_DROP_DUPS,
         STATE_TLB_FILL_REQ_WAY,
         STATE_TLB_FILL_RECV_WAY,
-        STATE_TLB_FILL_INSERT,
-        STATE_TLB_FILL_BUBBLE
+        STATE_TLB_FILL_INSERT
     }
     t_state_tlb_fill;
 
     t_state_tlb_fill fill_state;
 
     // Translation insertion request from page walker.
+    t_tlb_va_page_idx fill_va;
+    t_tlb_pa_page_idx fill_pa;
+
+    // Separate the set index and tag components of the fill VA.
     t_tlb_virtual_tag fill_tag;
     t_tlb_idx fill_idx;
-    t_tlb_pa_page_idx fill_pa;
+    assign { fill_tag, fill_idx } = fill_va;
 
     logic repl_rdy;
     logic repl_lookup_rsp_rdy;
 
-    logic [2:0] fill_bubble;
+
+    // Drop duplicate requests.
+    logic fill_not_duplicate;
+
+    cci_mpf_svc_vtp_tlb_drop_dups
+      #(
+        .NUM_TLB_INDEX_BITS(NUM_TLB_INDEX_BITS),
+        .TLB_VA_TAG_BITS(TLB_VA_TAG_BITS)
+        )
+      drop_duplicate_fills
+       (
+        .clk,
+        .reset,
+        .invalHistory(~n_reset_tlb[1] || csrs.vtp_in_inval_page_valid),
+        .check_valid(fill_state == STATE_TLB_FILL_CHECK_HISTORY),
+        .checkSet(fill_idx),
+        .checkTag(fill_tag),
+        .notDuplicate(fill_not_duplicate)
+        );
+
 
     always_ff @(posedge clk)
     begin
         case (fill_state)
           STATE_TLB_FILL_IDLE:
             begin
+                //
+                // Fills are only processed when the state is IDLE. All other
+                // requests are lost. This is ok for multiple reasons. First,
+                // the TLB is just a cache. Second, the page table walker
+                // generally takes a while between fill requests.
+                //
                 if (tlb_if.fillEn)
                 begin
-                    fill_state <= STATE_TLB_FILL_REQ_WAY;
+                    fill_state <= STATE_TLB_FILL_CHECK_HISTORY;
 
                     // Convert from VA to TLB tag/index
-                    { fill_tag, fill_idx } <= tlbVAIdxFrom4K(tlb_if.fillVA);
+                    fill_va <= tlbVAIdxFrom4K(tlb_if.fillVA);
                     fill_pa <= tlbPAIdxFrom4K(tlb_if.fillPA);
+                end
+            end
 
-                    // Only accept one fill at a time
-                    tlb_if.fillRdy <= 1'b0;
+          STATE_TLB_FILL_CHECK_HISTORY:
+            begin
+                fill_state <= STATE_TLB_FILL_DROP_DUPS;
+            end
+
+          STATE_TLB_FILL_DROP_DUPS:
+            begin
+                if (fill_not_duplicate)
+                begin
+                    fill_state <= STATE_TLB_FILL_REQ_WAY;
                 end
                 else
                 begin
-                    tlb_if.fillRdy <= 1'b1;
+                    // Drop the duplicate entry. It is already in the TLB.
+                    fill_state <= STATE_TLB_FILL_IDLE;
                 end
             end
 
@@ -507,27 +548,13 @@ module cci_mpf_svc_vtp_tlb
 
           STATE_TLB_FILL_INSERT:
             begin
-                fill_state <= STATE_TLB_FILL_BUBBLE;
-            end
-
-          STATE_TLB_FILL_BUBBLE:
-            begin
-                // Bubble delays transition to IDLE to avoid repeated
-                // requests to the same miss VA.  Fills are only attempted
-                // when the state is idle.
-                fill_bubble <= fill_bubble + 1;
-                if (&(fill_bubble) == 1'b1)
-                begin
-                    fill_state <= STATE_TLB_FILL_IDLE;
-                    tlb_if.fillRdy <= 1'b1;
-                end
+                fill_state <= STATE_TLB_FILL_IDLE;
             end
         endcase
 
         if (reset)
         begin
             fill_state <= STATE_TLB_FILL_IDLE;
-            fill_bubble <= 0;
         end
     end
 
@@ -628,19 +655,20 @@ module cci_mpf_svc_vtp_tlb
 
     always_ff @(posedge clk)
     begin
-        if (initialized && DEBUG_MESSAGES)
+        // synthesis translate_off
+        if (! reset && initialized && DEBUG_MESSAGES)
         begin
             if (tlb_if.lookupEn)
             begin
-                $display("VTP TLB %s: Lookup VA 0x%x",
-                         DEBUG_NAME,
+                $display("VTP TLB %s: %0t Lookup VA 0x%x",
+                         DEBUG_NAME, $time,
                          {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
             end
 
             if (lookup_valid)
             begin
-                $display("VTP TLB %s: Hit idx %0d, way %0d, VA 0x%x, PA 0x%x",
-                         DEBUG_NAME,
+                $display("VTP TLB %s: %0t Hit idx %0d, way %0d, VA 0x%x, PA 0x%x",
+                         DEBUG_NAME, $time,
                          target_tlb_idx(stg_state[NUM_PIPE_STAGES].lookup_page_va),
                          lookup_way_hit,
                          {stg_state[NUM_PIPE_STAGES].lookup_page_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
@@ -653,22 +681,133 @@ module cci_mpf_svc_vtp_tlb
                 begin
                     if (tlb_wdata.valid)
                     begin
-                        $display("VTP TLB %s: Insert idx %0d, way %0d, VA 0x%x, PA 0x%x",
-                                 DEBUG_NAME,
+                        $display("VTP TLB %s: %0t Insert idx %0d, way %0d, VA 0x%x, PA 0x%x",
+                                 DEBUG_NAME, $time,
                                  tlb_waddr, way,
                                  {tlb_wdata.tag, tlb_waddr, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
                                  {tlb_wdata.idx, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0});
                     end
                     else
                     begin
-                        $display("VTP TLB %s: Remove idx %0d, way %0d",
-                                 DEBUG_NAME,
+                        $display("VTP TLB %s: %0t Remove idx %0d, way %0d",
+                                 DEBUG_NAME, $time,
                                  tlb_waddr, way);
                     end
                 end
             end
+
+            if (tlb_if.fillEn)
+            begin
+                $display("VTP TLB %s: %0t TLB %s fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x)",
+                         DEBUG_NAME, $time,
+                         ((fill_state == STATE_TLB_FILL_IDLE) ? "accepted" : "ignored"),
+                         {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0)},
+                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0)});
+            end
+
+            if ((fill_state == STATE_TLB_FILL_DROP_DUPS) && ! fill_not_duplicate)
+            begin
+                $display("VTP TLB %s: %0t ignoring duplicate fill VA 0x%x (line 0x%x)",
+                         DEBUG_NAME, $time,
+                         {fill_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {fill_va, CCI_PT_PAGE_OFFSET_BITS'(0)});
+            end
         end
+        // synthesis translate_on
     end
 
 endmodule // cci_mpf_svc_vtp_tlb
 
+
+//
+// Keep a short history of pages recently added to the TLB and drop requests
+// that would result in a duplicate entry.
+//
+module cci_mpf_svc_vtp_tlb_drop_dups
+  #(
+    parameter NUM_TLB_INDEX_BITS = 0,
+    parameter TLB_VA_TAG_BITS = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+    // Invalidate all tracking history
+    input  logic invalHistory,
+
+    input  logic check_valid,
+    input  logic [NUM_TLB_INDEX_BITS - 1 : 0] checkSet,
+    input  logic [TLB_VA_TAG_BITS - 1 : 0] checkTag,
+
+    // Produced one cycle after checkVA_valid, indicating whether the checkVA
+    // was seen recently.
+    output logic notDuplicate
+    );
+
+    typedef logic [NUM_TLB_INDEX_BITS - 1 : 0] t_set;
+    typedef logic [TLB_VA_TAG_BITS - 1 : 0] t_tag;
+
+    localparam NUM_ENTRIES = 4;
+
+    logic [NUM_ENTRIES-1 : 0] hist_valid;
+    t_set [NUM_ENTRIES-1 : 0] hist_set;
+    t_tag [NUM_ENTRIES-1 : 0] hist_tag;
+
+    // Is the address to check in the recent history buffer?
+    logic found_match;
+    always_comb
+    begin
+        found_match = 1'b0;
+        for (int i = 0; i < NUM_ENTRIES; i = i + 1)
+        begin
+            found_match =
+               found_match ||
+               (hist_valid[i] && (hist_set[i] == checkSet) && (hist_tag[i] == checkTag));
+        end
+    end
+
+    // Return an answer
+    always_ff @(posedge clk)
+    begin
+        notDuplicate <= ! found_match;
+
+        if (reset)
+        begin
+            notDuplicate <= 1'b0;
+        end
+    end
+
+    // Update history buffer
+    logic check_valid_q;
+    t_set checkSet_q;
+    t_tag checkTag_q;
+
+    always_ff @(posedge clk)
+    begin
+        check_valid_q <= check_valid;
+        checkSet_q <= checkSet;
+        checkTag_q <= checkTag;
+
+        if (check_valid_q && notDuplicate)
+        begin
+            // Shift new address into the history buffer
+            hist_set <= { hist_set[NUM_ENTRIES-2 : 0], checkSet_q };
+            hist_tag <= { hist_tag[NUM_ENTRIES-2 : 0], checkTag_q };
+
+            // Drop any history entries in the same set as the new entry.
+            // They may be stored in the same way.
+            for (int i = 0; i < NUM_ENTRIES - 1; i = i + 1)
+            begin
+                hist_valid[i + 1] <= hist_valid[i] && (hist_set[i] != checkSet_q);
+            end
+            hist_valid[0] <= 1'b1;
+        end
+
+        if (reset || invalHistory)
+        begin
+            hist_valid <= NUM_ENTRIES'(0);
+        end
+    end
+
+endmodule // cci_mpf_svc_vtp_tlb_drop_dups
