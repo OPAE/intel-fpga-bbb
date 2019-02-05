@@ -325,7 +325,7 @@ module cci_mpf
             cci_mpf_svc_vtp
               #(
                 .N_VTP_PORTS(N_VTP_PORTS),
-                .DEBUG_MESSAGES(1)
+                .DEBUG_MESSAGES(0)
                 )
               vtp
                (
@@ -339,7 +339,7 @@ module cci_mpf
 
             cci_mpf_svc_vtp_pt_walk
               #(
-                .DEBUG_MESSAGES(1)
+                .DEBUG_MESSAGES(0)
                 )
               walker
                (

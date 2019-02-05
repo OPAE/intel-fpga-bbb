@@ -1220,7 +1220,7 @@ module cci_mpf_shim_vtp_chan_l1_caches
     //
     // ====================================================================
 
-    localparam DEBUG_MESSAGES = 1;
+    localparam DEBUG_MESSAGES = 0;
     always_ff @(posedge clk)
     begin
         if (DEBUG_MESSAGES && ! reset)
