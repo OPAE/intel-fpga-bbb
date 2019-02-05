@@ -814,6 +814,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     //
     t_cci_mpf_shim_vtp_lookup_rsp tlb_lookup_rsp;
     t_cci_mpf_shim_vtp_lookup_rsp tlb_lookup_rsp_q;
+    logic tlb_lookup_rsp_rdy;
     logic tlb_lookup_deq;
     logic tlb_lookup_deq_q;
 

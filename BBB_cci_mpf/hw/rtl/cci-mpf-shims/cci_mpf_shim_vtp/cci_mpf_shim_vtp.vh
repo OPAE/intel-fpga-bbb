@@ -32,6 +32,7 @@
 `define __CCI_MPF_SHIM_VTP_VH__
 
 `include "cci_mpf_platform.vh"
+`include "cci_mpf_config.vh"
 
 
 // ************************************************************************
@@ -230,7 +231,18 @@ endinterface // cci_mpf_shim_vtp_svc_if
 //
 // ========================================================================
 
+// For use only inside the TLB server. Clients should use
+// CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES.
+localparam CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES = 5;
+// The minimum depth of the server's pipeline from the client's
+// perspective. The two extra cycles allow for registering both
+// incoming requests and outgoing responses.
+localparam CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES = CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES + 2;
+
 interface cci_mpf_shim_vtp_tlb_if;
+    // These parameters determine the length of the server pipeline and may
+    // be used to size FIFOs in clients.
+
     // Look up VA in the table and return the PA or signal a miss two cycles
     // later.  The TLB code operates on aligned pages.  It is up to the caller
     // to compute offsets into pages.
@@ -238,9 +250,8 @@ interface cci_mpf_shim_vtp_tlb_if;
     t_tlb_4kb_va_page_idx lookupPageVA;
     logic lookupRdy;        // Ready to accept a request?
 
-    // Signal lookupValid two cycles after lookupEn if the page
-    // isn't currently in the FPGA-side translation table.
-    logic lookupRspValid;
+    // Did the lookup hit in the TLB cache?
+    logic lookupRspHit;
     // Respond with page's physical address two cycles after lookupEn
     t_tlb_4kb_pa_page_idx lookupRspPagePA;
     logic lookupRspIsBigPage;
@@ -257,7 +268,6 @@ interface cci_mpf_shim_vtp_tlb_if;
     t_tlb_4kb_pa_page_idx fillPA;
     // 2MB page? If 0 then it is a 4KB page.
     logic fillBigPage;
-    logic fillRdy;
 
     modport server
        (
@@ -265,15 +275,16 @@ interface cci_mpf_shim_vtp_tlb_if;
         input  lookupPageVA,
         output lookupRdy,
 
-        output lookupRspValid,
+        output lookupRspHit,
         output lookupRspPagePA,
+        output lookupRspIsBigPage,
 
         output lookupMiss,
         output lookupMissVA,
         input  fillEn,
         input  fillVA,
         input  fillPA,
-        output fillRdy
+        input  fillBigPage
         );
 
     modport client
@@ -283,11 +294,11 @@ interface cci_mpf_shim_vtp_tlb_if;
         input  lookupRdy,
 
         // Responses are returned from the TLB in the order translations were
-        // requested.  At the end of a lookup exactly one of lookupRspValid
+        // requested.  At the end of a lookup exactly one of lookupRspHit
         // and lookupMiss will be set for one cycle.  When looukpRspValid is
         // set the remaining lookupRsp fields also have meaning.
         input  lookupMiss,
-        input  lookupRspValid,
+        input  lookupRspHit,
         input  lookupRspPagePA,
         input  lookupRspIsBigPage
         );
@@ -298,8 +309,7 @@ interface cci_mpf_shim_vtp_tlb_if;
         output fillEn,
         output fillVA,
         output fillPA,
-        output fillBigPage,
-        input  fillRdy
+        output fillBigPage
         );
 
 endinterface
@@ -307,20 +317,85 @@ endinterface
 
 // ========================================================================
 //
-// Page table walker interface.
+//  Interface between the VTP service and the hardware page table walker.
 //
 // ========================================================================
+
+// Page walk requests may have associated metadata used by the client
+// to reorder responses.
+typedef logic [7 : 0] t_cci_mpf_shim_vtp_pt_walk_meta;
 
 interface cci_mpf_shim_vtp_pt_walk_if;
     // Enable PT walk request
     logic reqEn;
-    // VA to translate
-    t_tlb_4kb_va_page_idx reqVA;
     // Ready to accept a request?
     logic reqRdy;
+    // VA to translate
+    t_tlb_4kb_va_page_idx reqVA;
 
+    // Meta-data associated with requests and returned with responses.
+    t_cci_mpf_shim_vtp_pt_walk_meta reqMeta;
+    t_cci_mpf_shim_vtp_req_tag reqTag;
+
+    // Responses. These may be returned out of order. The client will use
+    // the metadata and tag to sort them.
+    logic rspEn;
+    t_tlb_4kb_va_page_idx rspVA;
+    t_tlb_4kb_pa_page_idx rspPA;
+    t_cci_mpf_shim_vtp_pt_walk_meta rspMeta;
+    t_cci_mpf_shim_vtp_req_tag rspTag;
+    // 2MB page? If 0 then it is a 4KB page.
+    logic rspIsBigPage;
     // Requested VA is not in the page table.  This is an error!
-    logic notPresent;
+    logic rspNotPresent;
+
+    // Page table walker (server) ports
+    modport server
+       (
+        output reqRdy,
+        input  reqVA,
+        input  reqEn,
+        input  reqMeta,
+        input  reqTag,
+
+        output rspEn,
+        output rspVA,
+        output rspPA,
+        output rspMeta,
+        output rspTag,
+        output rspIsBigPage,
+        output rspNotPresent
+        );
+
+    // Client (TLB) interface
+    modport client
+       (
+        input  reqRdy,
+        output reqVA,
+        output reqEn,
+        output reqMeta,
+        output reqTag,
+
+        input  rspEn,
+        input  rspVA,
+        input  rspPA,
+        input  rspMeta,
+        input  rspTag,
+        input  rspIsBigPage,
+        input  rspNotPresent
+        );
+
+endinterface
+
+
+
+// ========================================================================
+//
+//  Interface between the page table walker and the FIM.
+//
+// ========================================================================
+
+interface cci_mpf_shim_vtp_pt_fim_if;
 
     //
     // Read the page table from host memory
@@ -332,16 +407,9 @@ interface cci_mpf_shim_vtp_pt_walk_if;
     logic readDataEn;
     t_cci_clData readData;
 
-
     // Page table walker (server) ports
     modport pt_walk
        (
-        input  reqEn,
-        input  reqVA,
-        output reqRdy,
-
-        output notPresent,
-
         output readEn,
         output readAddr,
         input  readRdy,
@@ -350,18 +418,8 @@ interface cci_mpf_shim_vtp_pt_walk_if;
         input  readData
         );
 
-    // Client (TLB) interface
-    modport client
-       (
-        output reqEn,
-        output reqVA,
-        input  reqRdy,
-
-        input  notPresent
-        );
-
     // Memory read port, used by the walker to read PT entries in host memory
-    modport mem_read
+    modport to_fim
        (
         input  readEn,
         input  readAddr,

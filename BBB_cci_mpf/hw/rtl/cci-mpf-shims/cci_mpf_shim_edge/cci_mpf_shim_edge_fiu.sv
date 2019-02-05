@@ -68,7 +68,7 @@ module cci_mpf_shim_edge_fiu
 
     // Interface to the VTP page table walker.  The page table requests
     // host memory page table reads through this connection.
-    cci_mpf_shim_vtp_pt_walk_if.mem_read pt_walk,
+    cci_mpf_shim_vtp_pt_fim_if.to_fim pt_fim,
 
     // Interface to the partial write emulator
     cci_mpf_shim_pwrite_if.pwrite_edge_fiu pwrite,
@@ -249,7 +249,7 @@ module cci_mpf_shim_edge_fiu
     logic pt_walk_emit_req;
     t_cci_clAddr pt_walk_read_addr;
 
-    assign pt_walk.readRdy = ! pt_walk_read_req;
+    assign pt_fim.readRdy = ! pt_walk_read_req;
 
     //
     // Track requests to read a line in the page table.
@@ -264,13 +264,13 @@ module cci_mpf_shim_edge_fiu
         begin
             // Either a request completed or a new one arrived
             pt_walk_read_req <= (pt_walk_read_req ^ pt_walk_emit_req) ||
-                                pt_walk.readEn;
+                                pt_fim.readEn;
         end
 
         // Register requested address
-        if (pt_walk.readEn)
+        if (pt_fim.readEn)
         begin
-            pt_walk_read_addr <= pt_walk.readAddr;
+            pt_walk_read_addr <= pt_fim.readAddr;
         end
     end
 
@@ -316,8 +316,8 @@ module cci_mpf_shim_edge_fiu
                                              CCI_MPF_SHIM_TAG_VTP,
                                              fiu.c0Rx.hdr.mdata);
 
-        pt_walk.readDataEn = cci_c0Rx_isReadRsp(fiu.c0Rx) && is_pt_rsp;
-        pt_walk.readData = fiu.c0Rx.data;
+        pt_fim.readDataEn = cci_c0Rx_isReadRsp(fiu.c0Rx) && is_pt_rsp;
+        pt_fim.readData = fiu.c0Rx.data;
     end
 
     always_comb

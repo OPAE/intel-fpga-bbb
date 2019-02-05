@@ -98,7 +98,7 @@ module cci_mpf_pipe_std
     cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
 
     // VTP translation service ports.  One port for each request channel.
-    cci_mpf_shim_vtp_svc_if.client vtp_svc[0 : 1]
+    cci_mpf_shim_vtp_svc_if.client vtp_svc[2]
     );
 
     logic  reset;

@@ -98,17 +98,16 @@ module cci_mpf_svc_vtp_pt_walk
     input  logic reset,
 
     // Primary interface
-    cci_mpf_shim_vtp_pt_walk_if.pt_walk pt_walk,
+    cci_mpf_shim_vtp_pt_walk_if.server pt_walk,
+
+    // FIM interface for host I/O
+    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
 
     // CSRs
     cci_mpf_csrs.vtp csrs,
 
-    // Completed a page walk.  Tell the TLB about a new translation
-    cci_mpf_shim_vtp_tlb_if.fill tlb_fill_if,
-
-    // Statistics
-    output logic statBusy,
-    output t_cci_clAddr statLastTranslateVA
+    // Events
+    cci_mpf_csrs.vtp_events_pt_walk events
     );
 
     initial begin
@@ -204,15 +203,13 @@ module cci_mpf_svc_vtp_pt_walk
     // Single-bit registers corresponding to states. Using these helps
     // some critical timing paths.
     logic state_is_walk_idle;
-    logic state_is_walk_done;
+
+    logic rsp_en;
 
     //
     // The miss handler supports processing only one request at a time.
     //
     assign pt_walk.reqRdy = initialized && state_is_walk_idle;
-
-    assign statBusy = ! state_is_walk_idle;
-
 
     // Base address of current page being accessed.  During a walk pt_cur_page
     // points to pages in the page table.  When translation is complete it
@@ -227,7 +224,10 @@ module cci_mpf_svc_vtp_pt_walk
 
     // VA being translated
     t_tlb_4kb_va_page_idx translate_va;
-    assign statLastTranslateVA = { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+
+    // Metadata associated with translation request
+    t_cci_mpf_shim_vtp_pt_walk_meta req_meta;
+    t_cci_mpf_shim_vtp_req_tag req_tag;
 
     // During translation the VA is broken down into 9 bit indices during
     // the tree-based page walk.  This register is shifted as each level
@@ -262,11 +262,11 @@ module cci_mpf_svc_vtp_pt_walk
         end
         else
         begin
-            ptReadDataEn_q <= pt_walk.readDataEn;
+            ptReadDataEn_q <= pt_fim.readDataEn;
             ptReadDataEn_qq <= ptReadDataEn_q;
         end
 
-        ptReadData_q <= pt_walk.readData;
+        ptReadData_q <= pt_fim.readData;
 
         // pt_read_rsp_word is the word needed from ptReadData_q
         ptReadData_qq <= pt_read_rsp_word;
@@ -332,6 +332,8 @@ module cci_mpf_svc_vtp_pt_walk
                     state_is_walk_idle <= 1'b0;
 
                     translate_va <= pt_walk.reqVA;
+                    req_meta <= pt_walk.reqMeta;
+                    req_tag <= pt_walk.reqTag;
                 end
 
                 // New request: start by searching the local page table
@@ -341,6 +343,7 @@ module cci_mpf_svc_vtp_pt_walk
                     t_cci_mpf_pt_walk_depth'(CCI_MPF_PT_MAX_DEPTH - 1);
 
                 pt_walk_cur_page <= page_table_root;
+                rsp_en <= 1'b0;
             end
 
           STATE_PT_WALK_READ_CACHE_REQ:
@@ -410,7 +413,7 @@ module cci_mpf_svc_vtp_pt_walk
           STATE_PT_WALK_READ_REQ:
             begin
                 // Wait until a PT read request can fire
-                if (pt_walk.readEn)
+                if (pt_fim.readEn)
                 begin
                     state <= STATE_PT_WALK_READ_WAIT_RSP;
                 end
@@ -445,7 +448,6 @@ module cci_mpf_svc_vtp_pt_walk
                 begin
                     // Found the translation
                     state <= STATE_PT_WALK_DONE;
-                    state_is_walk_done <= 1'b1;
                 end
                 else
                 begin
@@ -460,7 +462,6 @@ module cci_mpf_svc_vtp_pt_walk
                     ! pt_walk_cur_status.terminal && (&(translate_depth) == 1'b1))
                 begin
                     state <= STATE_PT_WALK_ERROR;
-                    state_is_walk_done <= 1'b0;
                 end
 
                 // Shift to move to the index of the next level.
@@ -475,19 +476,16 @@ module cci_mpf_svc_vtp_pt_walk
           STATE_PT_WALK_DONE:
             begin
                 // Current request is complete
-                if (tlb_fill_if.fillEn)
-                begin
-                    state <= STATE_PT_WALK_IDLE;
-                    state_is_walk_idle <= 1'b1;
-                    state_is_walk_done <= 1'b0;
-                end
+                state <= STATE_PT_WALK_IDLE;
+                state_is_walk_idle <= 1'b1;
+                rsp_en <= 1'b1;
             end
 
           STATE_PT_WALK_ERROR:
             begin
                 // Terminal state
-                pt_walk.notPresent <= 1'b1;
                 state <= STATE_PT_WALK_HALT;
+                rsp_en <= 1'b1;
 
                 if (! reset)
                 begin
@@ -498,16 +496,15 @@ module cci_mpf_svc_vtp_pt_walk
 
           STATE_PT_WALK_HALT:
             begin
-                pt_walk.notPresent <= 1'b0;
+                rsp_en <= 1'b0;
             end
         endcase
 
         if (reset)
         begin
             state <= STATE_PT_WALK_IDLE;
-            pt_walk.notPresent <= 1'b0;
             state_is_walk_idle <= 1'b1;
-            state_is_walk_done <= 1'b0;
+            rsp_en <= 1'b0;
             translate_va <= t_tlb_4kb_va_page_idx'(0);
         end
     end
@@ -520,20 +517,20 @@ module cci_mpf_svc_vtp_pt_walk
     // ====================================================================
 
     // Enable a read request?
-    assign pt_walk.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_walk.readRdy;
+    assign pt_fim.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_fim.readRdy;
 
     // Address of read request
     always_comb
     begin
-        pt_walk.readAddr = t_cci_clAddr'(0);
+        pt_fim.readAddr = t_cci_clAddr'(0);
 
         // Current page in table
-        pt_walk.readAddr[CCI_PT_4KB_PAGE_OFFSET_BITS +: CCI_PT_4KB_PA_PAGE_INDEX_BITS] =
+        pt_fim.readAddr[CCI_PT_4KB_PAGE_OFFSET_BITS +: CCI_PT_4KB_PA_PAGE_INDEX_BITS] =
             pt_walk_cur_page;
 
         // Select the proper line in this level of the table, based on the
         // portion of the VA corresponding to the level.
-        pt_walk.readAddr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] = ptPageLineIdx(translate_va_idx_vec);
+        pt_fim.readAddr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] = ptPageLineIdx(translate_va_idx_vec);
     end
 
 
@@ -557,16 +554,19 @@ module cci_mpf_svc_vtp_pt_walk
     begin
         if (! reset && DEBUG_MESSAGES)
         begin
+            // synthesis translate_off
             if (pt_walk.reqEn && (state == STATE_PT_WALK_IDLE))
             begin
-                $display("VTP PT WALK: New req translate line 0x%x (VA 0x%x)",
+                $display("VTP PT WALK %0t: New req translate line 0x%x (VA 0x%x)",
+                         $time,
                          { pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
                          { pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
             end
 
             if ((state == STATE_PT_WALK_READ_CACHE_REQ) && ptReadCacheRdy)
             begin
-                $display("VTP PT WALK: Cache read [0x%x 0x%x 0x%x 0x%x] depth 0x%x",
+                $display("VTP PT WALK %0t: Cache read [0x%x 0x%x 0x%x 0x%x] depth 0x%x",
+                         $time,
                          translate_va_idx_vec[3],
                          translate_va_idx_vec[2],
                          translate_va_idx_vec[1],
@@ -576,28 +576,31 @@ module cci_mpf_svc_vtp_pt_walk
 
             if ((state == STATE_PT_WALK_READ_CACHE_RSP) && ptReadCacheMissRsp)
             begin
-                $display("VTP PT WALK: Cache miss");
+                $display("VTP PT WALK %0t: Cache miss", $time);
             end
 
             if ((state == STATE_PT_WALK_READ_CACHE_RSP) && ptReadCacheHitRsp)
             begin
-                $display("VTP PT WALK: Cache hit PA 0x%x (terminal %0d, error %0d)",
+                $display("VTP PT WALK %0t: Cache hit PA 0x%x (terminal %0d, error %0d)",
+                         $time,
                          {ptReadCachePage, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          ptReadCacheStatus.terminal,
                          ptReadCacheStatus.error);
             end
 
-            if (pt_walk.readEn)
+            if (pt_fim.readEn)
             begin
-                $display("VTP PT WALK: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x)",
-                         pt_walk.readAddr, {pt_walk.readAddr, 6'b0},
+                $display("VTP PT WALK %0t: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x)",
+                         $time,
+                         pt_fim.readAddr, {pt_fim.readAddr, 6'b0},
                          ptPageLineIdx(translate_va_idx_vec),
                          ptLineWordIdx(translate_va_idx_vec));
             end
 
             if (ptReadDataEn_q)
             begin
-                $display("VTP PT WALK: Line arrived 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
+                $display("VTP PT WALK %0t: Line arrived 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
+                         $time,
                          pt_read_rsp_word_vec[7],
                          pt_read_rsp_word_vec[6],
                          pt_read_rsp_word_vec[5],
@@ -607,7 +610,8 @@ module cci_mpf_svc_vtp_pt_walk
                          pt_read_rsp_word_vec[1],
                          pt_read_rsp_word_vec[0]);
 
-                $display("VTP PT WALK: Cache insert [0x%x 0x%x 0x%x 0x%x] depth 0x%x",
+                $display("VTP PT WALK %0t: Cache insert [0x%x 0x%x 0x%x 0x%x] depth 0x%x",
+                         $time,
                          translate_va_idx_vec[3],
                          translate_va_idx_vec[2],
                          translate_va_idx_vec[1],
@@ -615,12 +619,14 @@ module cci_mpf_svc_vtp_pt_walk
                          translate_depth);
             end
 
-            if (tlb_fill_if.fillEn)
+            if (pt_walk.rspEn)
             begin
-                $display("VTP PT WALK: Response PA 0x%x, size %s",
+                $display("VTP PT WALK %0t: Response PA 0x%x, size %s",
+                         $time,
                          {pt_walk_cur_page, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         (tlb_fill_if.fillBigPage ? "2MB" : "4KB"));
+                         (pt_walk.rspIsBigPage ? "2MB" : "4KB"));
             end
+            // synthesis translate_on
         end
     end
 
@@ -631,16 +637,27 @@ module cci_mpf_svc_vtp_pt_walk
     //
     // ====================================================================
 
-    //
-    // TLB insertion (in STATE_PT_WALK_INSERT)
-    //
-    assign tlb_fill_if.fillEn = state_is_walk_done && tlb_fill_if.fillRdy;
-    assign tlb_fill_if.fillVA = translate_va;
-    assign tlb_fill_if.fillPA = pt_walk_cur_page;
+    always_ff @(posedge clk)
+    begin
+        pt_walk.rspEn <= rsp_en;
+        pt_walk.rspVA <= translate_va;
+        pt_walk.rspPA <= pt_walk_cur_page;
+        pt_walk.rspMeta <= req_meta;
+        pt_walk.rspTag <= req_tag;
 
-    // Use just bit 0 of translate_depth, which is either 2 for a 2MB page
-    // or 3 for a 4KB page.
-    assign tlb_fill_if.fillBigPage = ! (translate_depth[0]);
+        // Use just bit 0 of translate_depth, which is either 2 for a 2MB page
+        // or 3 for a 4KB page.
+        pt_walk.rspIsBigPage <= ~(translate_depth[0]);
+        pt_walk.rspNotPresent <= (state == STATE_PT_WALK_HALT);
+    end
+
+    // Statistics and events
+    always_ff @(posedge clk)
+    begin
+        events.vtp_out_event_pt_walk_busy <= ! state_is_walk_idle;
+        events.vtp_out_pt_walk_last_vaddr <= { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+        events.vtp_out_event_failed_translation <= pt_walk.rspNotPresent && pt_walk.rspEn;
+    end
 
 endmodule // cci_mpf_svc_vtp_pt_walk
 
@@ -741,6 +758,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
     //
     // Tag memory
     //
+    logic ins_cache_en;
     logic ins_tag_en;
     t_pt_cache_idx ins_idx;
     t_pt_entry_tag ins_tag;
@@ -775,7 +793,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
         begin
             if (~n_reset_tlb[0])
             begin
-                $display("VTP PT WALK: Invalidate PT cache");
+                $display("VTP PT WALK %0t: Invalidate PT cache", $time);
             end
         end
     end
@@ -795,9 +813,12 @@ module cci_mpf_svc_vtp_pt_walk_cache
         .reset(~n_reset_tlb[0]),
         .rdy(tag_rdy),
 
+        // The tag entry is written on every beat that data is written to
+        // the entry. The tag is marked invalid (ins_tag_en == 0) until the
+        // last beat.
         .waddr(ins_idx),
-        .wen(ins_tag_en),
-        .wdata({ 1'b1, ins_tag }),
+        .wen(ins_cache_en),
+        .wdata({ ins_tag_en, ins_tag }),
 
         .raddr(lookup_idx),
         .rdata({ lookup_tag_valid, lookup_tag })
@@ -806,7 +827,6 @@ module cci_mpf_svc_vtp_pt_walk_cache
     //
     // Data memory
     //
-    logic ins_data_en;
     t_pt_line_word_idx ins_word_idx;
     t_tlb_4kb_pa_page_idx ins_data_word;
     t_cci_mpf_pt_walk_status ins_data_status;
@@ -828,7 +848,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
         .clk,
 
         .waddr({ ins_idx, ins_word_idx }),
-        .wen(ins_data_en),
+        .wen(ins_cache_en),
         .wdata({ ins_data_word, ins_data_status }),
 
         .raddr({ lookup_idx, t_pt_line_word_idx'(reqPageIdxVec) }),
@@ -895,7 +915,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
     always_ff @(posedge clk)
     begin
-        if (insertEn)
+        if (insertEn && tag_rdy)
         begin
             // New line to insert.  The rdy bit guarantees no insert is
             // happening when insertEn is triggered.
@@ -931,7 +951,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
     // Write the tag when the last word in the line is saved to the cache
     assign ins_tag_en = (&(ins_word_idx) == 1'b1);
-    assign ins_data_en = insert_busy;
+    assign ins_cache_en = insert_busy;
 
     assign ins_data_word =
         vtp4kbPageIdxFromPA(ins_line_words[0][$clog2(CCI_CLDATA_WIDTH / 8) +:

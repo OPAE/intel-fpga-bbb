@@ -238,6 +238,8 @@ module cci_mpf_prim_fifo_lutram_ctrl
     t_counter valid_cnt;
     t_counter valid_cnt_next;
 
+    logic error;
+
     // Write pointer advances on ENQ
     always_ff @(posedge clk)
     begin
@@ -248,9 +250,6 @@ module cci_mpf_prim_fifo_lutram_ctrl
         else if (enq_en)
         begin
             enq_idx <= (enq_idx == t_idx'(N_ENTRIES-1)) ? 0 : enq_idx + 1;
-
-            assert (notFull) else
-                $fatal("cci_mpf_prim_fifo_lutram: ENQ to full FIFO!");
         end
     end
 
@@ -264,9 +263,30 @@ module cci_mpf_prim_fifo_lutram_ctrl
         else if (deq_en)
         begin
             first_idx <= (first_idx == t_idx'(N_ENTRIES-1)) ? 0 : first_idx + 1;
+        end
+    end
 
-            assert (notEmpty) else
+    // Error checking. Block the FIFO if data would be lost, hopefully
+    // making debugging easier.
+    always_ff @(posedge clk)
+    begin
+        if (reset)
+        begin
+            error <= 1'b0;
+        end
+        else
+        begin
+            if (enq_en && ! notFull)
+            begin
+                error <= 1'b1;
+                $fatal("cci_mpf_prim_fifo_lutram: ENQ to full FIFO!");
+            end
+
+            if (deq_en && ! notEmpty)
+            begin
+                error <= 1'b1;
                 $fatal("cci_mpf_prim_fifo_lutram: DEQ from empty FIFO!");
+            end
         end
     end
 
@@ -274,9 +294,9 @@ module cci_mpf_prim_fifo_lutram_ctrl
     always_ff @(posedge clk)
     begin
         valid_cnt <= valid_cnt_next;
-        notFull <= (valid_cnt_next != t_counter'(N_ENTRIES));
-        almostFull <= (valid_cnt_next >= t_counter'(N_ENTRIES - THRESHOLD));
-        notEmpty <= (valid_cnt_next != t_counter'(0));
+        notFull <= (valid_cnt_next != t_counter'(N_ENTRIES)) && ! error;
+        almostFull <= (valid_cnt_next >= t_counter'(N_ENTRIES - THRESHOLD)) || error;
+        notEmpty <= (valid_cnt_next != t_counter'(0)) && ! error;
 
         if (reset)
         begin

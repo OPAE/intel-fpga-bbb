@@ -38,6 +38,7 @@
 `include "cci_mpf_csrs.vh"
 `include "cci_mpf_shim_edge.vh"
 `include "cci_mpf_shim_pwrite.vh"
+`include "cci_mpf_shim_vtp.vh"
 
 
 //
@@ -249,7 +250,7 @@ module cci_mpf
         )
       pwrite_lock();
 
-    cci_mpf_shim_vtp_pt_walk_if pt_walk();
+    cci_mpf_shim_vtp_pt_fim_if pt_fim();
 
     cci_mpf_shim_edge_fiu
       #(
@@ -269,7 +270,7 @@ module cci_mpf
         .fiu(stgm1_fiu_latency_qos),
         .afu(stgm2_mpf_fiu),
         .afu_edge(edge_if),
-        .pt_walk,
+        .pt_fim,
         .pwrite,
         .pwrite_lock
         );
@@ -314,11 +315,13 @@ module cci_mpf
 
     localparam N_VTP_PORTS = 2;
 
-    cci_mpf_shim_vtp_svc_if vtp_svc_ports[0 : N_VTP_PORTS-1] ();
+    cci_mpf_shim_vtp_svc_if vtp_svc_ports[N_VTP_PORTS] ();
 
     generate
         if (ENABLE_VTP)
         begin : v_to_p
+            cci_mpf_shim_vtp_pt_walk_if pt_walk();
+
             cci_mpf_svc_vtp
               #(
                 .N_VTP_PORTS(N_VTP_PORTS),
@@ -329,8 +332,21 @@ module cci_mpf
                 .clk,
                 .reset,
                 .vtp_svc(vtp_svc_ports),
-                .pt_walk_walker(pt_walk),
-                .pt_walk_client(pt_walk),
+                .pt_walk(pt_walk),
+                .csrs(mpf_csrs),
+                .events(mpf_csrs)
+                );
+
+            cci_mpf_svc_vtp_pt_walk
+              #(
+                .DEBUG_MESSAGES(0)
+                )
+              walker
+               (
+                .clk,
+                .reset,
+                .pt_walk,
+                .pt_fim,
                 .csrs(mpf_csrs),
                 .events(mpf_csrs)
                 );
@@ -338,8 +354,8 @@ module cci_mpf
         else
         begin : no_vtp
             // Tie off page table walker
-            assign pt_walk.readEn = 1'b0;
-            assign pt_walk.readAddr = 'x;
+            assign pt_fim.readEn = 1'b0;
+            assign pt_fim.readAddr = 'x;
         end
     endgenerate
 
