@@ -449,21 +449,26 @@ module cci_mpf_shim_vtp_chan_lookup
     //
     // Merge L1 and L2 pipeline toward FIU.
     //
-    always_comb
+    always_ff @(posedge clk)
     begin
-        cTxValid_out = l1_fwd_to_fiu || l2_cTxValid_out;
+        cTxValid_out <= l1_fwd_to_fiu || l2_cTxValid_out;
 
         if (l1_fwd_to_fiu)
         begin
-            cTx_out = l1_cTx_out;
-            cTxPhysAddr_out = l1_cTxPhysAddr_out;
-            cTxAddrIsBigPage_out = l1_cTxAddrIsBigPage_out;
+            cTx_out <= l1_cTx_out;
+            cTxPhysAddr_out <= l1_cTxPhysAddr_out;
+            cTxAddrIsBigPage_out <= l1_cTxAddrIsBigPage_out;
         end
         else
         begin
-            cTx_out = l2_cTx_out;
-            cTxPhysAddr_out = l2_cTxPhysAddr_out;
-            cTxAddrIsBigPage_out = l2_cTxAddrIsBigPage_out;
+            cTx_out <= l2_cTx_out;
+            cTxPhysAddr_out <= l2_cTxPhysAddr_out;
+            cTxAddrIsBigPage_out <= l2_cTxAddrIsBigPage_out;
+        end
+
+        if (reset)
+        begin
+            cTxValid_out <= 1'b0;
         end
     end
 

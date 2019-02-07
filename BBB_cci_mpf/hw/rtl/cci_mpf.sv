@@ -332,73 +332,23 @@ module cci_mpf
         mpf_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
     end
 
-    generate
-        if (ENABLE_VTP)
-        begin : v_to_p
-            cci_mpf_shim_vtp_pt_walk_if pt_walk();
-
-            cci_mpf_svc_vtp
-              #(
-                .N_VTP_PORTS(N_VTP_PORTS),
-                .DEBUG_MESSAGES(0)
-                )
-              vtp
-               (
-                .clk,
-                .reset,
-                .vtp_svc(vtp_svc_ports),
-                .pt_walk(pt_walk),
-                .csrs(mpf_csrs),
-                .events(mpf_csrs)
-                );
-
-            if (VTP_PT_MODE == "HARDWARE_WALKER")
-            begin
-                cci_mpf_svc_vtp_pt_walk
-                  #(
-                    .DEBUG_MESSAGES(0)
-                    )
-                  walker
-                   (
-                    .clk,
-                    .reset,
-                    .pt_walk,
-                    .pt_fim,
-                    .csrs(mpf_csrs),
-                    .events(mpf_csrs)
-                );
-            end
-            else if (VTP_PT_MODE == "SOFTWARE_SERVICE")
-            begin
-                cci_mpf_svc_vtp_pt_walk
-                  #(
-                    .DEBUG_MESSAGES(0)
-                    )
-                  walker
-                   (
-                    .clk,
-                    .reset,
-                    .pt_walk,
-                    .pt_fim,
-                    .csrs(mpf_csrs),
-                    .events(mpf_csrs)
-                );
-            end
-            else
-            begin
-                initial
-                begin
-                    $fatal(2, "*** Illegal VTP_PT_MODE ***");
-                end
-            end
-        end
-        else
-        begin : no_vtp
-            // Tie off page table walker
-            assign pt_fim.readEn = 1'b0;
-            assign pt_fim.writeEn = 1'b0;
-        end
-    endgenerate
+    cci_mpf_svc_vtp_wrapper
+      #(
+        .ENABLE_VTP(ENABLE_VTP),
+        .N_VTP_PORTS(N_VTP_PORTS),
+        .VTP_PT_MODE(VTP_PT_MODE),
+        .DEBUG_MESSAGES(0)
+        )
+      vtp_wrapper
+       (
+        .clk,
+        .reset,
+        .vtp_svc(vtp_svc_ports),
+        .pt_fim,
+        .csrs(mpf_csrs),
+        .vtp_events(mpf_csrs),
+        .pt_events(mpf_csrs)
+        );
 
 
     // ====================================================================
