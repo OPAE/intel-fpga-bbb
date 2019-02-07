@@ -59,6 +59,12 @@ package cci_mpf_csrs_pkg;
     typedef struct packed {
         logic inval_translation_cache;
         logic enabled;
-    } t_cci_mpf_vtp_csr_mode;
+    } t_cci_mpf_vtp_csr_in_mode;
+
+    typedef struct packed {
+        logic sw_translation_service;
+        logic no_hw_page_walker;
+        logic [1:0] reserved;
+    } t_cci_mpf_vtp_csr_out_mode;
 
 endpackage // cci_mpf_csrs_pkg

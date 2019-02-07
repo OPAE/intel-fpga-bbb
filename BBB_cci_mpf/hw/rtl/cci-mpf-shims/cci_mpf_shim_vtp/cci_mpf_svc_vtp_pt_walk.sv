@@ -518,6 +518,7 @@ module cci_mpf_svc_vtp_pt_walk
 
     // Enable a read request?
     assign pt_fim.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_fim.readRdy;
+    assign pt_fim.writeEn = 1'b0;
 
     // Address of read request
     always_comb

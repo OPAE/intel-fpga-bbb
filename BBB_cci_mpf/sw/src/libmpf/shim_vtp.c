@@ -216,6 +216,9 @@ fpga_result mpfVtpInit(
 
     _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
 
+    printf("VTP mode: %ld\n",
+           mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, NULL));
+
     return FPGA_OK;
 
   fail:

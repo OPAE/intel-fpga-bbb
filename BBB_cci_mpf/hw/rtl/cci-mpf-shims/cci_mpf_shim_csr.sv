@@ -203,7 +203,7 @@ module cci_mpf_shim_csr
         if (csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_MODE))
         begin
-            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_mode'(c0_rx.data);
+            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_in_mode'(c0_rx.data);
         end
         else
         begin
@@ -224,11 +224,25 @@ module cci_mpf_shim_csr
             csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR);
 
+        // Page translation service ring buffer (held only one cycle)
+        csrs.vtp_in_page_translation_buf_paddr <= t_cci_clAddr'(c0_rx.data);
+        csrs.vtp_in_page_translation_buf_paddr <=
+            csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
+                                  CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR);
+
+        // Page translation response (held only one cycle)
+        csrs.vtp_in_page_translation_rsp <= t_cci_clAddr'(c0_rx.data);
+        csrs.vtp_in_page_translation_rsp_valid <=
+            csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
+                                  CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP);
+
         if (reset)
         begin
-            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_mode'(0);
+            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_in_mode'(0);
             csrs.vtp_in_page_table_base_valid <= 1'b0;
             csrs.vtp_in_inval_page_valid <= 1'b0;
+            csrs.vtp_in_page_translation_buf_paddr_valid <= 1'b0;
+            csrs.vtp_in_page_translation_rsp_valid <= 1'b0;
             csrs.vc_map_ctrl_valid <= 1'b0;
             csrs.latency_qos_ctrl_valid <= 1'b0;
             csrs.wro_ctrl_valid <= 1'b0;
@@ -355,9 +369,16 @@ module cci_mpf_shim_csr
             begin
                 // New MMIO read request.  Request the value of the register.
                 case (mmio_req_addr)
+                 (CCI_MPF_VTP_CSR_OFFSET + CCI_MPF_VTP_CSR_MODE) >> 3:
+                    begin
+                        // VTP mode
+                        c2_rsp.data <= { '0, csrs.vtp_out_mode };
+                        c2_rsp.mmioRdValid <= 1'b1;
+                    end
+
                  (CCI_MPF_VTP_CSR_OFFSET + CCI_MPF_VTP_CSR_STAT_PT_WALK_LAST_VADDR) >> 3:
                     begin
-                        // VC MAP state history register
+                        // VTP last translated address
                         c2_rsp.data <= events.vtp_out_pt_walk_last_vaddr;
                         c2_rsp.mmioRdValid <= 1'b1;
                     end
