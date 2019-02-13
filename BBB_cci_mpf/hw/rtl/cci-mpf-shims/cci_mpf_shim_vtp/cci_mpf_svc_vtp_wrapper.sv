@@ -79,7 +79,7 @@ module cci_mpf_svc_vtp_wrapper
             cci_mpf_svc_vtp
               #(
                 .N_VTP_PORTS(N_VTP_PORTS),
-                .DEBUG_MESSAGES(0)
+                .DEBUG_MESSAGES(DEBUG_MESSAGES)
                 )
               vtp
                (
@@ -95,7 +95,7 @@ module cci_mpf_svc_vtp_wrapper
             begin
                 cci_mpf_svc_vtp_pt_walk
                   #(
-                    .DEBUG_MESSAGES(0)
+                    .DEBUG_MESSAGES(DEBUG_MESSAGES)
                     )
                   walker
                    (
@@ -109,9 +109,9 @@ module cci_mpf_svc_vtp_wrapper
             end
             else if (VTP_PT_MODE == "SOFTWARE_SERVICE")
             begin
-                cci_mpf_svc_vtp_pt_walk
+                cci_mpf_svc_vtp_pt_sw
                   #(
-                    .DEBUG_MESSAGES(0)
+                    .DEBUG_MESSAGES(DEBUG_MESSAGES)
                     )
                   walker
                    (

@@ -691,7 +691,7 @@ static void dumpPageTableVAtoPA(
 
                 // Validate translation function
                 mpf_vtp_pt_paddr check_pa;
-                assert(FPGA_OK == mpfVtpPtTranslateVAtoPA(pt, (mpf_vtp_pt_vaddr)va, &check_pa, NULL));
+                assert(FPGA_OK == mpfVtpPtTranslateVAtoPA(pt, (mpf_vtp_pt_vaddr)va, &check_pa, NULL, NULL));
                 assert(nodeGetTranslatedAddr(table, idx) == (int64_t) check_pa);
             }
             else
@@ -894,6 +894,7 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_paddr *pa,
+    mpf_vtp_page_size *size,
     uint32_t *flags
 )
 {
@@ -910,6 +911,11 @@ fpga_result mpfVtpPtTranslateVAtoPA(
         if (nodeEntryIsTerminal(table, idx))
         {
             *pa = (mpf_vtp_pt_paddr)nodeGetTranslatedAddr(table, idx);
+
+            if (size)
+            {
+                *size = (depth == 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
+            }
 
             if (flags)
             {

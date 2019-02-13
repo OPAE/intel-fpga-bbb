@@ -226,7 +226,7 @@ module cci_mpf_shim_csr
 
         // Page translation service ring buffer (held only one cycle)
         csrs.vtp_in_page_translation_buf_paddr <= t_cci_clAddr'(c0_rx.data);
-        csrs.vtp_in_page_translation_buf_paddr <=
+        csrs.vtp_in_page_translation_buf_paddr_valid <=
             csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR);
 

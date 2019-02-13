@@ -186,6 +186,7 @@ fpga_result mpfVtpInit(
 
     // Already initialized?
     if (NULL != _mpf_handle->vtp.pt) return FPGA_EXCEPTION;
+    if (NULL != _mpf_handle->vtp.srv) return FPGA_EXCEPTION;
 
     // Allocate a mutex that protects the page table manager
     r = mpfOsPrepareMutex(&(_mpf_handle->vtp.alloc_mutex));
@@ -197,7 +198,6 @@ fpga_result mpfVtpInit(
 
     // Reset the HW TLB
     r = mpfVtpInvalHWTLB(_mpf_handle);
-    if (FPGA_OK != r) goto fail;
 
     // Test whether FPGA_BUF_PREALLOCATED is supported.  libfpga on old systems
     // might not.  fpgaPrepareBuffer() has a special mode for probing by
@@ -216,8 +216,9 @@ fpga_result mpfVtpInit(
 
     _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
 
-    printf("VTP mode: %ld\n",
-           mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, NULL));
+    // Initialize the software translation service
+    r = mpfVtpSrvInit(_mpf_handle, &(_mpf_handle->vtp.srv));
+    if (FPGA_OK != r) goto fail;
 
     return FPGA_OK;
 
@@ -239,6 +240,9 @@ fpga_result mpfVtpTerm(
     mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
 
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("VTP terminating...");
+
+    r = mpfVtpSrvTerm(_mpf_handle->vtp.srv);
+    _mpf_handle->vtp.srv = NULL;
 
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
@@ -449,7 +453,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     }
 
     // Is the address the beginning of an allocation region?
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, &flags);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
     if (FPGA_OK != r) return r;
     if (0 == (flags & MPF_VTP_PT_FLAG_ALLOC_START))
     {
@@ -545,7 +549,7 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
     uint64_t pa;
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, &pa, NULL);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, &pa, NULL, NULL);
     if (FPGA_OK != r) return 0;
 
     return pa;

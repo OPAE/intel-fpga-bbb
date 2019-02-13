@@ -536,7 +536,7 @@ module cci_mpf_shim_edge_fiu
         // to avoid extra MUX logic.
         if (stg3_is_pt_wr)
         begin
-            fiu.c1Tx.data = { 'x, stg3_pt_c1_data };
+            fiu.c1Tx.data[0 +: $bits(stg3_pt_c1_data)]  = stg3_pt_c1_data;
         end
     end
 

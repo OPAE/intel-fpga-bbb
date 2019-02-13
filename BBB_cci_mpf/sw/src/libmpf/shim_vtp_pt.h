@@ -226,6 +226,7 @@ fpga_result mpfVtpPtRemovePageMapping(
  * @param[in]  pt          Page table.
  * @param[in]  va          Virtual address to remove.
  * @param[out] pa          PA corresponding to VA.
+ * @param[out] size        Physical page size.  (Ignored if NULL.)
  * @param[out] flags       Page flags.  (Ignored if NULL.)
  * @returns                FPGA_OK on success.
  */
@@ -233,6 +234,7 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_paddr *pa,
+    mpf_vtp_page_size *size,
     uint32_t *flags
 );
 

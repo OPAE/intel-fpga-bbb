@@ -155,12 +155,15 @@ int main(int argc, char *argv[])
         cout << "#" << endl;
     }
 
+    uint64_t mhz = t->getAFUMHz();
+    double usec_per_cycle = 1.0 / double(mhz);
+
     uint64_t cycles = t->testNumCyclesExecuted();
     if (cycles != 0)
     {
         cout << "#" << endl
              << "# Test cycles executed: " << cycles
-             << " (" << t->getAFUMHz() << " MHz)"
+             << " (" << mhz << " MHz)"
              << (svc.hwIsSimulated() ? " [simulated]" : "")
              << endl;
     }
@@ -210,6 +213,10 @@ int main(int argc, char *argv[])
              << vtp_stats.numTLBMisses4KB << endl
              << "#   VTP 2MB hit / miss: " << vtp_stats.numTLBHits2MB << " / "
              << vtp_stats.numTLBMisses2MB << endl;
+
+        double cycles_per_pt = double(vtp_stats.numPTWalkBusyCycles) /
+                               double(vtp_stats.numTLBMisses4KB + vtp_stats.numTLBMisses2MB);
+        cout << "#   VTP usec / PT walk: " << (cycles_per_pt * usec_per_cycle) << endl;
     }
 
     if (mpfShimPresent(svc.mpf->c_type(), CCI_MPF_SHIM_VC_MAP))

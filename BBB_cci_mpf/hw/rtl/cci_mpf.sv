@@ -76,7 +76,7 @@ module cci_mpf
     // In HARDWARE_WALKER mode it is the user code's responsibility to
     // pin all pages that may be touched by the FPGA. The SOFTWARE_SERVICE
     // mode may pin pages automatically on demand.
-    parameter string VTP_PT_MODE = "HARDWARE_WALKER",
+    parameter string VTP_PT_MODE = "SOFTWARE_SERVICE",
 
     // Enable mapping of eVC_VA to physical channels?  AFUs that both use
     // eVC_VA and read back memory locations written by the AFU must either

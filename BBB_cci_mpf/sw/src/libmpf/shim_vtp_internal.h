@@ -34,6 +34,7 @@
 #define __FPGA_MPF_SHIM_VTP_INTERNAL_H__
 
 #include "shim_vtp_pt.h"
+#include "shim_vtp_srv.h"
 
 
 /**
@@ -72,6 +73,9 @@ typedef struct
 {
     // VTP page table state
     mpf_vtp_pt* pt;
+
+    // VTP transation server state
+    mpf_vtp_srv* srv;
 
     // VTP mutex (one allocation at a time)
     mpf_os_mutex_handle alloc_mutex;
