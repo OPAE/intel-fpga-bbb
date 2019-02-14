@@ -64,11 +64,26 @@ fpga_result __MPF_API__ mpfConnect(
     _mpf_handle->mmio_offset = mmio_offset;
     _mpf_handle->dbg_mode = (0 != (mpf_flags & MPF_FLAG_DEBUG));
 
+    // Try to map MMIO space. If that fails (e.g. when using ASE) we
+    // can still use the fpgaRead/WriteMMIO() methods.
+    r = fpgaMapMMIO(handle, mmio_num, &_mpf_handle->mmio_ptr);
+    if (r != FPGA_OK)
+    {
+        _mpf_handle->mmio_ptr = NULL;
+    }
+
     // Debugging can also be enabled by defining an environment
     // variable named MPF_ENABLE_DEBUG (any value).
     if (getenv("MPF_ENABLE_DEBUG"))
     {
         _mpf_handle->dbg_mode = true;
+    }
+
+    if (_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("MPF using MMIO %s",
+                     (_mpf_handle->mmio_ptr ? "directly" : "with functions"));
+
     }
 
     // set handle return value

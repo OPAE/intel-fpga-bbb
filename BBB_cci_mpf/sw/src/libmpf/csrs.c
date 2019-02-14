@@ -46,6 +46,18 @@ fpga_result __MPF_API__ mpfWriteCsr(
         return FPGA_NOT_FOUND;
     }
 
+    // Use the mapped memory directly when mmio_ptr is not NULL
+    uint64_t* mmio_ptr = _mpf_handle->mmio_ptr;
+    if (mmio_ptr)
+    {
+        volatile uint64_t* addr;
+        addr = (uint64_t*)((void*)mmio_ptr + shim_csr_offset +
+                           _mpf_handle->shim_mmio_base[mpf_shim_idx]);
+        *addr = value;
+        return FPGA_OK;
+    }
+
+    // Fall back to the MMIO method when mmio_ptr is NULL
     return fpgaWriteMMIO64(_mpf_handle->handle, _mpf_handle->mmio_num,
                            shim_csr_offset + _mpf_handle->shim_mmio_base[mpf_shim_idx],
                            value);
@@ -62,10 +74,19 @@ uint64_t __MPF_API__ mpfReadCsr(
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
     fpga_result r = FPGA_OK;
     uint64_t value = (uint64_t) -1;
+    uint64_t* mmio_ptr = _mpf_handle->mmio_ptr;
 
     if (! mpfShimPresent(mpf_handle, mpf_shim_idx))
     {
         r = FPGA_NOT_FOUND;
+    }
+    else if (mmio_ptr)
+    {
+        // Use the mapped memory directly when mmio_ptr is not NULL
+        volatile uint64_t* addr;
+        addr = (uint64_t*)((void*)mmio_ptr + shim_csr_offset +
+                           _mpf_handle->shim_mmio_base[mpf_shim_idx]);
+        value = *addr;
     }
     else
     {

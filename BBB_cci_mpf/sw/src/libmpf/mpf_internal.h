@@ -79,6 +79,9 @@ struct _mpf_handle_t
     fpga_handle handle;
     uint32_t mmio_num;
     uint64_t mmio_offset;
+    // Pointer to MMIO space. If NULL then use fpgaRead/WriteMMIO access
+    // functions.
+    uint64_t* mmio_ptr;
 
     // Base MMIO offset of each shim.  0 if shim not present.
     uint64_t shim_mmio_base[CCI_MPF_SHIM_LAST_IDX];

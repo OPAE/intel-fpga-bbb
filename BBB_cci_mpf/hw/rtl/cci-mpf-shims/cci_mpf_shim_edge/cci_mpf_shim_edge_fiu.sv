@@ -392,9 +392,10 @@ module cci_mpf_shim_edge_fiu
         m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX, CCI_MPF_SHIM_TAG_VTP);
 
         pt_c1_write_hdr = cci_mpf_c1_genReqHdr(eREQ_WRLINE_I,
-                                                pt_c1_addr,
-                                                m,
-                                                cci_mpf_defaultReqHdrParams(0));
+                                               pt_c1_addr,
+                                               m,
+                                               cci_mpf_defaultReqHdrParams(0));
+        pt_c1_write_hdr.base.vc_sel = eVC_VH0;
     end
 
 
