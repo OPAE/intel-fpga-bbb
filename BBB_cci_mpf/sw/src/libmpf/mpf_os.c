@@ -36,6 +36,7 @@
 #include <Windows.h>
 #endif
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -44,6 +45,8 @@
 
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
+
+#include <safe_string/safe_string.h>
 
 // MAP_HUGE_SHIFT is defined since Linux 3.8
 #ifndef MAP_HUGE_SHIFT
@@ -255,4 +258,97 @@ fpga_result mpfOsUnmapMemory(
 #endif
 
     return FPGA_OK;
+}
+
+
+#define MAPS_BUF_SZ 4096
+
+fpga_result mpfOsGetPageSize(
+    void* vaddr,
+    mpf_vtp_page_size* page_size
+)
+{
+    if (NULL == page_size) return FPGA_INVALID_PARAM;
+
+#ifndef _WIN32
+    // Linux
+
+    // This routine is derived from libhugetlbfs, written by
+    // David Gibson & Adam Litke, IBM Corporation.
+
+    char line[MAPS_BUF_SZ];
+    uint64_t addr = (uint64_t)vaddr;
+
+    *page_size = MPF_VTP_PAGE_NONE;
+
+    FILE *f = fopen("/proc/self/smaps", "r");
+    if (f == NULL)
+    {
+        return FPGA_EXCEPTION;
+    }
+
+    while (fgets(line, MAPS_BUF_SZ, f))
+    {
+        unsigned long long start, end;
+        char* tmp0;
+        char* tmp1;
+
+        // Range entries begin with <start addr>-<end addr>
+        start = strtoll(line, &tmp0, 16);
+        // Was a number found and is the next character a dash?
+        if ((tmp0 == line) || (*tmp0 != '-'))
+        {
+            // No -- not a range
+            continue;
+        }
+
+        end = strtoll(++tmp0, &tmp1, 16);
+        // Keep search if not a number or the address isn't in range.
+        if ((tmp0 == tmp1) || (start > addr) || (end <= addr))
+        {
+            continue;
+        }
+
+        while (fgets(line, MAPS_BUF_SZ, f))
+        {
+            // Look for KernelPageSize
+            unsigned page_kb;
+            int ret = sscanf_s_u(line, "KernelPageSize: %d kB", &page_kb);
+            if (ret == 0)
+                continue;
+
+            fclose(f);
+
+            if (ret < 1 || page_kb == 0) {
+                return FPGA_EXCEPTION;
+            }
+
+            // page_kb is reported in kB. Convert to a VTP-supported size.
+            if (page_kb >= 2048)
+            {
+                *page_size = MPF_VTP_PAGE_2MB;
+            }
+            else if (page_kb >= 4)
+            {
+                *page_size = MPF_VTP_PAGE_4KB;
+            }
+            else
+            {
+                return FPGA_EXCEPTION;
+            }
+
+            return FPGA_OK;
+        }
+    }
+
+    // We couldn't find an entry for this addr in smaps.
+    fclose(f);
+    return FPGA_NOT_FOUND;
+
+#else
+    // Windows
+
+    // Implement me
+    return FPGA_EXCEPTION;
+#endif
 }

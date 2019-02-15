@@ -48,6 +48,7 @@ extern "C" {
 typedef enum
 {
     // Enumeration values are log2 of the size
+    MPF_VTP_PAGE_NONE = 0,
     MPF_VTP_PAGE_4KB = 12,
     MPF_VTP_PAGE_2MB = 21
 }

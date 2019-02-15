@@ -119,4 +119,19 @@ fpga_result mpfOsUnmapMemory(
     size_t num_bytes
 );
 
+
+/**
+ * Find out the size of the page at vaddr.
+ *
+ * @param[in]  vaddr       Virtual address.
+ * @param[out] page_size   Physical page size mapped at vaddr.
+ * @returns                FPGA_OK on success. FPGA_NOT_FOUND is returned when
+ *                         no mapping is found. FPGA_EXCEPTION is returned for
+ *                         errors encountered while reading the page mapping.
+ */
+fpga_result mpfOsGetPageSize(
+    void* vaddr,
+    mpf_vtp_page_size* page_size
+);
+
 #endif // __FPGA_MPF_OS_H__
