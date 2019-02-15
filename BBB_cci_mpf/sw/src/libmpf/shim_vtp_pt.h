@@ -129,6 +129,9 @@ typedef struct
     // Opaque parent MPF handle.  It is opaque because the internal MPF handle
     // points to the page table, so the dependence would be circular.
     _mpf_handle_p _mpf_handle;
+
+    // PT mutex (one update at a time)
+    mpf_os_mutex_handle mutex;
 }
 mpf_vtp_pt;
 
@@ -226,8 +229,15 @@ fpga_result mpfVtpPtRemovePageMapping(
  * @param[in]  pt          Page table.
  * @param[in]  va          Virtual address to remove.
  * @param[out] pa          PA corresponding to VA.
- * @param[out] size        Physical page size.  (Ignored if NULL.)
- * @param[out] flags       Page flags.  (Ignored if NULL.)
+ * @param[out] size        Physical page size. Even on failed translations,
+ *                         size indicates the level in the page table at
+ *                         which translation failed. If the appropriate
+ *                         page table node exists at the 4KB level that is
+ *                         a hint that the target page must be a 4KB page.
+ *                         Knowing this may avoid wasting time walking
+ *                         through kernel tables to figure out whether to
+ *                         pin a huge page. (Ignored if NULL.)
+ * @param[out] flags       Page flags. (Ignored if NULL.)
  * @returns                FPGA_OK on success.
  */
 fpga_result mpfVtpPtTranslateVAtoPA(

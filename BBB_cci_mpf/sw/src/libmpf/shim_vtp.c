@@ -69,16 +69,20 @@ static fpga_result vtpEnable(
 }
 
 
+// ========================================================================
 //
-// Allocate page of size page_size to virtual address va and add entry to VTP
-// page table
+//   MPF internal methods.
 //
-static fpga_result allocateAndInsertPage(
+// ========================================================================
+
+
+fpga_result mpfVtpPinAndInsertPage(
     _mpf_handle_p _mpf_handle,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
     uint32_t flags,
-    bool speculative
+    bool speculative,
+    mpf_vtp_pt_paddr* pinned_pa
 )
 {
     fpga_result r;
@@ -96,6 +100,11 @@ static fpga_result allocateAndInsertPage(
         // fpgaPrepareBuffer() is an old version that doesn't support
         // FPGA_BUF_PREALLOCATED.
         fpga_flags = 0;
+
+        // The strategy here of unmapping the page will lose state. Not
+        // supported, but likely not a problem since this code hasn't been
+        // needed since around 2017.
+        assert(! mpfVtpPinOnDemandMode(_mpf_handle));
 
         // Unmap the page.  fpgaPrepareBuffer() will map it again, hopefully
         // at the same address.
@@ -141,6 +150,11 @@ static fpga_result allocateAndInsertPage(
     r = fpgaGetIOAddress(_mpf_handle->handle, wsid, &alloc_pa);
     if (FPGA_OK != r) return r;
 
+    if (pinned_pa)
+    {
+        *pinned_pa = alloc_pa;
+    }
+
     if (_mpf_handle->dbg_mode)
     {
         MPF_FPGA_MSG("allocate %s page VA %p, PA 0x%" PRIx64 ", wsid 0x%" PRIx64,
@@ -167,11 +181,14 @@ static fpga_result allocateAndInsertPage(
 }
 
 
-// ========================================================================
-//
-//   MPF internal methods.
-//
-// ========================================================================
+inline
+bool mpfVtpPinOnDemandMode(
+    _mpf_handle_p _mpf_handle
+)
+{
+    return (_mpf_handle && _mpf_handle->vtp.srv);
+}
+
 
 fpga_result mpfVtpInit(
     _mpf_handle_p _mpf_handle
@@ -188,13 +205,9 @@ fpga_result mpfVtpInit(
     if (NULL != _mpf_handle->vtp.pt) return FPGA_EXCEPTION;
     if (NULL != _mpf_handle->vtp.srv) return FPGA_EXCEPTION;
 
-    // Allocate a mutex that protects the page table manager
-    r = mpfOsPrepareMutex(&(_mpf_handle->vtp.alloc_mutex));
-    if (FPGA_OK != r) return r;
-
     // Initialize the page table
     r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
-    if (FPGA_OK != r) goto fail;
+    if (FPGA_OK != r) return r;
 
     // Reset the HW TLB
     r = mpfVtpInvalHWTLB(_mpf_handle);
@@ -223,7 +236,7 @@ fpga_result mpfVtpInit(
     return FPGA_OK;
 
   fail:
-    mpfOsReleaseMutex(_mpf_handle->vtp.alloc_mutex);
+    mpfVtpPtTerm(_mpf_handle->vtp.pt);
     return r;
 }
 
@@ -247,13 +260,8 @@ fpga_result mpfVtpTerm(
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
 
-    // Drop the allocated mutex
-    mpfOsReleaseMutex(_mpf_handle->vtp.alloc_mutex);
-    _mpf_handle->vtp.alloc_mutex = NULL;
-
     return r;
 }
-
 
 
 // ========================================================================
@@ -321,9 +329,6 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
         }
     }
 
-    // Page table updates aren't thread safe
-    mpfOsLockMutex(_mpf_handle->vtp.alloc_mutex);
-
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
 
     // Pick a requested page size
@@ -339,7 +344,13 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
     if (! preallocated)
     {
         r = mpfOsMapMemory(len, &page_size, buf_addr);
-        if (FPGA_OK != r) goto fail;
+        if (FPGA_OK != r) return FPGA_NO_MEMORY;
+    }
+
+    // On-demand pinning? If yes, then the pages will be pinned as needed.
+    if (mpfVtpPinOnDemandMode(_mpf_handle))
+    {
+        return FPGA_OK;
     }
 
     // Share each page with the FPGA and insert them into the VTP page table.
@@ -382,8 +393,8 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
             }
 
             bool speculative = (page_size != MPF_VTP_PAGE_2MB);
-            r = allocateAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags_2mb,
-                                      speculative);
+            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags_2mb,
+                                       speculative, NULL);
 
             // Did it work?
             if (FPGA_OK == r)
@@ -394,16 +405,16 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
             else if (speculative)
             {
                 // No.  Use small pages.
-                r = allocateAndInsertPage(_mpf_handle, page, page_size, pt_flags, false);
+                r = mpfVtpPinAndInsertPage(_mpf_handle, page, page_size, pt_flags, false, NULL);
             }
         }
         else
         {
             // The page isn't aligned to 2MB.
-            r = allocateAndInsertPage(_mpf_handle, page, page_size, pt_flags, false);
+            r = mpfVtpPinAndInsertPage(_mpf_handle, page, page_size, pt_flags, false, NULL);
         }
 
-        if (FPGA_OK != r) goto fail;
+        if (FPGA_OK != r) return r;
 
         pt_flags = 0;
         page += this_page_bytes;
@@ -412,12 +423,7 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
 
-    mpfOsUnlockMutex(_mpf_handle->vtp.alloc_mutex);
     return FPGA_OK;
-
-  fail:
-    mpfOsUnlockMutex(_mpf_handle->vtp.alloc_mutex);
-    return FPGA_NO_MEMORY;
 }
 
 
@@ -452,6 +458,13 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         MPF_FPGA_MSG("release buffer at VA %p", va);
     }
 
+    // FIXME: Handle unmapping in on-demand mode
+    if (mpfVtpPinOnDemandMode(_mpf_handle))
+    {
+        if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
+        return FPGA_OK;
+    }
+
     // Is the address the beginning of an allocation region?
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
     if (FPGA_OK != r) return r;
@@ -463,8 +476,6 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     // Was the buffer passed in to MPF preallocated?  If so, the code here will
     // remove it from the translation table and unpin it, but leave it intact.
     bool preallocated = (flags & MPF_VTP_PT_FLAG_PREALLOCATED);
-
-    mpfOsLockMutex(_mpf_handle->vtp.alloc_mutex);
 
     // Loop through the mapped virtual pages until the end of the region
     // is reached or there is an error.
@@ -495,7 +506,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         size_t page_bytes = mpfPageSizeEnumToBytes(size);
 
         r = mpfVtpInvalVAMapping(_mpf_handle, va);
-        if (FPGA_OK != r) goto fail;
+        if (FPGA_OK != r) return r;
 
         // If the kernel deallocation fails just give up.  Something bad
         // is bound to happen.
@@ -514,7 +525,6 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         {
             if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
 
-            mpfOsUnlockMutex(_mpf_handle->vtp.alloc_mutex);
             return FPGA_OK;
         }
 
@@ -522,12 +532,8 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         va = (char *) va + page_bytes;
     }
 
-    // Failure in the deallocation loop.  Continue to fail path.
-    r = FPGA_NO_MEMORY;
-
-  fail:
-    mpfOsUnlockMutex(_mpf_handle->vtp.alloc_mutex);
-    return r;
+    // Failure in the deallocation loop.
+    return FPGA_NO_MEMORY;
 }
 
 

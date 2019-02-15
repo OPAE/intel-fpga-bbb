@@ -41,11 +41,79 @@
 #include "mpf_internal.h"
 
 
+//
+// Map VA for use on the FPGA if it isn't already.
+//
+static fpga_result mapVA(
+    _mpf_handle_p _mpf_handle,
+    mpf_vtp_pt_vaddr req_va,
+    mpf_vtp_pt_paddr* rsp_pa,
+    mpf_vtp_page_size* page_size
+)
+{
+    mpf_vtp_srv* srv = _mpf_handle->vtp.srv;
+    mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
+
+    fpga_result r;
+    uint32_t flags;
+
+    r = mpfVtpPtTranslateVAtoPA(pt, req_va, rsp_pa, page_size, &flags);
+    if (FPGA_OK == r)
+    {
+        // Already mapped
+        return FPGA_OK;
+    }
+
+    //
+    // Need to pin the memory.
+    //
+
+    // What size is the underlying physical page? As an optimization, if
+    // mpfVtpPtTranslateVAtoPA indicates failure at the 4KB level then we
+    // already know the new page must also be a 4KB page, since 4KB pages
+    // have already been mapped within the corresponding huge page's region.
+    // The mpfOsGetPageSize() call is expensive, so avoid it when possible.
+    if (*page_size != MPF_VTP_PAGE_4KB)
+    {
+        r = mpfOsGetPageSize(req_va, page_size);
+        if (FPGA_OK != r)
+        {
+            // Strange. Perhaps the page isn't mapped. We will detect that
+            // later, so soldier on with the worst-case assumption.
+            *page_size = MPF_VTP_PAGE_4KB;
+
+            if (srv->_mpf_handle->dbg_mode)
+            {
+                MPF_FPGA_MSG("VTP error reading page size at VA %p. Assuming 4KB.", req_va);
+            }
+        }
+    }
+
+    // Align the VA to the page size.
+    size_t page_bytes = mpfPageSizeEnumToBytes(*page_size);
+    req_va = (mpf_vtp_pt_vaddr)((uint64_t)req_va & ~(page_bytes - 1));
+
+    if (srv->_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("VTP pinning VA %p on a %s page", req_va,
+                     (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+    }
+
+    // Each page is treated as its own buffer. This makes automatic page mappings
+    // play well with user-requested buffer mappings.
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC_START |
+                        MPF_VTP_PT_FLAG_ALLOC_END |
+                        MPF_VTP_PT_FLAG_PREALLOCATED;
+
+    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size, pt_flags, false, rsp_pa);
+    return r;
+}
+
+
 static void *mpfVtpSrvMain(void *args)
 {
     mpf_vtp_srv* srv = (mpf_vtp_srv*)args;
     _mpf_handle_p _mpf_handle = srv->_mpf_handle;
-    mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
 
     fpga_result r;
 
@@ -67,16 +135,19 @@ static void *mpfVtpSrvMain(void *args)
             _mm_pause();
         }
 
+        // Drop the low bit from the request. It was set to guarantee the
+        // value is non-zero.
         mpf_vtp_pt_vaddr req_va = (mpf_vtp_pt_vaddr)(*next_req ^ 1);
         if (srv->_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("VTP translation request from VA %p", req_va);
         }
 
+        // Translate the address, pinning the page if necessary.
         mpf_vtp_pt_paddr rsp_pa;
         mpf_vtp_page_size page_size;
-        uint32_t flags;
-        r = mpfVtpPtTranslateVAtoPA(pt, req_va, &rsp_pa, &page_size, &flags);
+        r = mapVA(_mpf_handle, req_va, &rsp_pa, &page_size);
+
         if (FPGA_OK == r)
         {
             // Response is the PA line address
@@ -88,9 +159,9 @@ static void *mpfVtpSrvMain(void *args)
                 rsp |= 2;
             }
 
-            r = mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
-                            CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP,
-                            rsp);
+            mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
+                        CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP,
+                        rsp);
 
             if (srv->_mpf_handle->dbg_mode)
             {
@@ -98,6 +169,22 @@ static void *mpfVtpSrvMain(void *args)
                              req_va, rsp_pa, rsp_pa >> 6,
                              (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
             }
+        }
+        else
+        {
+            // Fatal translation failure! Most likely the memory is not mapped.
+
+            // Tell the FPGA by setting bit 1 of the response.
+            mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
+                        CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP,
+                        1);
+
+            // Should the code here try to touch the referenced memory location
+            // in order to raise a SEGV? For now we just abort.
+            fprintf(stderr,
+                    "MPF VTP Translation error: FPGA refers to unmapped virtual address %p\n",
+                    req_va);
+            assert(FPGA_OK == r);
         }
 
         // Done with request. Move on to the next one. Only one request is sent

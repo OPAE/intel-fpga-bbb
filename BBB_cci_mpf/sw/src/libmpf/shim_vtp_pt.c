@@ -758,6 +758,10 @@ fpga_result mpfVtpPtInit(
     if (NULL == new_pt->p_to_v) return FPGA_NO_MEMORY;
     nodeReset(new_pt->p_to_v);
 
+    // Allocate a mutex that protects the page table manager
+    r = mpfOsPrepareMutex(&(new_pt->mutex));
+    if (FPGA_OK != r) return r;
+
     return FPGA_OK;
 }
 
@@ -780,6 +784,10 @@ fpga_result mpfVtpPtTerm(
 
     // Release the top-level page table descriptor
     free(pt);
+
+    // Drop the allocated mutex
+    mpfOsReleaseMutex(pt->mutex);
+    pt->mutex = NULL;
 
     return FPGA_OK;
 }
@@ -812,7 +820,11 @@ fpga_result mpfVtpPtInsertPageMapping(
 
     uint32_t depth = (size == MPF_VTP_PAGE_4KB) ? 4 : 3;
 
-    return addVAtoPA(pt, va, pa, wsid, depth, flags);
+    mpfOsLockMutex(pt->mutex);
+    fpga_result r = addVAtoPA(pt, va, pa, wsid, depth, flags);
+    mpfOsUnlockMutex(pt->mutex);
+
+    return r;
 }
 
 
@@ -831,13 +843,15 @@ fpga_result mpfVtpPtRemovePageMapping(
     // Physical address of the page table at current depth
     mpf_vtp_pt_paddr pt_depth_pa = 0;
 
+    mpfOsLockMutex(pt->mutex);
+
     uint32_t depth = 4;
     while (depth--)
     {
         // Index in the current level
         uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
 
-        if (! nodeEntryExists(table, idx)) return FPGA_NOT_FOUND;
+        if (! nodeEntryExists(table, idx)) goto fail;
 
         if (nodeEntryIsTerminal(table, idx))
         {
@@ -871,6 +885,7 @@ fpga_result mpfVtpPtRemovePageMapping(
             nodeRemoveTranslatedAddr(wsid_table, idx);
 
             mpfOsMemoryBarrier();
+            mpfOsUnlockMutex(pt->mutex);
 
             return FPGA_OK;
         }
@@ -878,7 +893,7 @@ fpga_result mpfVtpPtRemovePageMapping(
         // Walk down to child
         mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
         mpf_vtp_pt_vaddr child_va;
-        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_NOT_FOUND;
+        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) goto fail;
         table = (mpf_vtp_pt_node*)child_va;
         pt_depth_pa = child_pa;
 
@@ -886,6 +901,8 @@ fpga_result mpfVtpPtRemovePageMapping(
         wsid_table = (mpf_vtp_pt_node*)nodeGetChildAddr(wsid_table, idx);
     }
 
+  fail:
+    mpfOsUnlockMutex(pt->mutex);
     return FPGA_NOT_FOUND;
 }
 
@@ -900,38 +917,45 @@ fpga_result mpfVtpPtTranslateVAtoPA(
 {
     mpf_vtp_pt_node* table = pt->v_to_p;
 
+    mpfOsLockMutex(pt->mutex);
+
     uint32_t depth = 4;
     while (depth--)
     {
+        if (size)
+        {
+            // Update size on every trip through the loop in order to indicate
+            // the depth at which searching stopped, even for failed translations.
+            *size = (depth >= 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
+        }
+
         // Index in the current level
         uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
 
-        if (! nodeEntryExists(table, idx)) return FPGA_NOT_FOUND;
+        if (! nodeEntryExists(table, idx)) goto fail;
 
         if (nodeEntryIsTerminal(table, idx))
         {
             *pa = (mpf_vtp_pt_paddr)nodeGetTranslatedAddr(table, idx);
-
-            if (size)
-            {
-                *size = (depth == 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
-            }
 
             if (flags)
             {
                 *flags = nodeGetTranslatedAddrFlags(table, idx);
             }
 
+            mpfOsUnlockMutex(pt->mutex);
             return FPGA_OK;
         }
 
         // Walk down to child
         mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
         mpf_vtp_pt_vaddr child_va;
-        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_NOT_FOUND;
+        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) goto fail;
         table = (mpf_vtp_pt_node*)child_va;
     }
 
+  fail:
+    mpfOsUnlockMutex(pt->mutex);
     return FPGA_NOT_FOUND;
 }
 

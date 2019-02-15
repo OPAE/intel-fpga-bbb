@@ -254,7 +254,7 @@ module cci_mpf_svc_vtp_pt_sw
         pt_walk.rspMeta <= rsp_meta;
         pt_walk.rspTag <= rsp_tag;
         pt_walk.rspIsBigPage <= rsp_is_big_page;
-        pt_walk.rspNotPresent <= rsp_not_present;
+        pt_walk.rspNotPresent <= rsp_not_present && rsp_en;
     end
 
     // Statistics and events
@@ -263,9 +263,11 @@ module cci_mpf_svc_vtp_pt_sw
         events.vtp_out_event_pt_walk_busy <= req_not_empty;
         events.vtp_out_event_failed_translation <= rsp_not_present && rsp_en;
 
-        if (send_req)
+        // The "last" request is the one currently waiting for a response at
+        // the head of the request FIFO.
+        if (req_not_empty)
         begin
-            events.vtp_out_pt_walk_last_vaddr <= { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+            events.vtp_out_pt_walk_last_vaddr <= { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
         end
 
         if (reset)
@@ -295,7 +297,15 @@ module cci_mpf_svc_vtp_pt_sw
                          req_meta, req_tag);
             end
 
-            if (rsp_en)
+            if (rsp_en && rsp_not_present)
+            begin
+                $display("VTP PT WALK %0t: Completed RESP FAILED TRANSLATION, VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                         $time,
+                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
+                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         rsp_meta, rsp_tag);
+            end
+            else if (rsp_en)
             begin
                 $display("VTP PT WALK %0t: Completed RESP PA 0x%x (line 0x%x), VA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
                          $time,
