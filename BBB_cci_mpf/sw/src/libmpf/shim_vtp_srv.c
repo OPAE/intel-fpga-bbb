@@ -87,6 +87,12 @@ static fpga_result mapVA(
                 MPF_FPGA_MSG("VTP error reading page size at VA %p. Assuming 4KB.", req_va);
             }
         }
+
+        if (srv->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("VTP kernel says page at VA %p is on a %s page", req_va,
+                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+        }
     }
 
     // Align the VA to the page size.
@@ -99,13 +105,7 @@ static fpga_result mapVA(
                      (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
     }
 
-    // Each page is treated as its own buffer. This makes automatic page mappings
-    // play well with user-requested buffer mappings.
-    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC_START |
-                        MPF_VTP_PT_FLAG_ALLOC_END |
-                        MPF_VTP_PT_FLAG_PREALLOCATED;
-
-    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size, pt_flags, false, rsp_pa);
+    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size, 0, false, rsp_pa);
     return r;
 }
 

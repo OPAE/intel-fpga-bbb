@@ -41,7 +41,7 @@
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
-static const size_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
+static const ssize_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
 
 
 // ========================================================================
@@ -88,7 +88,7 @@ fpga_result mpfVtpPinAndInsertPage(
     fpga_result r;
 
     // mpf_vtp_page_size values are the log2 of the size.  Convert to bytes.
-    size_t page_bytes = mpfPageSizeEnumToBytes(page_size);
+    ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
 
     // Allocate buffer at va
     mpf_vtp_pt_vaddr alloc_va = va;
@@ -310,7 +310,7 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
         }
 
         // Buffer is already allocated, check addresses.
-        if ((NULL == *buf_addr) || ((size_t)*buf_addr & p_mask))
+        if ((NULL == *buf_addr) || ((ssize_t)*buf_addr & p_mask))
         {
             if (_mpf_handle->dbg_mode)
             {
@@ -333,67 +333,48 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     // Pick a requested page size
     mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
-    if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
-        (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size) &&
-        ! preallocated)
-    {
-        page_size = MPF_VTP_PAGE_2MB;
-    }
 
-    // Map the memory
     if (! preallocated)
     {
+        // Map the memory
+
+        // Is the allocation request large enough for a huge page?
+        if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
+            (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
+        {
+            page_size = MPF_VTP_PAGE_2MB;
+        }
+
         r = mpfOsMapMemory(len, &page_size, buf_addr);
         if (FPGA_OK != r) return FPGA_NO_MEMORY;
     }
 
-    // On-demand pinning? If yes, then the pages will be pinned as needed.
-    if (mpfVtpPinOnDemandMode(_mpf_handle))
-    {
-        return FPGA_OK;
-    }
-
     // Share each page with the FPGA and insert them into the VTP page table.
-    size_t page_bytes = mpfPageSizeEnumToBytes(page_size);
+    ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
     uint8_t* page = *buf_addr;
-    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC_START;
-    if (preallocated)
-    {
-        pt_flags |= MPF_VTP_PT_FLAG_PREALLOCATED;
-    }
+    uint32_t pt_flags = (preallocated ? MPF_VTP_PT_FLAG_PREALLOC :
+                                        MPF_VTP_PT_FLAG_ALLOC);
 
-    const size_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
-    const size_t page_mask_2mb = page_bytes_2mb - 1;
+    const ssize_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
+    const ssize_t page_mask_2mb = page_bytes_2mb - 1;
 
     // Round len up to a multiple of the page size
     len = (len + page_bytes - 1) & ~(page_bytes - 1);
 
     while (len)
     {
-        size_t this_page_bytes = page_bytes;
-
-        // Tag the last page in the group
-        if (len == page_bytes)
-        {
-            pt_flags |= MPF_VTP_PT_FLAG_ALLOC_END;
-        }
+        ssize_t this_page_bytes = page_bytes;
 
         // Speculatively request a 2MB page even if in a 4KB allocation when
         // the virtual page is aligned to 2MB and is large enough.  We do this
         // even when the page is preallocated, thus discovering when a huge
         // preallocated page is passed in.
-        if ((0 == ((size_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
+        if ((0 == ((ssize_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
             (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
         {
             // Try for a big page
-            uint32_t pt_flags_2mb = pt_flags;
-            if (len == page_bytes_2mb)
-            {
-                pt_flags_2mb |= MPF_VTP_PT_FLAG_ALLOC_END;
-            }
-
             bool speculative = (page_size != MPF_VTP_PAGE_2MB);
-            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags_2mb,
+            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags,
                                        speculative, NULL);
 
             // Did it work?
@@ -415,6 +396,11 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
         }
 
         if (FPGA_OK != r) return r;
+
+        if (pt_flags)
+        {
+            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
+        }
 
         pt_flags = 0;
         page += this_page_bytes;
@@ -458,24 +444,30 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         MPF_FPGA_MSG("release buffer at VA %p", va);
     }
 
-    // FIXME: Handle unmapping in on-demand mode
-    if (mpfVtpPinOnDemandMode(_mpf_handle))
-    {
-        if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
-        return FPGA_OK;
-    }
-
     // Is the address the beginning of an allocation region?
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
     if (FPGA_OK != r) return r;
-    if (0 == (flags & MPF_VTP_PT_FLAG_ALLOC_START))
+    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
     {
         return FPGA_NO_MEMORY;
     }
 
-    // Was the buffer passed in to MPF preallocated?  If so, the code here will
-    // remove it from the translation table and unpin it, but leave it intact.
-    bool preallocated = (flags & MPF_VTP_PT_FLAG_PREALLOCATED);
+    // Get buffer range, stored in the page table.
+    mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
+    ssize_t buf_size;
+    r = mpfVtpPtGetAllocBufSize(_mpf_handle->vtp.pt, va, &buf_va_start, &buf_size);
+    buf_va_end = (char *)buf_va_start + buf_size;
+    if (FPGA_OK != r) return r;
+
+    // Was the buffer allocated by MPF? If so, deallocate it.
+    if (flags & MPF_VTP_PT_FLAG_ALLOC)
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("unmapping buffer VA %p, size 0x%" PRIx64, buf_va_start, buf_size);
+        }
+        mpfOsUnmapMemory(buf_va_start, buf_size);
+    }
 
     // Loop through the mapped virtual pages until the end of the region
     // is reached or there is an error.
@@ -487,7 +479,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         }
 
         if (FPGA_OK != mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
-                                                 &pa, NULL, &wsid, &size, &flags))
+                                                 &pa, &wsid, &size, &flags))
         {
             if (_mpf_handle->dbg_mode)
             {
@@ -503,7 +495,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
                          va, pa, wsid);
         }
 
-        size_t page_bytes = mpfPageSizeEnumToBytes(size);
+        ssize_t page_bytes = mpfPageSizeEnumToBytes(size);
 
         r = mpfVtpInvalVAMapping(_mpf_handle, va);
         if (FPGA_OK != r) return r;
@@ -511,25 +503,17 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         // If the kernel deallocation fails just give up.  Something bad
         // is bound to happen.
         assert(FPGA_OK == fpgaReleaseBuffer(_mpf_handle->handle, wsid));
-        if (! preallocated)
-        {
-            if (_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("unmapping VA %p, size 0x%" PRIx64, va, page_bytes);
-            }
-            mpfOsUnmapMemory(va, page_bytes);
-        }
+
+        // Next page address
+        va = (char *) va + page_bytes;
 
         // Done?
-        if (flags & MPF_VTP_PT_FLAG_ALLOC_END)
+        if (va >= buf_va_end)
         {
             if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
 
             return FPGA_OK;
         }
-
-        // Next page address
-        va = (char *) va + page_bytes;
     }
 
     // Failure in the deallocation loop.
