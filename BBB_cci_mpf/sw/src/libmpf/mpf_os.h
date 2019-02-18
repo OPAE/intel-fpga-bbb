@@ -105,7 +105,7 @@ bool mpfOsTestMutexIsLocked(
  * Macro for debugging a mutex, testing whether it is locked only when
  * compiling in debug mode.
  */
-#ifdef __OPTIMIZE__
+#ifndef DEBUG_BUILD
     // Nothing in optimized mode
     #define DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(mutex)
 #else

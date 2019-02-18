@@ -331,77 +331,76 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
 
-    // Pick a requested page size
-    mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
-
     if (! preallocated)
     {
         // Map the memory
+        mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
+        ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
 
         // Is the allocation request large enough for a huge page?
         if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
             (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
         {
             page_size = MPF_VTP_PAGE_2MB;
+            page_bytes = mpfPageSizeEnumToBytes(page_size);
         }
+
+        // Round len up to the page size
+        len = (len + page_bytes - 1) & ~(page_bytes - 1);
 
         r = mpfOsMapMemory(len, &page_size, buf_addr);
         if (FPGA_OK != r) return FPGA_NO_MEMORY;
     }
 
+    //
+    // Pin on-demand mode requires that page sizes in the page table here match
+    // page sizes in the kernel's mapping. When the buffer is preallocated the
+    // start and end pages may be partial pages, leading to inconsistent behavior.
+    // Don't pin preallocated pages here in on-demand mode so the mapping in
+    // the translation server is consistent.
+    //
+    if (mpfVtpPinOnDemandMode(_mpf_handle) && preallocated)
+    {
+        return FPGA_OK;
+    }
+
     // Share each page with the FPGA and insert them into the VTP page table.
-    ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
-    uint8_t* page = *buf_addr;
     uint32_t pt_flags = (preallocated ? MPF_VTP_PT_FLAG_PREALLOC :
                                         MPF_VTP_PT_FLAG_ALLOC);
 
+    const ssize_t page_bytes_4kb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB);
     const ssize_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
     const ssize_t page_mask_2mb = page_bytes_2mb - 1;
 
-    // Round len up to a multiple of the page size
-    len = (len + page_bytes - 1) & ~(page_bytes - 1);
+    uint8_t* page = *buf_addr;
 
     while (len)
     {
+        ssize_t this_page_bytes;
+
         mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
 
-        ssize_t this_page_bytes = page_bytes;
+        mpf_vtp_page_size this_page_size;
+        r = mpfOsGetPageSize(page, &this_page_size);
+        if (FPGA_OK != r) goto fail;
 
-        // Speculatively request a 2MB page even if in a 4KB allocation when
-        // the virtual page is aligned to 2MB and is large enough.  We do this
-        // even when the page is preallocated, thus discovering when a huge
-        // preallocated page is passed in.
+        // Detect huge pages
         if ((0 == ((ssize_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
-            (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
+            (this_page_size == MPF_VTP_PAGE_2MB))
         {
-            // Try for a big page
-            bool speculative = (page_size != MPF_VTP_PAGE_2MB);
+            this_page_bytes = page_bytes_2mb;
             r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags,
-                                       speculative, NULL);
-
-            // Did it work?
-            if (FPGA_OK == r)
-            {
-                // Yes!
-                this_page_bytes = page_bytes_2mb;
-            }
-            else if (speculative)
-            {
-                // No.  Use small pages.
-                r = mpfVtpPinAndInsertPage(_mpf_handle, page, page_size, pt_flags, false, NULL);
-            }
+                                       false, NULL);
         }
         else
         {
             // The page isn't aligned to 2MB.
-            r = mpfVtpPinAndInsertPage(_mpf_handle, page, page_size, pt_flags, false, NULL);
+            this_page_bytes = page_bytes_4kb;
+            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_4KB, pt_flags,
+                                       false, NULL);
         }
 
-        if (FPGA_OK != r)
-        {
-            mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-            return r;
-        }
+        if (FPGA_OK != r) goto fail;
 
         if (pt_flags)
         {
@@ -423,6 +422,10 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
     }
 
     return FPGA_OK;
+
+  fail:
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    return r;
 }
 
 
@@ -461,14 +464,15 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
 
     // Is the address the beginning of an allocation region?
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
-    if (FPGA_OK != r)
+    if ((FPGA_OK != r) ||
+        (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))))
     {
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-        return r;
-    }
-    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
-    {
-        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+
+        // Pin on demand mode doesn't store preallocated regions. Just ignore
+        // errors when there is no record of the underlying buffer.
+        if (mpfVtpPinOnDemandMode(_mpf_handle)) return FPGA_OK;
+
         return FPGA_NO_MEMORY;
     }
 
