@@ -58,12 +58,12 @@ fpga_result mpfOsPrepareMutex(
 
 
 /**
- * Release a mutex object.
+ * Delete a mutex object.
  *
  * @param[in] mutex        Mutex object.
  * @returns                FPGA_OK on success.
  */
-fpga_result mpfOsReleaseMutex(
+fpga_result mpfOsDestroyMutex(
     mpf_os_mutex_handle mutex
 );
 
@@ -88,6 +88,29 @@ fpga_result mpfOsLockMutex(
 fpga_result mpfOsUnlockMutex(
     mpf_os_mutex_handle mutex
 );
+
+
+/**
+ * Test whether a mutex is already locked.
+ *
+ * @param[in] mutex        Pointer to mutex object.
+ * @returns                True iff already locked.
+ */
+bool mpfOsTestMutexIsLocked(
+    mpf_os_mutex_handle mutex
+);
+
+
+/*
+ * Macro for debugging a mutex, testing whether it is locked only when
+ * compiling in debug mode.
+ */
+#ifdef __OPTIMIZE__
+    // Nothing in optimized mode
+    #define DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(mutex)
+#else
+    #define DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(mutex) assert(mpfOsTestMutexIsLocked(mutex))
+#endif
 
 
 /**

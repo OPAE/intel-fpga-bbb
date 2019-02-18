@@ -57,10 +57,13 @@ static fpga_result mapVA(
     fpga_result r;
     uint32_t flags;
 
+    mpfVtpPtLockMutex(pt);
+
     r = mpfVtpPtTranslateVAtoPA(pt, req_va, rsp_pa, page_size, &flags);
     if (FPGA_OK == r)
     {
         // Already mapped
+        mpfVtpPtUnlockMutex(pt);
         return FPGA_OK;
     }
 
@@ -106,6 +109,7 @@ static fpga_result mapVA(
     }
 
     r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size, 0, false, rsp_pa);
+    mpfVtpPtUnlockMutex(pt);
     return r;
 }
 
@@ -222,6 +226,11 @@ fpga_result mpfVtpSrvInit(
         MPF_FPGA_MSG("VTP translation server %s active", (sw_translation ? "is" : "is not"));
     }
 
+    if (! sw_translation)
+    {
+        return FPGA_OK;
+    }
+
     new_srv = malloc(sizeof(mpf_vtp_srv));
     *srv = new_srv;
     if (NULL == new_srv) return FPGA_NO_MEMORY;
@@ -275,6 +284,11 @@ fpga_result mpfVtpSrvTerm(
     mpf_vtp_srv* srv
 )
 {
+    if (NULL == srv)
+    {
+        return FPGA_OK;
+    }
+
     // Kill the server thread
     if (srv->srv_tid)
     {

@@ -167,6 +167,28 @@ fpga_result mpfVtpPtTerm(
 
 
 /**
+ * Acquire the page table manager lock.
+ */
+static inline void mpfVtpPtLockMutex(
+    mpf_vtp_pt* pt
+)
+{
+    mpfOsLockMutex(pt->mutex);
+}
+
+
+/**
+ * Release the page table manager lock.
+ */
+static inline void mpfVtpPtUnlockMutex(
+    mpf_vtp_pt* pt
+)
+{
+    mpfOsUnlockMutex(pt->mutex);
+}
+
+
+/**
  * Return the root physical address of the page table.
  *
  * @param[in]  pt          Page table.

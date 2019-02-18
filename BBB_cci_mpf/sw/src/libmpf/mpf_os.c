@@ -92,7 +92,7 @@ fpga_result mpfOsPrepareMutex(
 }
 
 
-fpga_result mpfOsReleaseMutex(
+fpga_result mpfOsDestroyMutex(
     mpf_os_mutex_handle mutex
 )
 {
@@ -139,6 +139,39 @@ fpga_result mpfOsUnlockMutex(
 #endif
 }
 
+
+bool mpfOsTestMutexIsLocked(
+    mpf_os_mutex_handle mutex
+)
+{
+#ifndef _WIN32
+    pthread_mutex_t* m = (pthread_mutex_t*)mutex;
+    int s = pthread_mutex_trylock(m);
+    if (0 != s)
+    {
+        // Mutex was locked already
+        return true;
+    }
+    else
+    {
+        // Mutex wasn't locked. Release the lock acquired just now by the test.
+        mpfOsUnlockMutex(mutex);
+        return false;
+    }
+#else
+    HANDLE m = (HANDLE)mutex;
+    DWORD s = WaitForSingleObject(m, 0);
+    if (WAIT_OBJECT_0 != s)
+    {
+        return true;
+    }
+    else
+    {
+        mpfOsUnlockMutex(mutex);
+        return false;
+    }
+#endif
+}
 
 
 // Round a length up to a multiple of the page size

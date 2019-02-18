@@ -363,6 +363,8 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     while (len)
     {
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
         ssize_t this_page_bytes = page_bytes;
 
         // Speculatively request a 2MB page even if in a 4KB allocation when
@@ -395,7 +397,11 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
             r = mpfVtpPinAndInsertPage(_mpf_handle, page, page_size, pt_flags, false, NULL);
         }
 
-        if (FPGA_OK != r) return r;
+        if (FPGA_OK != r)
+        {
+            mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+            return r;
+        }
 
         if (pt_flags)
         {
@@ -405,9 +411,16 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
         pt_flags = 0;
         page += this_page_bytes;
         len -= this_page_bytes;
+
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     }
 
-    if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
+    if (_mpf_handle->dbg_mode)
+    {
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+        mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    }
 
     return FPGA_OK;
 }
@@ -444,11 +457,18 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         MPF_FPGA_MSG("release buffer at VA %p", va);
     }
 
+    mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
     // Is the address the beginning of an allocation region?
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
-    if (FPGA_OK != r) return r;
+    if (FPGA_OK != r)
+    {
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+        return r;
+    }
     if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
     {
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
         return FPGA_NO_MEMORY;
     }
 
@@ -456,6 +476,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
     ssize_t buf_size;
     r = mpfVtpPtGetAllocBufSize(_mpf_handle->vtp.pt, va, &buf_va_start, &buf_size);
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     buf_va_end = (char *)buf_va_start + buf_size;
     if (FPGA_OK != r) return r;
 
@@ -478,8 +499,11 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
             MPF_FPGA_MSG("lookup VA %p", va);
         }
 
-        if (FPGA_OK != mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
-                                                 &pa, &wsid, &size, &flags))
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+        r = mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
+                                      &pa, &wsid, &size, &flags);
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+        if (FPGA_OK != r)
         {
             if (_mpf_handle->dbg_mode)
             {
@@ -510,7 +534,9 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         // Done?
         if (va >= buf_va_end)
         {
+            mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
             if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
+            mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
 
             return FPGA_OK;
         }
@@ -539,7 +565,9 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
     uint64_t pa;
+    mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
     r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, &pa, NULL, NULL);
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     if (FPGA_OK != r) return 0;
 
     return pa;

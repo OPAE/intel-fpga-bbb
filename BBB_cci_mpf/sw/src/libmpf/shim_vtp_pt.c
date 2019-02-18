@@ -647,7 +647,7 @@ fpga_result mpfVtpPtTerm(
     mpfOsUnlockMutex(pt->mutex);
 
     // Drop the allocated mutex
-    mpfOsReleaseMutex(pt->mutex);
+    mpfOsDestroyMutex(pt->mutex);
     pt->mutex = NULL;
 
     pt->pt_root = NULL;
@@ -677,6 +677,9 @@ fpga_result mpfVtpPtInsertPageMapping(
     uint32_t flags
 )
 {
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
     // Are the addresses reasonable?
     uint64_t mask = (size == MPF_VTP_PAGE_4KB) ? (1 << 12) - 1 :
                                                  (1 << 21) - 1;
@@ -692,11 +695,7 @@ fpga_result mpfVtpPtInsertPageMapping(
         depth -= 1;
     }
 
-    mpfOsLockMutex(pt->mutex);
-    fpga_result r = addVAtoTable(pt, va, pa, wsid, depth, flags);
-    mpfOsUnlockMutex(pt->mutex);
-
-    return r;
+    return addVAtoTable(pt, va, pa, wsid, depth, flags);
 }
 
 
@@ -706,7 +705,8 @@ fpga_result mpfVtpPtSetAllocBufSize(
     ssize_t buf_size
 )
 {
-    mpfOsLockMutex(pt->mutex);
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
     fpga_result r;
     mpf_vtp_pt_node* node;
@@ -714,24 +714,18 @@ fpga_result mpfVtpPtSetAllocBufSize(
 
     // Find the containing node
     r = findTerminalNodeAndIndex(pt, va, &node, &idx, NULL);
-    if (FPGA_OK != r) goto fail;
+    if (FPGA_OK != r) return r;
 
     // One of the ALLOC flags must be set when buffer size is recorded
     uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
     if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
     {
-        r = FPGA_EXCEPTION;
-        goto fail;
+        return FPGA_EXCEPTION;
     }
 
     node->meta[idx].alloc_buf_len = buf_size;
 
-    mpfOsUnlockMutex(pt->mutex);
     return FPGA_OK;
-
-  fail:
-    mpfOsUnlockMutex(pt->mutex);
-    return r;
 }
 
 
@@ -742,7 +736,8 @@ fpga_result mpfVtpPtGetAllocBufSize(
     ssize_t* buf_size
 )
 {
-    mpfOsLockMutex(pt->mutex);
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
     fpga_result r;
     mpf_vtp_pt_node* node;
@@ -751,14 +746,13 @@ fpga_result mpfVtpPtGetAllocBufSize(
 
     // Find the containing node
     r = findTerminalNodeAndIndex(pt, va, &node, &idx, &depth);
-    if (FPGA_OK != r) goto fail;
+    if (FPGA_OK != r) return r;
 
     // One of the ALLOC flags must be set when buffer size is recorded
     uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
     if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
     {
-        r = FPGA_EXCEPTION;
-        goto fail;
+        return FPGA_EXCEPTION;
     }
 
     *buf_size = node->meta[idx].alloc_buf_len;
@@ -769,12 +763,7 @@ fpga_result mpfVtpPtGetAllocBufSize(
         *start_va = (mpf_vtp_pt_vaddr)((uint64_t)va & addrMaskFromPtDepth(depth));
     }
 
-    mpfOsUnlockMutex(pt->mutex);
     return FPGA_OK;
-
-  fail:
-    mpfOsUnlockMutex(pt->mutex);
-    return r;
 }
 
 
@@ -787,7 +776,8 @@ fpga_result mpfVtpPtRemovePageMapping(
     uint32_t *flags
 )
 {
-    mpfOsLockMutex(pt->mutex);
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
     mpf_vtp_pt_node* node = pt->pt_root;
 
@@ -797,7 +787,7 @@ fpga_result mpfVtpPtRemovePageMapping(
         // Index in the current level
         uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
 
-        if (! nodeEntryExists(node, idx)) goto fail;
+        if (! nodeEntryExists(node, idx)) return FPGA_NOT_FOUND;
 
         if (nodeEntryIsTerminal(node, idx))
         {
@@ -824,7 +814,6 @@ fpga_result mpfVtpPtRemovePageMapping(
             nodeRemoveTranslatedAddr(node, idx);
 
             mpfOsMemoryBarrier();
-            mpfOsUnlockMutex(pt->mutex);
 
             return FPGA_OK;
         }
@@ -833,8 +822,6 @@ fpga_result mpfVtpPtRemovePageMapping(
         node = nodeGetChildNode(node, idx);
     }
 
-  fail:
-    mpfOsUnlockMutex(pt->mutex);
     return FPGA_NOT_FOUND;
 }
 
@@ -847,7 +834,8 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     uint32_t *flags
 )
 {
-    mpfOsLockMutex(pt->mutex);
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
     fpga_result r;
     mpf_vtp_pt_node* node;
@@ -865,7 +853,6 @@ fpga_result mpfVtpPtTranslateVAtoPA(
 
     if (FPGA_OK != r)
     {
-        mpfOsUnlockMutex(pt->mutex);
         return FPGA_NOT_FOUND;
     }
 
@@ -875,7 +862,6 @@ fpga_result mpfVtpPtTranslateVAtoPA(
         *flags = nodeGetTranslatedAddrFlags(node, idx);
     }
 
-    mpfOsUnlockMutex(pt->mutex);
     return FPGA_OK;
 }
 
@@ -884,8 +870,9 @@ void mpfVtpPtDumpPageTable(
     mpf_vtp_pt* pt
 )
 {
-    mpfOsLockMutex(pt->mutex);
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
     printf("VTP Page Table:\n");
     dumpPageTable(pt, pt->pt_root, pt->pt_root_paddr, pt->pt_root_wsid, 0, depth_max);
-    mpfOsUnlockMutex(pt->mutex);
 }
