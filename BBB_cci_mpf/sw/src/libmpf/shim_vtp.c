@@ -41,7 +41,7 @@
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
-static const ssize_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
+static const size_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
 
 
 // ========================================================================
@@ -73,6 +73,186 @@ static fpga_result vtpEnable(
 }
 
 
+//
+// Pin an existing pre-allocated buffer.
+//
+static fpga_result vtpPreallocBuffer(
+    _mpf_handle_p _mpf_handle,
+    uint64_t len,
+    void** buf_addr
+)
+{
+    fpga_result r;
+
+    //
+    // Buffer is allocated already before calling VTP. Map the existing
+    // buffer for use on the FPGA.
+    //
+    const size_t p_mask = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB) - 1;
+
+    if (! _mpf_handle->vtp.use_fpga_buf_preallocated)
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
+                         "ASE does not yet support the flag.  If using with an FPGA, please\n"
+                         "install a more recent version of the OPAE SDK.");
+        }
+        return FPGA_INVALID_PARAM;
+    }
+
+    // Buffer is already allocated, check addresses.
+    if ((NULL == *buf_addr) || ((size_t)*buf_addr & p_mask))
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("Preallocated buffer address is NULL or not page aligned");
+        }
+        return FPGA_INVALID_PARAM;
+    }
+    // Check length
+    if (! len || (len & p_mask))
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("Preallocated buffer size is not a non-zero multiple of page size");
+        }
+        return FPGA_INVALID_PARAM;
+    }
+
+    uint8_t* page = *buf_addr;
+
+    // If the first page is 2MB then ensure the buffer start is aligned to it.
+    mpf_vtp_page_size this_page_size;
+    r = mpfOsGetPageSize(*buf_addr, &this_page_size);
+    size_t this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
+    if (FPGA_OK != r) return FPGA_NO_MEMORY;
+
+    // Mask out page offset bits
+    page = (uint8_t*)((uint64_t)page & ~(this_page_bytes - 1));
+    // Adjust the buffer length so it ends where it used to
+    len += (uint64_t)*buf_addr - (uint64_t)page;
+
+    // Share each page with the FPGA and insert them into the VTP page table.
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_PREALLOC;
+
+    while (len)
+    {
+        r = mpfOsGetPageSize(page, &this_page_size);
+        this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
+        if (FPGA_OK != r) return FPGA_NO_MEMORY;
+
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
+        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags,
+                                   false, NULL);
+        if (FPGA_OK != r) goto fail;
+
+        if (pt_flags)
+        {
+            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
+        }
+
+        pt_flags = 0;
+        page += this_page_bytes;
+        len -= this_page_bytes;
+
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    }
+
+    return FPGA_OK;
+
+  fail:
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    return r;
+}
+
+
+//
+// Allocate and pin a new buffer.
+//
+static fpga_result vtpAllocBuffer(
+    _mpf_handle_p _mpf_handle,
+    uint64_t len,
+    void** buf_addr
+)
+{
+    fpga_result r;
+    mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
+
+    // Is the allocation request large enough for a huge page?
+    if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
+        (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
+    {
+        page_size = MPF_VTP_PAGE_2MB;
+    }
+
+    size_t page_bytes = mpfPageSizeEnumToBytes(page_size);
+
+    // Round len up to the page size
+    len = (len + page_bytes - 1) & ~(page_bytes - 1);
+
+    if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
+
+    r = mpfOsMapMemory(len, &page_size, buf_addr);
+    if (FPGA_OK != r) return FPGA_NO_MEMORY;
+
+    // Share each page with the FPGA and insert them into the VTP page table.
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC;
+
+    const size_t page_bytes_4kb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB);
+    const size_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
+    const size_t page_mask_2mb = page_bytes_2mb - 1;
+
+    uint8_t* page = *buf_addr;
+
+    while (len)
+    {
+        size_t this_page_bytes;
+
+        // Detect huge pages
+        mpf_vtp_page_size this_page_size;
+        r = mpfOsGetPageSize(page, &this_page_size);
+        if (FPGA_OK != r) goto fail;
+
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
+        if ((0 == ((size_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
+            (this_page_size == MPF_VTP_PAGE_2MB))
+        {
+            this_page_bytes = page_bytes_2mb;
+        }
+        else
+        {
+            // The page isn't aligned to 2MB or isn't a huge page.
+            this_page_size = MPF_VTP_PAGE_4KB;
+            this_page_bytes = page_bytes_4kb;
+        }
+
+        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags,
+                                   false, NULL);
+        if (FPGA_OK != r) goto fail;
+
+        if (pt_flags)
+        {
+            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
+        }
+
+        pt_flags = 0;
+        page += this_page_bytes;
+        len -= this_page_bytes;
+
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    }
+
+    return FPGA_OK;
+
+  fail:
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    return r;
+}
+
+
 // ========================================================================
 //
 //   MPF internal methods.
@@ -92,7 +272,7 @@ fpga_result mpfVtpPinAndInsertPage(
     fpga_result r;
 
     // mpf_vtp_page_size values are the log2 of the size.  Convert to bytes.
-    ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
+    size_t page_bytes = mpfPageSizeEnumToBytes(page_size);
 
     // Allocate buffer at va
     mpf_vtp_pt_vaddr alloc_va = va;
@@ -301,122 +481,11 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     if (preallocated)
     {
-        const size_t p_mask = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB) - 1;
-
-        if (! _mpf_handle->vtp.use_fpga_buf_preallocated)
-        {
-            if (_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
-                             "ASE does not yet support the flag.  If using with an FPGA, please\n"
-                             "install a more recent version of the OPAE SDK.");
-            }
-            return FPGA_INVALID_PARAM;
-        }
-
-        // Buffer is already allocated, check addresses.
-        if ((NULL == *buf_addr) || ((ssize_t)*buf_addr & p_mask))
-        {
-            if (_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("Preallocated buffer address is NULL or not page aligned");
-            }
-            return FPGA_INVALID_PARAM;
-        }
-        // Check length
-        if (! len || (len & p_mask))
-        {
-            if (_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("Preallocated buffer size is not a non-zero multiple of page size");
-            }
-            return FPGA_INVALID_PARAM;
-        }
+        r = vtpPreallocBuffer(_mpf_handle, len, buf_addr);
     }
-
-    if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
-
-    if (! preallocated)
+    else
     {
-        // Map the memory
-        mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
-        ssize_t page_bytes = mpfPageSizeEnumToBytes(page_size);
-
-        // Is the allocation request large enough for a huge page?
-        if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
-            (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
-        {
-            page_size = MPF_VTP_PAGE_2MB;
-            page_bytes = mpfPageSizeEnumToBytes(page_size);
-        }
-
-        // Round len up to the page size
-        len = (len + page_bytes - 1) & ~(page_bytes - 1);
-
-        r = mpfOsMapMemory(len, &page_size, buf_addr);
-        if (FPGA_OK != r) return FPGA_NO_MEMORY;
-    }
-
-    //
-    // Pin on-demand mode requires that page sizes in the page table here match
-    // page sizes in the kernel's mapping. When the buffer is preallocated the
-    // start and end pages may be partial pages, leading to inconsistent behavior.
-    // Don't pin preallocated pages here in on-demand mode so the mapping in
-    // the translation server is consistent.
-    //
-    if (mpfVtpPinOnDemandMode(_mpf_handle) && preallocated)
-    {
-        return FPGA_OK;
-    }
-
-    // Share each page with the FPGA and insert them into the VTP page table.
-    uint32_t pt_flags = (preallocated ? MPF_VTP_PT_FLAG_PREALLOC :
-                                        MPF_VTP_PT_FLAG_ALLOC);
-
-    const ssize_t page_bytes_4kb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB);
-    const ssize_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
-    const ssize_t page_mask_2mb = page_bytes_2mb - 1;
-
-    uint8_t* page = *buf_addr;
-
-    while (len)
-    {
-        ssize_t this_page_bytes;
-
-        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-
-        mpf_vtp_page_size this_page_size;
-        r = mpfOsGetPageSize(page, &this_page_size);
-        if (FPGA_OK != r) goto fail;
-
-        // Detect huge pages
-        if ((0 == ((ssize_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
-            (this_page_size == MPF_VTP_PAGE_2MB))
-        {
-            this_page_bytes = page_bytes_2mb;
-            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_2MB, pt_flags,
-                                       false, NULL);
-        }
-        else
-        {
-            // The page isn't aligned to 2MB.
-            this_page_bytes = page_bytes_4kb;
-            r = mpfVtpPinAndInsertPage(_mpf_handle, page, MPF_VTP_PAGE_4KB, pt_flags,
-                                       false, NULL);
-        }
-
-        if (FPGA_OK != r) goto fail;
-
-        if (pt_flags)
-        {
-            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
-        }
-
-        pt_flags = 0;
-        page += this_page_bytes;
-        len -= this_page_bytes;
-
-        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+        r = vtpAllocBuffer(_mpf_handle, len, buf_addr);
     }
 
     if (_mpf_handle->dbg_mode)
@@ -426,10 +495,6 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     }
 
-    return FPGA_OK;
-
-  fail:
-    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     return r;
 }
 
@@ -483,7 +548,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
 
     // Get buffer range, stored in the page table.
     mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
-    ssize_t buf_size;
+    size_t buf_size;
     r = mpfVtpPtGetAllocBufSize(_mpf_handle->vtp.pt, va, &buf_va_start, &buf_size);
     mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     buf_va_end = (char *)buf_va_start + buf_size;
@@ -528,9 +593,9 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
                          va, pa, wsid);
         }
 
-        ssize_t page_bytes = mpfPageSizeEnumToBytes(size);
+        size_t page_bytes = mpfPageSizeEnumToBytes(size);
 
-        r = mpfVtpInvalVAMapping(_mpf_handle, va);
+        r = mpfVtpInvalHWVAMapping(_mpf_handle, va);
         if (FPGA_OK != r) return r;
 
         // If the kernel deallocation fails just give up.  Something bad
@@ -603,7 +668,7 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
 }
 
 
-fpga_result __MPF_API__ mpfVtpInvalVAMapping(
+fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
     mpf_handle_t mpf_handle,
     mpf_vtp_pt_vaddr va
 )
@@ -614,7 +679,7 @@ fpga_result __MPF_API__ mpfVtpInvalVAMapping(
     if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
 
     // Previous request must be complete!
-    while (! mpfVtpInvalVAMappingComplete(_mpf_handle)) ;
+    while (! mpfVtpInvalHWVAMappingComplete(_mpf_handle)) ;
 
     r = mpfWriteCsr(mpf_handle,
                     CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
@@ -634,7 +699,7 @@ fpga_result __MPF_API__ mpfVtpInvalVAMapping(
 }
 
 
-bool __MPF_API__ mpfVtpInvalVAMappingComplete(
+bool __MPF_API__ mpfVtpInvalHWVAMappingComplete(
     mpf_handle_t mpf_handle
 )
 {

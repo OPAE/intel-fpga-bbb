@@ -95,7 +95,7 @@ typedef void* mpf_vtp_pt_vaddr;
 typedef struct
 {
     uint64_t wsid;
-    ssize_t alloc_buf_len;
+    size_t alloc_buf_len;
 }
 mpf_vtp_pt_meta;
 
@@ -236,7 +236,7 @@ fpga_result mpfVtpPtInsertPageMapping(
 fpga_result mpfVtpPtSetAllocBufSize(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
-    ssize_t buf_size
+    size_t buf_size
 );
 
 
@@ -254,7 +254,7 @@ fpga_result mpfVtpPtGetAllocBufSize(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_vaddr* start_va,
-    ssize_t* buf_size
+    size_t* buf_size
 );
 
 

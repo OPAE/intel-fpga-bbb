@@ -194,28 +194,28 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
  *
  * The request takes some time to complete in the FPGA. In addition
  * to caches, pipelines must also be checked. The
- * mpfVtpInvalVAMappingComplete() method returns true when the
+ * mpfVtpInvalHWVAMappingComplete() method returns true when the
  * operation is complete.
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  va          Virtual address to invalidate.
  * @returns                FPGA_OK on success.
  */
-fpga_result __MPF_API__ mpfVtpInvalVAMapping(
+fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
     mpf_handle_t mpf_handle,
     void* va
 );
 
 
 /**
- * Return true if the previous mpfVtpInvalVAMapping() call has
+ * Return true if the previous mpfVtpInvalHWVAMapping() call has
  * completed in the FPGA.
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @returns                True when the most recent mapping invalidation
  *                         is complete.
  */
-bool __MPF_API__ mpfVtpInvalVAMappingComplete(
+bool __MPF_API__ mpfVtpInvalHWVAMappingComplete(
     mpf_handle_t mpf_handle
 );
 

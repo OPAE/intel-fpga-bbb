@@ -315,7 +315,7 @@ static fpga_result ptFreeTableNode(
     }
 
     // Invalidate the address in any hardware tables (page table walker cache)
-    mpfVtpInvalVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+    mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
 
     // Unpin the page
     fpga_result r = fpgaReleaseBuffer(pt->_mpf_handle, wsid);
@@ -702,7 +702,7 @@ fpga_result mpfVtpPtInsertPageMapping(
 fpga_result mpfVtpPtSetAllocBufSize(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
-    ssize_t buf_size
+    size_t buf_size
 )
 {
     // Caller must lock the mutex
@@ -733,7 +733,7 @@ fpga_result mpfVtpPtGetAllocBufSize(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_vaddr* start_va,
-    ssize_t* buf_size
+    size_t* buf_size
 )
 {
     // Caller must lock the mutex
