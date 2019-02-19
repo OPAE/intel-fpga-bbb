@@ -131,8 +131,7 @@ module cci_mpf_svc_vtp_pt_walk
         end
         else
         begin
-            initialized <= csrs.vtp_in_page_table_base_valid &&
-                           csrs.vtp_in_mode.enabled;
+            initialized <= csrs.vtp_in_page_table_base_valid;
         end
     end
 

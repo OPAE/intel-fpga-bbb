@@ -121,6 +121,11 @@ typedef struct
 
     // Is VTP available in the FPGA?
     bool is_available;
+
+    // State of the invalidation register toggle. This value is coordinated
+    // with CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR in order to detect completion
+    // of translation invalidation requests.
+    bool csr_inval_page_toggle;
 }
 mpf_vtp_state;
 

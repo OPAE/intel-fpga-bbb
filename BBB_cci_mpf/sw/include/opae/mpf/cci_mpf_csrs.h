@@ -87,7 +87,13 @@ typedef enum
     // Page table physical address (line address) (write)
     CCI_MPF_VTP_CSR_PAGE_TABLE_PADDR = 32,
 
-    // Invalidate cached translations of virtual address (line address) (write)
+    // Invalidate cached translations of virtual address (line address) (read/write)
+    // Writing initiates an invalidation. Reading returns the current
+    // completion state. The completion state starts at 0 and toggles
+    // between 0 and 1 every time an invalidation completes in the FPGA.
+    // Software must wait for the toggle after sending a request.
+    // The toggle is reset to 0 whenever the full FPGA-side translation
+    // cache is invalidated with CCI_MPF_VTP_CSR_MODE bit 1.
     CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR = 40,
 
     // Statistics -- all 8 byte read-only CSRs (read)

@@ -61,8 +61,6 @@ module cci_mpf_svc_vtp_pt_sw
     cci_mpf_csrs.vtp_events_pt_walk events
     );
 
-    logic pt_sw_rdy;
-
     // Page translation request buffer's physical address.
     t_cci_clAddr pt_req_buf_pa;
     logic initialized;
@@ -72,7 +70,6 @@ module cci_mpf_svc_vtp_pt_sw
         if (reset)
         begin
             initialized <= 1'b0;
-            pt_sw_rdy <= 1'b0;
         end
         else
         begin
@@ -81,10 +78,6 @@ module cci_mpf_svc_vtp_pt_sw
                 initialized <= 1'b1;
                 pt_req_buf_pa <= csrs.vtp_in_page_translation_buf_paddr;
             end
-
-            // Send requests only when the request buffer is initialized
-            // and VTP is enabled.
-            pt_sw_rdy <= initialized && csrs.vtp_in_mode.enabled;
         end
     end
 
@@ -142,7 +135,7 @@ module cci_mpf_svc_vtp_pt_sw
     t_cci_mpf_shim_vtp_req_tag rsp_tag;
 
     assign send_req = req_valid && req_not_full &&
-                      pt_sw_rdy && pt_fim.writeRdy;
+                      initialized && pt_fim.writeRdy;
 
     cci_mpf_prim_fifo_lutram
       #(

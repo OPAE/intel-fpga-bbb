@@ -309,7 +309,7 @@ int TEST_RANDOM::test()
         // Wait time for something to happen
         struct timespec ms;
         // Longer when simulating
-        ms.tv_sec = (hwIsSimulated() ? 2 : 0);
+        ms.tv_sec = (hwIsSimulated() ? 2 : 1);
         ms.tv_nsec = 2500000;
 
         uint64_t iter_state_end = 0;

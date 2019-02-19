@@ -197,6 +197,10 @@ interface cci_mpf_shim_vtp_svc_if;
     logic lookupRspValid;
     t_cci_mpf_shim_vtp_lookup_rsp lookupRsp;
 
+    // Signal completion of the most recent TLB line invalidation
+    // request.
+    logic invalComplete;
+
     modport server
        (
         input  lookupEn,
@@ -204,7 +208,9 @@ interface cci_mpf_shim_vtp_svc_if;
         output lookupRdy,
 
         output lookupRspValid,
-        output lookupRsp
+        output lookupRsp,
+
+        input  invalComplete
         );
 
     modport client
@@ -214,7 +220,9 @@ interface cci_mpf_shim_vtp_svc_if;
         input  lookupRdy,
 
         input  lookupRspValid,
-        input  lookupRsp
+        input  lookupRsp,
+
+        output invalComplete
         );
 
 endinterface // cci_mpf_shim_vtp_svc_if

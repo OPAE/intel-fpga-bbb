@@ -59,12 +59,16 @@ static fpga_result vtpEnable(
 {
     fpga_result r;
 
+    // Disable VTP
+    r = mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
+
     r = mpfWriteCsr(_mpf_handle,
                     CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_PAGE_TABLE_PADDR,
                     mpfVtpPtGetPageTableRootPA(_mpf_handle->vtp.pt) / CL(1));
 
     // Enable VTP
     r = mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 1);
+
     return r;
 }
 
@@ -228,6 +232,7 @@ fpga_result mpfVtpInit(
     }
 
     _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
+    _mpf_handle->vtp.csr_inval_page_toggle = false;
 
     // Initialize the software translation service
     r = mpfVtpSrvInit(_mpf_handle, &(_mpf_handle->vtp.srv));
@@ -591,6 +596,9 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
     r = mpfWriteCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 2);
     if (FPGA_OK != r) return r;
 
+    // The invalidation protocol's toggle is reset when the TLB is reset
+    _mpf_handle->vtp.csr_inval_page_toggle = false;
+
     return vtpEnable(_mpf_handle);
 }
 
@@ -600,14 +608,50 @@ fpga_result __MPF_API__ mpfVtpInvalVAMapping(
     mpf_vtp_pt_vaddr va
 )
 {
+    fpga_result r;
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
     if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
 
-    return mpfWriteCsr(mpf_handle,
-                       CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
-                       // Convert VA to a line index
-                       (uint64_t)va / CL(1));
+    // Previous request must be complete!
+    while (! mpfVtpInvalVAMappingComplete(_mpf_handle)) ;
+
+    r = mpfWriteCsr(mpf_handle,
+                    CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
+                    // Convert VA to a line index
+                    (uint64_t)va / CL(1));
+    if (FPGA_OK != r) return r;
+
+    // Wait for the FPGA to signal completion by inverting the CSR
+    _mpf_handle->vtp.csr_inval_page_toggle = ! _mpf_handle->vtp.csr_inval_page_toggle;
+
+    if (_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("invalidating page VA %p, expecting toggle %d",
+                     va, _mpf_handle->vtp.csr_inval_page_toggle);
+    }
+    return FPGA_OK;
+}
+
+
+bool __MPF_API__ mpfVtpInvalVAMappingComplete(
+    mpf_handle_t mpf_handle
+)
+{
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+
+    if (_mpf_handle->vtp.csr_inval_page_toggle ==
+        mpfReadCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR, NULL))
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("invalidating page complete, toggle=%d",
+                         _mpf_handle->vtp.csr_inval_page_toggle);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 
