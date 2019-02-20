@@ -332,16 +332,6 @@ module cci_mpf_shim_vtp_chan_lookup
     // Forward an unsuccessful L1 lookup to the L2 pipeline?
     logic l1_fwd_to_l2;
 
-    logic l1_almost_full;
-    always_ff @(posedge clk)
-    begin
-        almostFullToAFU <= l1_almost_full || ~csrs.vtp_in_mode.enabled;
-        if (reset)
-        begin
-            almostFullToAFU <= 1'b1;
-        end
-    end
-
     //
     // Lookup in local L1 TLB. There is an internal FIFO, so requests
     // sit inside the module until explicitly dequeued.
@@ -361,7 +351,7 @@ module cci_mpf_shim_vtp_chan_lookup
         .clk,
         .reset,
 
-        .almostFull(l1_almost_full),
+        .almostFull(almostFullToAFU),
         .cTxValid,
         .cTx({ cTxReqIsOrdered, cTx }),
         .cTxAddrIsVirtual,
@@ -750,7 +740,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
     always_ff @(posedge clk)
     begin
-        lookup_rdy <= vtp_svc.lookupRdy;
+        lookup_rdy <= vtp_svc.lookupRdy && csrs.vtp_in_mode.enabled;
     end
 
     // Heap index manager
@@ -1080,14 +1070,17 @@ module cci_mpf_shim_vtp_chan_l1_caches
     //
     // ====================================================================
 
+    logic vtp_enabled;
     logic n_reset_tlb, n_reset_tlb_q;
     always @(posedge clk)
     begin
+        vtp_enabled <= csrs.vtp_in_mode.enabled;
         n_reset_tlb <= ~csrs.vtp_in_mode.inval_translation_cache;
         n_reset_tlb_q <= n_reset_tlb;
 
         if (reset)
         begin
+            vtp_enabled <= 1'b0;
             n_reset_tlb <= 1'b0;
             n_reset_tlb_q <= 1'b0;
         end
@@ -1112,7 +1105,7 @@ module cci_mpf_shim_vtp_chan_l1_caches
         lookup_va[1] <= lookupVA;
         lookup_va[2] <= lookup_va[1];
 
-        lookup_valid[1] <= rdy && n_reset_tlb && n_reset_tlb_q;
+        lookup_valid[1] <= rdy && n_reset_tlb && n_reset_tlb_q && vtp_enabled;
         lookup_valid[2] <= lookup_valid[1];
     end
 

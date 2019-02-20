@@ -36,6 +36,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <time.h>
 
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
@@ -134,9 +135,31 @@ static void *mpfVtpSrvMain(void *args)
     while (true)
     {
         // Wait for next request
+        uint32_t trips = 0;
         while (0 == *next_req)
         {
             _mm_pause();
+
+            // Stop wasting CPU time if no requests are arriving
+            if ((++trips & 0xffffff) == 0)
+            {
+                struct timespec sleep_time;
+                sleep_time.tv_sec = 0;
+                sleep_time.tv_nsec = 100;
+
+                while (0 == *next_req)
+                {
+                    nanosleep(&sleep_time, NULL);
+
+                    // Exponential backoff
+                    if (((++trips & 0xffff) == 0) && (sleep_time.tv_nsec < 10000))
+                    {
+                        sleep_time.tv_nsec *= 10;
+                    }
+                }
+
+                break;
+            }
         }
 
         // Drop the low bit from the request. It was set to guarantee the
