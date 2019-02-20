@@ -144,8 +144,7 @@ static fpga_result vtpPreallocBuffer(
 
         mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
 
-        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags,
-                                   false, NULL);
+        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
         if (FPGA_OK != r) goto fail;
 
         if (pt_flags)
@@ -229,8 +228,7 @@ static fpga_result vtpAllocBuffer(
             this_page_bytes = page_bytes_4kb;
         }
 
-        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags,
-                                   false, NULL);
+        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
         if (FPGA_OK != r) goto fail;
 
         if (pt_flags)
@@ -265,7 +263,6 @@ fpga_result mpfVtpPinAndInsertPage(
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
     uint32_t flags,
-    bool speculative,
     mpf_vtp_pt_paddr* pinned_pa
 )
 {
@@ -296,11 +293,6 @@ fpga_result mpfVtpPinAndInsertPage(
 
         // Unmap should never fail unless there is a bug inside VTP
         assert (FPGA_OK == r);
-    }
-
-    if (speculative)
-    {
-        fpga_flags |= FPGA_BUF_QUIET;
     }
 
     r = fpgaPrepareBuffer(_mpf_handle->handle, page_bytes, &va, &wsid, fpga_flags);
@@ -533,7 +525,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
 
     // Is the address the beginning of an allocation region?
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, &pa, NULL, &flags);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, false, &pa, NULL, &flags);
     if ((FPGA_OK != r) ||
         (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))))
     {
@@ -640,7 +632,7 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
 
     uint64_t pa;
     mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, &pa, NULL, NULL);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, false, &pa, NULL, NULL);
     mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     if (FPGA_OK != r) return 0;
 
@@ -681,13 +673,21 @@ fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
     // Previous request must be complete!
     while (! mpfVtpInvalHWVAMappingComplete(_mpf_handle)) ;
 
+    mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
+    // Clear the FPGA-side in-use flag. If the flag gets set again
+    // we will know that the translation has been reloaded by the FPGA.
+    mpfVtpPtClearInUseFlag(_mpf_handle->vtp.pt, va);
+
+    // Tell the FPGA to shoot down cached translation of VA
     r = mpfWriteCsr(mpf_handle,
                     CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
                     // Convert VA to a line index
                     (uint64_t)va / CL(1));
     if (FPGA_OK != r) return r;
 
-    // Wait for the FPGA to signal completion by inverting the CSR
+    // The FPGA will signal shootdown completion by inverting the CSR at
+    // CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR.
     _mpf_handle->vtp.csr_inval_page_toggle = ! _mpf_handle->vtp.csr_inval_page_toggle;
 
     if (_mpf_handle->dbg_mode)
@@ -695,6 +695,8 @@ fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
         MPF_FPGA_MSG("invalidating page VA %p, expecting toggle %d",
                      va, _mpf_handle->vtp.csr_inval_page_toggle);
     }
+
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     return FPGA_OK;
 }
 

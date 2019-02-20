@@ -86,7 +86,6 @@ bool mpfVtpPinOnDemandMode(
  * @param[in]  va          Virtual address of page start.
  * @param[in]  page_size   Size of the page.
  * @param[in]  flags       Flags passed to mpfVtpPtInsertPageMapping().
- * @param[in]  speculative Turn off warnings in case of failure.
  * @param[out] pinned_pa   Physical address to which the page was pinned.
  * @returns                True iff in on-demand pinning mode.
  */
@@ -95,7 +94,6 @@ fpga_result mpfVtpPinAndInsertPage(
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
     uint32_t flags,
-    bool speculative,
     mpf_vtp_pt_paddr* pinned_pa
 );
 

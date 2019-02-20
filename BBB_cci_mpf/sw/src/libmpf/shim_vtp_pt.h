@@ -53,8 +53,8 @@ typedef enum
     // Entry is invalid. This bit is used on the FPGA side to detect
     // empty entries.
     MPF_VTP_PT_FLAG_INVALID = 8,
-    // Buffer was pre-allocated outside MPF.
-    MPF_VTP_PT_FLAG_RESERVED16 = 16,
+    // Page may be in FPGA-side VTP caches.
+    MPF_VTP_PT_FLAG_IN_USE = 16,
 
     // All flags (mask)
     MPF_VTP_PT_FLAG_MASK = 31
@@ -221,6 +221,23 @@ fpga_result mpfVtpPtInsertPageMapping(
 
 
 /**
+ * Clear the MPF_VTP_PT_FLAG_IN_USE flag for the page table entry
+ * matching "va". Clearing this flag is part of the FPGA-side
+ * shootdown process. When the software translation server is
+ * being used, this flag indicates whether the address may be cached
+ * in the FPGA.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  va          Virtual address of the buffer start.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtClearInUseFlag(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va
+);
+
+
+/**
  * Set the size of a buffer associated with a page table entry. The page
  * table is a convenient place to store meta-data describing buffers
  * allocated by mpfVtpPrepareBuffer(). There must already be a page
@@ -287,6 +304,9 @@ fpga_result mpfVtpPtRemovePageMapping(
  *
  * @param[in]  pt          Page table.
  * @param[in]  va          Virtual address to remove.
+ * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE in the page table
+ *                         indicating that the translation has been sent
+ *                         to the FPGA.
  * @param[out] pa          PA corresponding to VA.
  * @param[out] size        Physical page size. Even on failed translations,
  *                         size indicates the level in the page table at
@@ -302,6 +322,7 @@ fpga_result mpfVtpPtRemovePageMapping(
 fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
+    bool set_in_use,
     mpf_vtp_pt_paddr *pa,
     mpf_vtp_page_size *size,
     uint32_t *flags

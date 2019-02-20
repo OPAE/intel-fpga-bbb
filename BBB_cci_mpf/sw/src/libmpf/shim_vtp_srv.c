@@ -60,7 +60,7 @@ static fpga_result mapVA(
 
     mpfVtpPtLockMutex(pt);
 
-    r = mpfVtpPtTranslateVAtoPA(pt, req_va, rsp_pa, page_size, &flags);
+    r = mpfVtpPtTranslateVAtoPA(pt, req_va, true, rsp_pa, page_size, &flags);
     if (FPGA_OK == r)
     {
         // Already mapped
@@ -109,7 +109,8 @@ static fpga_result mapVA(
                      (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
     }
 
-    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size, 0, false, rsp_pa);
+    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size,
+                               MPF_VTP_PT_FLAG_IN_USE, rsp_pa);
     mpfVtpPtUnlockMutex(pt);
     return r;
 }

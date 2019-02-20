@@ -154,6 +154,30 @@ static inline uint32_t nodeGetTranslatedAddrFlags(
     return (uint64_t)node->vtable[idx] & (uint32_t)MPF_VTP_PT_FLAG_MASK;
 }
 
+static inline void nodeSetTranslatedAddrFlags(
+    mpf_vtp_pt_node* node,
+    uint64_t idx,
+    uint32_t flags
+)
+{
+    if (idx < 512)
+    {
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)((uint64_t)node->vtable[idx] | flags);
+    }
+}
+
+static inline void nodeClearTranslatedAddrFlags(
+    mpf_vtp_pt_node* node,
+    uint64_t idx,
+    uint32_t flags
+)
+{
+    if (idx < 512)
+    {
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)((uint64_t)node->vtable[idx] & ~(uint64_t)flags);
+    }
+}
+
 static void nodeInsertChildNode(
     mpf_vtp_pt_node* node,
     uint64_t idx,
@@ -575,6 +599,7 @@ static void dumpPageTable(
                     if (flags & MPF_VTP_PT_FLAG_ALLOC) printf(" ALLOC");
                     if (flags & MPF_VTP_PT_FLAG_PREALLOC) printf(" PREALLOC");
                     if (flags & MPF_VTP_PT_FLAG_INVALID) printf(" INVALID");
+                    if (flags & MPF_VTP_PT_FLAG_IN_USE) printf(" IN_USE");
                     printf(" ]");
                 }
                 printf("\n");
@@ -696,6 +721,28 @@ fpga_result mpfVtpPtInsertPageMapping(
     }
 
     return addVAtoTable(pt, va, pa, wsid, depth, flags);
+}
+
+
+fpga_result mpfVtpPtClearInUseFlag(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    fpga_result r;
+    mpf_vtp_pt_node* node;
+    uint64_t idx;
+
+    // Find the containing node
+    r = findTerminalNodeAndIndex(pt, va, &node, &idx, NULL);
+    if (FPGA_OK != r) return r;
+
+    nodeClearTranslatedAddrFlags(node, idx, MPF_VTP_PT_FLAG_IN_USE);
+
+    return FPGA_OK;
 }
 
 
@@ -829,6 +876,7 @@ fpga_result mpfVtpPtRemovePageMapping(
 fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
+    bool set_in_use,
     mpf_vtp_pt_paddr *pa,
     mpf_vtp_page_size *size,
     uint32_t *flags
@@ -854,6 +902,11 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     if (FPGA_OK != r)
     {
         return FPGA_NOT_FOUND;
+    }
+
+    if (set_in_use)
+    {
+        nodeSetTranslatedAddrFlags(node, idx, MPF_VTP_PT_FLAG_IN_USE);
     }
 
     *pa = nodeGetTranslatedAddr(node, idx);
