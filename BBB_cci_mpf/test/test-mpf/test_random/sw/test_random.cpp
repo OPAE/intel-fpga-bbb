@@ -167,7 +167,7 @@ int TEST_RANDOM::test()
         }
 
         cout << "  Allocating buffer with mmap..." << endl;
-        buf = mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE), flags, 0, 0);
+        buf = mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE), flags, -1, 0);
         if (buf == MAP_FAILED)
         {
             cerr << "Failed to mmap " << n_bytes << " byte buffer" << endl;
