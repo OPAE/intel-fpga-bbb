@@ -122,8 +122,6 @@ static void *mpfVtpSrvMain(void *args)
 
     fpga_result r;
 
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-
     // Pointer to the next translation request
     volatile uint64_t* next_req = (volatile uint64_t*)srv->req_va;
 
