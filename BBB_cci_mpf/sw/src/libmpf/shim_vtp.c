@@ -74,6 +74,82 @@ static fpga_result vtpEnable(
 
 
 //
+// Pin a region of memory. Alignment and other details have already been checked
+// by one of the buffer allocation functions.
+//
+static fpga_result vtpPinRegion(
+    _mpf_handle_p _mpf_handle,
+    uint64_t len,
+    void* buf_addr,
+    uint32_t pt_flags
+)
+{
+    fpga_result r;
+    const size_t page_mask_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB) - 1;
+    const bool preallocated = (pt_flags & MPF_VTP_PT_FLAG_PREALLOC);
+
+    uint8_t* page = buf_addr;
+
+    while (len)
+    {
+        size_t this_page_bytes;
+        mpf_vtp_page_size this_page_size;
+
+        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
+        // Preallocated pages may already be pinned since two buffer requests
+        // may share a page.
+        if (preallocated)
+        {
+            mpf_vtp_pt_paddr existing_pa;
+            uint32_t existing_flags;
+            r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, page, false,
+                                        &existing_pa, &this_page_size, &existing_flags);
+            if (FPGA_OK == r)
+            {
+                this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
+                goto already_pinned;
+            }
+        }
+
+        // Detect huge pages
+        if (0 == ((size_t)page & page_mask_2mb))
+        {
+            r = mpfOsGetPageSize(page, &this_page_size);
+            if (FPGA_OK != r) goto fail;
+        }
+        else
+        {
+            this_page_size = MPF_VTP_PAGE_4KB;
+        }
+
+        this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
+
+        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
+        if (FPGA_OK != r) goto fail;
+
+        if (pt_flags)
+        {
+            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
+        }
+
+      already_pinned:
+        pt_flags = 0;
+        page += this_page_bytes;
+        len -= this_page_bytes;
+
+        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    }
+
+    return FPGA_OK;
+
+  fail:
+    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    return r;
+}
+
+
+//
 // Pin an existing pre-allocated buffer.
 //
 static fpga_result vtpPreallocBuffer(
@@ -134,35 +210,7 @@ static fpga_result vtpPreallocBuffer(
     len += (uint64_t)*buf_addr - (uint64_t)page;
 
     // Share each page with the FPGA and insert them into the VTP page table.
-    uint32_t pt_flags = MPF_VTP_PT_FLAG_PREALLOC;
-
-    while (len)
-    {
-        r = mpfOsGetPageSize(page, &this_page_size);
-        this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
-        if (FPGA_OK != r) return FPGA_NO_MEMORY;
-
-        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-
-        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
-        if (FPGA_OK != r) goto fail;
-
-        if (pt_flags)
-        {
-            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
-        }
-
-        pt_flags = 0;
-        page += this_page_bytes;
-        len -= this_page_bytes;
-
-        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-    }
-
-    return FPGA_OK;
-
-  fail:
-    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    r = vtpPinRegion(_mpf_handle, len, (void*)page, MPF_VTP_PT_FLAG_PREALLOC);
     return r;
 }
 
@@ -197,56 +245,7 @@ static fpga_result vtpAllocBuffer(
     if (FPGA_OK != r) return FPGA_NO_MEMORY;
 
     // Share each page with the FPGA and insert them into the VTP page table.
-    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC;
-
-    const size_t page_bytes_4kb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB);
-    const size_t page_bytes_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB);
-    const size_t page_mask_2mb = page_bytes_2mb - 1;
-
-    uint8_t* page = *buf_addr;
-
-    while (len)
-    {
-        size_t this_page_bytes;
-
-        // Detect huge pages
-        mpf_vtp_page_size this_page_size;
-        r = mpfOsGetPageSize(page, &this_page_size);
-        if (FPGA_OK != r) goto fail;
-
-        mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-
-        if ((0 == ((size_t)page & page_mask_2mb)) && (len >= page_bytes_2mb) &&
-            (this_page_size == MPF_VTP_PAGE_2MB))
-        {
-            this_page_bytes = page_bytes_2mb;
-        }
-        else
-        {
-            // The page isn't aligned to 2MB or isn't a huge page.
-            this_page_size = MPF_VTP_PAGE_4KB;
-            this_page_bytes = page_bytes_4kb;
-        }
-
-        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
-        if (FPGA_OK != r) goto fail;
-
-        if (pt_flags)
-        {
-            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
-        }
-
-        pt_flags = 0;
-        page += this_page_bytes;
-        len -= this_page_bytes;
-
-        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-    }
-
-    return FPGA_OK;
-
-  fail:
-    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    r = vtpPinRegion(_mpf_handle, len, *buf_addr, MPF_VTP_PT_FLAG_ALLOC);
     return r;
 }
 
