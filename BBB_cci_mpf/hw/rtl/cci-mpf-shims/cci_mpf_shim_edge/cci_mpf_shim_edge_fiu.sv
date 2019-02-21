@@ -30,6 +30,7 @@
 
 `include "cci_mpf_if.vh"
 `include "cci_mpf_shim.vh"
+`include "cci_mpf_shim_vtp.vh"
 `include "cci_mpf_shim_edge.vh"
 `include "cci_mpf_shim_pwrite.vh"
 
@@ -309,14 +310,14 @@ module cci_mpf_shim_edge_fiu
     end
 
     // Is the read response for the page table walker?
-    logic is_pt_rsp;
+    logic is_pt_c0_rsp;
     always_comb
     begin
-        is_pt_rsp = cci_mpf_testShimMdataTag(RESERVED_MDATA_IDX,
-                                             CCI_MPF_SHIM_TAG_VTP,
-                                             fiu.c0Rx.hdr.mdata);
+        is_pt_c0_rsp = cci_mpf_testShimMdataTag(RESERVED_MDATA_IDX,
+                                                CCI_MPF_SHIM_TAG_VTP,
+                                                fiu.c0Rx.hdr.mdata);
 
-        pt_fim.readDataEn = cci_c0Rx_isReadRsp(fiu.c0Rx) && is_pt_rsp;
+        pt_fim.readDataEn = cci_c0Rx_isReadRsp(fiu.c0Rx) && is_pt_c0_rsp;
         pt_fim.readData = fiu.c0Rx.data;
     end
 
@@ -325,7 +326,7 @@ module cci_mpf_shim_edge_fiu
         afu_buf.c0Rx = fiu.c0Rx;
 
         // Only forward client-generated read responses
-        afu_buf.c0Rx.rspValid = fiu.c0Rx.rspValid && ! is_pt_rsp;
+        afu_buf.c0Rx.rspValid = fiu.c0Rx.rspValid && ! is_pt_c0_rsp;
     end
 
 
@@ -336,8 +337,67 @@ module cci_mpf_shim_edge_fiu
     //   data from wr_heap.
     //
 
-    // Responses
-    assign afu_buf.c1Rx = fiu.c1Rx;
+    // Responses.
+    always_comb
+    begin
+        afu_buf.c1Rx = fiu.c1Rx;
+
+        // If the response is for the VTP page table walker then drop it.
+        if (cci_c1Rx_isWriteRsp(fiu.c1Rx) &&
+            cci_mpf_testShimMdataTag(RESERVED_MDATA_IDX,
+                                     CCI_MPF_SHIM_TAG_VTP,
+                                     fiu.c1Rx.hdr.mdata))
+        begin
+            afu_buf.c1Rx.rspValid = 1'b0;
+        end
+    end
+
+
+    //
+    // Registers for the VTP page table manager write request path.
+    // Only one request is held at a time.
+    //
+    logic pt_c1_valid;
+    t_cci_clAddr pt_c1_addr;
+    t_cci_mpf_shim_vtp_pt_fim_wr_data pt_c1_data;
+    t_cci_mpf_shim_vtp_pt_fim_wr_data stg1_pt_c1_data, stg2_pt_c1_data, stg3_pt_c1_data;
+    logic pt_c1_deq;
+
+    assign pt_fim.writeRdy = ! pt_c1_valid;
+
+    always_ff @(posedge clk)
+    begin
+        stg1_pt_c1_data <= pt_c1_data;
+        stg2_pt_c1_data <= stg1_pt_c1_data;
+        stg3_pt_c1_data <= stg2_pt_c1_data;
+
+        if (pt_fim.writeEn)
+        begin
+            pt_c1_valid <= 1'b1;
+            pt_c1_addr <= pt_fim.writeAddr;
+            pt_c1_data <= pt_fim.writeData;
+        end
+
+        if (reset || pt_c1_deq)
+        begin
+            pt_c1_valid <= 1'b0;
+        end
+    end
+
+    // Request header for PT walk writes
+    t_cci_mpf_c1_ReqMemHdr pt_c1_write_hdr;
+    always_comb
+    begin
+        t_cci_mdata m;
+        m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX, CCI_MPF_SHIM_TAG_VTP);
+
+        pt_c1_write_hdr = cci_mpf_c1_genReqHdr(eREQ_WRLINE_I,
+                                               pt_c1_addr,
+                                               m,
+                                               cci_mpf_defaultReqHdrParams(0));
+        pt_c1_write_hdr.base.vc_sel = eVC_VH0;
+    end
+
 
     //
     // Pick the next write request to forward.  Either the request is
@@ -352,9 +412,10 @@ module cci_mpf_shim_edge_fiu
     logic stg1_fiu_blocked;
 
     // Pipeline stages
-    t_if_cci_mpf_c1_Tx stg1_fiu_c1Tx;
-    t_if_cci_mpf_c1_Tx stg2_fiu_c1Tx;
-    t_if_cci_mpf_c1_Tx stg3_fiu_c1Tx;
+    t_if_cci_mpf_c1_Tx stg1_fiu_c1Tx, stg2_fiu_c1Tx, stg3_fiu_c1Tx;
+    logic stg1_is_pt_wr, stg2_is_pt_wr, stg3_is_pt_wr;
+
+    logic c1Tx_not_busy;
 
     always_comb
     begin
@@ -366,13 +427,16 @@ module cci_mpf_shim_edge_fiu
         wr_heap_deq_clNum = stg1_fiu_wr_beat_idx;
 
         // Release the write data heap entry when a write retires
-        wr_heap_deq_en = stg1_packet_done && cci_mpf_c1TxIsWriteReq(stg1_fiu_c1Tx);
+        wr_heap_deq_en = stg1_packet_done && cci_mpf_c1TxIsWriteReq(stg1_fiu_c1Tx) &&
+                         ! stg1_is_pt_wr;
 
-        // Take the next request from the buffering FIFO when the current
-        // packet is done or there is no packet being processed.
-        deqC1Tx = cci_mpf_c1TxIsValid(afu_buf.c1Tx) &&
-                  ! fiu.c1TxAlmFull &&
-                  (stg1_packet_done || ! cci_mpf_c1TxIsValid(stg1_fiu_c1Tx));
+        // Take the next request from the buffering FIFO or the VTP page table
+        // server when the current packet is done or there is no packet being
+        // processed.
+        c1Tx_not_busy = ! fiu.c1TxAlmFull &&
+                        (stg1_packet_done || ! cci_mpf_c1TxIsValid(stg1_fiu_c1Tx));
+        pt_c1_deq = c1Tx_not_busy && pt_c1_valid;
+        deqC1Tx = c1Tx_not_busy && cci_mpf_c1TxIsValid(afu_buf.c1Tx) && ! pt_c1_valid;
     end
 
 
@@ -393,11 +457,22 @@ module cci_mpf_shim_edge_fiu
 
                 // The heap data for the SOP is definitely available
                 // since it arrived with the header.
+                stg1_is_pt_wr <= 1'b0;
                 stg1_fiu_c1Tx_sop <= 1'b1;
                 stg1_fiu_wr_beat_idx <= 0;
                 stg1_fiu_wr_beats_rem <= c1Tx.hdr.base.cl_len;
 
                 wr_heap_deq_idx <= t_write_heap_idx'(c1Tx.data);
+            end
+            else if (pt_c1_deq)
+            begin
+                // Write for the VTP page table service
+                stg1_fiu_c1Tx <= cci_mpf_genC1TxWriteReq(pt_c1_write_hdr, 'x, 1'b1);
+
+                stg1_is_pt_wr <= 1'b1;
+                stg1_fiu_c1Tx_sop <= 1'b1;
+                stg1_fiu_wr_beat_idx <= 0;
+                stg1_fiu_wr_beats_rem <= 0;
             end
             else if (stg1_packet_done)
             begin
@@ -414,6 +489,7 @@ module cci_mpf_shim_edge_fiu
         end
 
         // Continue the pipeline, unless stg1 has stopped producing data.
+        stg2_is_pt_wr <= stg1_is_pt_wr;
         stg2_fiu_c1Tx <= cci_mpf_c1TxMaskValids(stg1_fiu_c1Tx, ! stg1_fiu_blocked);
         // SOP set only first first beat in a multi-beat packet.
         // Only write requests use SOP.
@@ -425,6 +501,7 @@ module cci_mpf_shim_edge_fiu
             stg1_fiu_c1Tx.hdr.base.address[$bits(t_ccip_clNum)-1 : 0] |
             stg1_fiu_wr_beat_idx;
 
+        stg3_is_pt_wr <= stg2_is_pt_wr;
         stg3_fiu_c1Tx <= stg2_fiu_c1Tx;
 
         if (reset)
@@ -455,6 +532,13 @@ module cci_mpf_shim_edge_fiu
         fiu.c1Tx.valid = stg3_fiu_c1Tx.valid;
         fiu.c1Tx.hdr = stg3_fiu_c1Tx.hdr;
         fiu.c1Tx.data = wr_data;
+
+        // Write for the VTP page table? Only the low bits are set in order
+        // to avoid extra MUX logic.
+        if (stg3_is_pt_wr)
+        begin
+            fiu.c1Tx.data = { '0, stg3_pt_c1_data };
+        end
     end
 
 
@@ -486,6 +570,13 @@ module cci_mpf_shim_edge_fiu
                                               afu.c0Tx.hdr.base.mdata))
             else
                 $fatal("cci_mpf_shim_edge_fiu.sv: AFU C0 VTP tag already used!");
+
+            assert(! cci_mpf_c1TxIsWriteReq(afu.c1Tx) ||
+                   ! cci_mpf_testShimMdataTag(RESERVED_MDATA_IDX,
+                                              CCI_MPF_SHIM_TAG_VTP,
+                                              afu.c1Tx.hdr.base.mdata))
+            else
+                $fatal("cci_mpf_shim_edge_fiu.sv: AFU C1 VTP tag already used!");
         end
     end
 

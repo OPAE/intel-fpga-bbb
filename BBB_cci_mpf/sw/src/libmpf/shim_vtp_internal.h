@@ -34,6 +34,7 @@
 #define __FPGA_MPF_SHIM_VTP_INTERNAL_H__
 
 #include "shim_vtp_pt.h"
+#include "shim_vtp_srv.h"
 
 
 /**
@@ -65,6 +66,39 @@ fpga_result mpfVtpTerm(
 
 
 /**
+ * Is VTP operating in on-demand pinning mode? In this mode, the FPGA
+ * logic sends translation requests to a VTP software service. The
+ * software service detects references to unpinned memory and pins it
+ * before returning the translation.
+ *
+ * @param[in]  _mpf_handle Internal handle to MPF state.
+ * @returns                True iff in on-demand pinning mode.
+ */
+bool mpfVtpPinOnDemandMode(
+    _mpf_handle_p _mpf_handle
+);
+
+
+/**
+ * Pin and insert a single page in the translation table.
+ *
+ * @param[in]  _mpf_handle Internal handle to MPF state.
+ * @param[in]  va          Virtual address of page start.
+ * @param[in]  page_size   Size of the page.
+ * @param[in]  flags       Flags passed to mpfVtpPtInsertPageMapping().
+ * @param[out] pinned_pa   Physical address to which the page was pinned.
+ * @returns                True iff in on-demand pinning mode.
+ */
+fpga_result mpfVtpPinAndInsertPage(
+    _mpf_handle_p _mpf_handle,
+    mpf_vtp_pt_vaddr va,
+    mpf_vtp_page_size page_size,
+    uint32_t flags,
+    mpf_vtp_pt_paddr* pinned_pa
+);
+
+
+/**
  * VTP persistent state.  An instance of this struct is stored in the
  * MPF handle.
  */
@@ -73,8 +107,8 @@ typedef struct
     // VTP page table state
     mpf_vtp_pt* pt;
 
-    // VTP mutex (one allocation at a time)
-    mpf_os_mutex_handle alloc_mutex;
+    // VTP transation server state
+    mpf_vtp_srv* srv;
 
     // Maximum requested page size
     mpf_vtp_page_size max_physical_page_size;
@@ -85,6 +119,11 @@ typedef struct
 
     // Is VTP available in the FPGA?
     bool is_available;
+
+    // State of the invalidation register toggle. This value is coordinated
+    // with CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR in order to detect completion
+    // of translation invalidation requests.
+    bool csr_inval_page_toggle;
 }
 mpf_vtp_state;
 

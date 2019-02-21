@@ -51,13 +51,28 @@ interface cci_mpf_csrs();
     //
 
     // Input: page table mode (see cci_mpf_csrs.h)
-    t_cci_mpf_vtp_csr_mode vtp_in_mode;
+    t_cci_mpf_vtp_csr_in_mode vtp_in_mode;
+    // Output: page table mode (see cci_mpf_csrs.h)
+    t_cci_mpf_vtp_csr_out_mode vtp_out_mode;
     // Input: page table base address (line address)
     t_cci_clAddr vtp_in_page_table_base;
     logic        vtp_in_page_table_base_valid;
     // Input: invalidate the translation for one page
     t_cci_clAddr vtp_in_inval_page;
     logic        vtp_in_inval_page_valid;
+    // Output: translation invalidation is complete
+    logic        vtp_out_inval_page_complete_toggle;
+
+    // Input: physical address of the software page translation service
+    // request ring buffer.
+    t_cci_clAddr vtp_in_page_translation_buf_paddr;
+    logic vtp_in_page_translation_buf_paddr_valid;
+    // Input: page translation response from the software service. When
+    // page translation is handled by software, the address here is
+    // the physical address corresponding to a translation request for
+    // a virtual address.
+    t_cci_clAddr vtp_in_page_translation_rsp;
+    logic vtp_in_page_translation_rsp_valid;
 
     // Events: these wires fire to indicate an event. The CSR shim sums
     // events into counters.
@@ -112,10 +127,16 @@ interface cci_mpf_csrs();
     modport csr
        (
         output vtp_in_mode,
+        input  vtp_out_mode,
         output vtp_in_page_table_base,
         output vtp_in_page_table_base_valid,
         output vtp_in_inval_page,
         output vtp_in_inval_page_valid,
+
+        output vtp_in_page_translation_buf_paddr,
+        output vtp_in_page_translation_buf_paddr_valid,
+        output vtp_in_page_translation_rsp,
+        output vtp_in_page_translation_rsp_valid,
 
         output vc_map_ctrl,
         output vc_map_ctrl_valid,
@@ -133,6 +154,7 @@ interface cci_mpf_csrs();
         input  vtp_out_event_4kb_miss,
         input  vtp_out_event_2mb_hit,
         input  vtp_out_event_2mb_miss,
+        input  vtp_out_inval_page_complete_toggle,
         input  vtp_out_event_pt_walk_busy,
         input  vtp_out_event_failed_translation,
         input  vtp_out_pt_walk_last_vaddr,
@@ -153,14 +175,20 @@ interface cci_mpf_csrs();
         input  vtp_in_page_table_base,
         input  vtp_in_page_table_base_valid,
         input  vtp_in_inval_page,
-        input  vtp_in_inval_page_valid
+        input  vtp_in_inval_page_valid,
+
+        input  vtp_in_page_translation_buf_paddr,
+        input  vtp_in_page_translation_buf_paddr_valid,
+        input  vtp_in_page_translation_rsp,
+        input  vtp_in_page_translation_rsp_valid
         );
     modport vtp_events
        (
         output vtp_out_event_4kb_hit,
         output vtp_out_event_4kb_miss,
         output vtp_out_event_2mb_hit,
-        output vtp_out_event_2mb_miss
+        output vtp_out_event_2mb_miss,
+        output vtp_out_inval_page_complete_toggle
         );
     modport vtp_events_pt_walk
        (

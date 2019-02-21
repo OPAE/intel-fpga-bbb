@@ -197,6 +197,10 @@ interface cci_mpf_shim_vtp_svc_if;
     logic lookupRspValid;
     t_cci_mpf_shim_vtp_lookup_rsp lookupRsp;
 
+    // Signal completion of the most recent TLB line invalidation
+    // request.
+    logic invalComplete;
+
     modport server
        (
         input  lookupEn,
@@ -204,7 +208,9 @@ interface cci_mpf_shim_vtp_svc_if;
         output lookupRdy,
 
         output lookupRspValid,
-        output lookupRsp
+        output lookupRsp,
+
+        input  invalComplete
         );
 
     modport client
@@ -214,7 +220,9 @@ interface cci_mpf_shim_vtp_svc_if;
         input  lookupRdy,
 
         input  lookupRspValid,
-        input  lookupRsp
+        input  lookupRsp,
+
+        output invalComplete
         );
 
 endinterface // cci_mpf_shim_vtp_svc_if
@@ -395,6 +403,15 @@ endinterface
 //
 // ========================================================================
 
+//
+// The interface supports multiple implementations of page table walkers.
+// A hardware page table walker needs reads. When page table management
+// is on the CPU then writes may be used to send messages to a
+// service running on the CPU.
+//
+
+typedef logic [63:0] t_cci_mpf_shim_vtp_pt_fim_wr_data;
+
 interface cci_mpf_shim_vtp_pt_fim_if;
 
     //
@@ -407,6 +424,17 @@ interface cci_mpf_shim_vtp_pt_fim_if;
     logic readDataEn;
     t_cci_clData readData;
 
+    //
+    // Write messages to a page table service. Only the low 64 bits are
+    // written in the line at writeAddr. The value written to higher
+    // bits is undefined.
+    //
+    logic writeEn;
+    t_cci_clAddr writeAddr;
+    logic writeRdy;
+    t_cci_mpf_shim_vtp_pt_fim_wr_data writeData;
+
+
     // Page table walker (server) ports
     modport pt_walk
        (
@@ -415,7 +443,12 @@ interface cci_mpf_shim_vtp_pt_fim_if;
         input  readRdy,
 
         input  readDataEn,
-        input  readData
+        input  readData,
+
+        output writeEn,
+        output writeAddr,
+        input  writeRdy,
+        output writeData
         );
 
     // Memory read port, used by the walker to read PT entries in host memory
@@ -426,7 +459,12 @@ interface cci_mpf_shim_vtp_pt_fim_if;
         output readRdy,
 
         output readDataEn,
-        output readData
+        output readData,
+
+        input  writeEn,
+        input  writeAddr,
+        output writeRdy,
+        input  writeData
         );
 
 endinterface

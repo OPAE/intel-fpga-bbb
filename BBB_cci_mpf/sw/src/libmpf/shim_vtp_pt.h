@@ -45,15 +45,16 @@ typedef enum
     // Terminal entry in table hierarchy -- indicates an actual address
     // translation as opposed to an intra-table pointer
     MPF_VTP_PT_FLAG_TERMINAL = 1,
-    // Is entry the first or last block in an allocated region?  These
-    // flags are used only in virtual to physical translation tables.
-    MPF_VTP_PT_FLAG_ALLOC_START = 2,
-    MPF_VTP_PT_FLAG_ALLOC_END = 4,
+    // Set when buffer is allocated by MPF
+    MPF_VTP_PT_FLAG_ALLOC = 2,
+    // Set at the head of a buffer added with mpfVtpPrepareBuffer when
+    // the buffer is allocated outside MPF.
+    MPF_VTP_PT_FLAG_PREALLOC = 4,
     // Entry is invalid. This bit is used on the FPGA side to detect
     // empty entries.
     MPF_VTP_PT_FLAG_INVALID = 8,
-    // Buffer was pre-allocated outside MPF.
-    MPF_VTP_PT_FLAG_PREALLOCATED = 16,
+    // Page may be in FPGA-side VTP caches.
+    MPF_VTP_PT_FLAG_IN_USE = 16,
 
     // All flags (mask)
     MPF_VTP_PT_FLAG_MASK = 31
@@ -66,8 +67,14 @@ mpf_vtp_pt_flag;
  * Each level in the table is an array of 512 pointers to the next level
  * in the table (512 * 8B == 4KB).  Eventually, a terminal node is reached
  * containing the translation.
+ *
+ * Nodes in the VTP page table have parallel data structures, each with 512
+ * entries. The first group is the vector of virtual to physical translation
+ * entries, which is pinned and shared with the FPGA's hardware page table
+ * walker. Other groups hold data used by software, such as a parallel virtual
+ * to physical translation table with internal virtual instead of physical
+ * pointers.
  */
-typedef int64_t mpf_vtp_pt_node[512];
 
 
 /**
@@ -82,20 +89,29 @@ typedef uint64_t mpf_vtp_pt_paddr;
 typedef void* mpf_vtp_pt_vaddr;
 
 
-#define N_V_TO_P_WSID_ENTRIES 510
+/**
+ * Other meta-data stored in the page table.
+ */
+typedef struct
+{
+    uint64_t wsid;
+    size_t alloc_buf_len;
+}
+mpf_vtp_pt_meta;
+
+
+#define MPF_VTP_PT_VEC_LEN 512
 
 /**
- * Nodes in the page table's virtual to physical map are in pinned memory,
- * shared with the FPGA.  This data structure tracks the page table
- * node's workspace IDs so the table can be released.
+ * Full page table node.
  */
-struct v_to_p_wsid
+typedef struct
 {
-    // Next tracker (linked list)
-    struct v_to_p_wsid* next;
-    uint64_t n_entries;
-    uint64_t wsid[N_V_TO_P_WSID_ENTRIES];
-};
+    mpf_vtp_pt_paddr ptable[MPF_VTP_PT_VEC_LEN];
+    mpf_vtp_pt_vaddr vtable[MPF_VTP_PT_VEC_LEN];
+    mpf_vtp_pt_meta meta[MPF_VTP_PT_VEC_LEN];
+}
+mpf_vtp_pt_node;
 
 
 /**
@@ -103,32 +119,21 @@ struct v_to_p_wsid
  */
 typedef struct
 {
-    // Virtual to physical page hierarchical page table.  This is the table
-    // that is passed to the FPGA.
-    mpf_vtp_pt_node* v_to_p;
-
-    // The FPGA driver manages I/O mapped pages using workspace IDs.
-    // The page table manager builds a parallel structure to v_to_p
-    // for translating virtual addresses to wsids.
-    mpf_vtp_pt_node* v_to_wsid;
-
-    // The page table is implemented in user space with no access
-    // to kernel page mapping.  In order to walk ptVtoP in software we
-    // need to record a reverse physical to virtual mapping.
-    mpf_vtp_pt_node* p_to_v;
+    // Root of the page table.
+    mpf_vtp_pt_node* pt_root;
 
     // Physical address of the root of the page table
     mpf_vtp_pt_paddr pt_root_paddr;
 
-    // Free list of tree nodes not currently in use
-    mpf_vtp_pt_node* page_table_free_list;
-
-    // Track workspace IDs of pinned page table nodes
-    struct v_to_p_wsid* v_to_p_wsid;
+    // wsid of the root of the page table
+    uint64_t pt_root_wsid;
 
     // Opaque parent MPF handle.  It is opaque because the internal MPF handle
     // points to the page table, so the dependence would be circular.
     _mpf_handle_p _mpf_handle;
+
+    // PT mutex (one update at a time)
+    mpf_os_mutex_handle mutex;
 }
 mpf_vtp_pt;
 
@@ -159,6 +164,28 @@ fpga_result mpfVtpPtInit(
 fpga_result mpfVtpPtTerm(
     mpf_vtp_pt* pt
 );
+
+
+/**
+ * Acquire the page table manager lock.
+ */
+static inline void mpfVtpPtLockMutex(
+    mpf_vtp_pt* pt
+)
+{
+    mpfOsLockMutex(pt->mutex);
+}
+
+
+/**
+ * Release the page table manager lock.
+ */
+static inline void mpfVtpPtUnlockMutex(
+    mpf_vtp_pt* pt
+)
+{
+    mpfOsUnlockMutex(pt->mutex);
+}
 
 
 /**
@@ -194,6 +221,61 @@ fpga_result mpfVtpPtInsertPageMapping(
 
 
 /**
+ * Clear the MPF_VTP_PT_FLAG_IN_USE flag for the page table entry
+ * matching "va". Clearing this flag is part of the FPGA-side
+ * shootdown process. When the software translation server is
+ * being used, this flag indicates whether the address may be cached
+ * in the FPGA.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  va          Virtual address of the buffer start.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtClearInUseFlag(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va
+);
+
+
+/**
+ * Set the size of a buffer associated with a page table entry. The page
+ * table is a convenient place to store meta-data describing buffers
+ * allocated by mpfVtpPrepareBuffer(). There must already be a page
+ * table entry for the VA and either MPF_VTP_PT_FLAG_ALLOC or
+ * MPF_VTP_PT_FLAG_PREALLOC must be set for that entry.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  va          Virtual address of the buffer start.
+ * @param[in]  buf_size    Size of the buffer. The size may span multiple
+ *                         pages.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtSetAllocBufSize(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va,
+    size_t buf_size
+);
+
+
+/**
+ * Get the size of an MPF-allocated buffer (set with mpfVtpPtSetAllocBufSize).
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  va          Virtual address of the buffer start.
+ * @param[out] start_va    Starting VA of the buffer, aligned to page size.
+ * @param[out] buf_size    Size of the buffer. The size may span multiple
+ *                         pages.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtGetAllocBufSize(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va,
+    mpf_vtp_pt_vaddr* start_va,
+    size_t* buf_size
+);
+
+
+/**
  * Remove a page from the table.
  *
  * Some state from the page is returned as it is dropped.
@@ -202,8 +284,6 @@ fpga_result mpfVtpPtInsertPageMapping(
  * @param[in]  pt          Page table.
  * @param[in]  va          Virtual address to remove.
  * @param[out] pa          PA corresponding to VA.  (Ignored if NULL.)
- * @param[out] pt_pa       PA of the page table entry holding page translation.
- *                         (Ignored if NULL.)
  * @param[out] wsid        Workspace ID corresponding to VA.  (Ignored if NULL.)
  * @param[out] size        Physical page size.  (Ignored if NULL.)
  * @param[out] flags       Page flags.  (Ignored if NULL.)
@@ -213,7 +293,6 @@ fpga_result mpfVtpPtRemovePageMapping(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_paddr *pa,
-    mpf_vtp_pt_paddr *pt_pa,
     uint64_t *wsid,
     mpf_vtp_page_size *size,
     uint32_t *flags
@@ -225,14 +304,27 @@ fpga_result mpfVtpPtRemovePageMapping(
  *
  * @param[in]  pt          Page table.
  * @param[in]  va          Virtual address to remove.
+ * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE in the page table
+ *                         indicating that the translation has been sent
+ *                         to the FPGA.
  * @param[out] pa          PA corresponding to VA.
- * @param[out] flags       Page flags.  (Ignored if NULL.)
+ * @param[out] size        Physical page size. Even on failed translations,
+ *                         size indicates the level in the page table at
+ *                         which translation failed. If the appropriate
+ *                         page table node exists at the 4KB level that is
+ *                         a hint that the target page must be a 4KB page.
+ *                         Knowing this may avoid wasting time walking
+ *                         through kernel tables to figure out whether to
+ *                         pin a huge page. (Ignored if NULL.)
+ * @param[out] flags       Page flags. (Ignored if NULL.)
  * @returns                FPGA_OK on success.
  */
 fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
+    bool set_in_use,
     mpf_vtp_pt_paddr *pa,
+    mpf_vtp_page_size *size,
     uint32_t *flags
 );
 

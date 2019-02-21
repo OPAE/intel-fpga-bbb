@@ -69,22 +69,34 @@ typedef enum
     // BBB feature ID high (read)
     CCI_MPF_VTP_CSR_ID_H = 16,
 
-    // Mode (read/write)
-    //   Bit 0:
+    // Mode
+    //   Bit 0 (write only):
     //      0 - Disabled (block memory traffic)
     //      1 - Enabled
-    //   Bit 1:
+    //   Bit 1 (write only):
     //      0 - Normal
     //      1 - Invalidate current FPGA-side translation cache.
+    //   Bit 2 (read only):
+    //      0 - Page table walker implemented in hardware.
+    //      1 - No hardware page table walker.
+    //   Bit 3 (read only):
+    //      0 - No software page translation service expected.
+    //      1 - Hardware expects page translation service.
     CCI_MPF_VTP_CSR_MODE = 24,
 
     // Page table physical address (line address) (write)
     CCI_MPF_VTP_CSR_PAGE_TABLE_PADDR = 32,
 
-    // Invalidate cached translations of virtual address (line address) (write)
+    // Invalidate cached translations of virtual address (line address) (read/write)
+    // Writing initiates an invalidation. Reading returns the current
+    // completion state. The completion state starts at 0 and toggles
+    // between 0 and 1 every time an invalidation completes in the FPGA.
+    // Software must wait for the toggle after sending a request.
+    // The toggle is reset to 0 whenever the full FPGA-side translation
+    // cache is invalidated with CCI_MPF_VTP_CSR_MODE bit 1.
     CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR = 40,
 
-    // Statistics -- all 8 byte read-only CSRs
+    // Statistics -- all 8 byte read-only CSRs (read)
     CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_HITS = 48,
     CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_MISSES = 56,
     CCI_MPF_VTP_CSR_STAT_2MB_TLB_NUM_HITS = 64,
@@ -92,13 +104,22 @@ typedef enum
     CCI_MPF_VTP_CSR_STAT_PT_WALK_BUSY_CYCLES = 80,
     CCI_MPF_VTP_CSR_STAT_FAILED_TRANSLATIONS = 88,
 
-    // Last address that was the target of a page table walk.  If
-    // CCI_MPF_VTP_CSR_STAT_FAILED_TRANSLATIONS is set this will be the
-    // virtual address that failed.
+    // Last address that was the target of a page table walk. (read)
+    // If CCI_MPF_VTP_CSR_STAT_FAILED_TRANSLATIONS is set this will be
+    // the virtual address that failed.
     CCI_MPF_VTP_CSR_STAT_PT_WALK_LAST_VADDR = 96,
 
+    // Software page translation service request buffer physical
+    // address (write)
+    CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR = 104,
+
+    // Software page translation service responses (write).
+    // Responses to software translation requests are returned to
+    // the FPGA in this CSR when CCI_MPF_VTP_CSR_MODE bit 2 is 1.
+    CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP = 112,
+
     // Must be last
-    CCI_MPF_VTP_CSR_SIZE = 104
+    CCI_MPF_VTP_CSR_SIZE = 120
 }
 t_cci_mpf_vtp_csr_offsets;
 

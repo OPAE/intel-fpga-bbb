@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2019, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,43 +28,66 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-//
-// Description of the configuration/status register address space in MPF.
-//
 
-package cci_mpf_csrs_pkg;
+/**
+ * \file shim_vtp_srv.h
+ * \brief Internal functions and data structures for managing VTP page tables.
+ */
 
-// Include the enumerations describing CSR offsets shared with C here.
-// There is no `define protecting the header file from being included once
-// since there isn't common preprocessor syntax.
-`ifndef CCI_MPF_CSRS_H_INC
-`define CCI_MPF_CSRS_H_INC
-`include "cci_mpf_csrs.h"
-`endif
+#ifndef __FPGA_MPF_SHIM_VTP_SRV_H__
+#define __FPGA_MPF_SHIM_VTP_SRV_H__
 
-    // MPF needs MMIO address space to hold its feature lists and CSRs.
-    // AFUs that instantiate MPF must allocate at least this much space.
-    // AFUs will pass the base MMIO address of the allocated space to
-    // the MPF wrapper.  See cci_mpf.sv.
+#include <opae/mpf/shim_vtp.h>
 
-    // Assume all shims are allocated.  Size is in bytes.
-    parameter CCI_MPF_MMIO_SIZE = CCI_MPF_VTP_CSR_SIZE +
-                                  CCI_MPF_RSP_ORDER_CSR_SIZE +
-                                  CCI_MPF_VC_MAP_CSR_SIZE +
-                                  CCI_MPF_LATENCY_QOS_CSR_SIZE +
-                                  CCI_MPF_WRO_CSR_SIZE +
-                                  CCI_MPF_PWRITE_CSR_SIZE;
 
-    // CCI_MPF_VTP_CSR_MODE -- see cci_mpf_csrs.h
-    typedef struct packed {
-        logic inval_translation_cache;
-        logic enabled;
-    } t_cci_mpf_vtp_csr_in_mode;
 
-    typedef struct packed {
-        logic sw_translation_service;
-        logic no_hw_page_walker;
-        logic [1:0] reserved;
-    } t_cci_mpf_vtp_csr_out_mode;
+/**
+ * VTP page table handle to all page table state.
+ */
+typedef struct
+{
+    // Request ring buffer
+    uint64_t req_wsid;
+    mpf_vtp_pt_vaddr req_va;
+    mpf_vtp_pt_paddr req_pa;
 
-endpackage // cci_mpf_csrs_pkg
+    // Handle for server thread
+    pthread_t srv_tid;
+
+    // Opaque parent MPF handle.  It is opaque because the internal MPF handle
+    // points to the page table, so the dependence would be circular.
+    _mpf_handle_p _mpf_handle;
+}
+mpf_vtp_srv;
+
+
+/**
+ * Initialize a page translation server.
+ *
+ * Initializes and starts a page translation server if the FPGA
+ * requires one.
+ *
+ * @param[in]  _mpf_handle Internal handle to MPF state.
+ * @param[out] pt          Allocated server handle.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpSrvInit(
+    _mpf_handle_p _mpf_handle,
+    mpf_vtp_srv** srv
+);
+
+
+/**
+ * Destroy a page translation server.
+ *
+ * Terminate and deallocate a page translation server.
+ *
+ * @param[in]  pt          Page table.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpSrvTerm(
+    mpf_vtp_srv* srv
+);
+
+
+#endif // __FPGA_MPF_SHIM_VTP_SRV_H__

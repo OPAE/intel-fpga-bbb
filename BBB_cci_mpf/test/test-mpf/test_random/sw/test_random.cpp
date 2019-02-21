@@ -65,7 +65,8 @@ void testConfigOptions(po::options_description &desc)
         ("repeat", po::value<int>()->default_value(1), "Number of repetitions")
         ("tc", po::value<int>()->default_value(0), "Test length (cycles)")
         ("ts", po::value<int>()->default_value(1), "Test length (seconds)")
-        ("buffer-alloc-mode", po::value<string>()->default_value("alloc"), "Allocate buffers mode (\"alloc\" with OPAE, \"malloc\" before, \"mmap\" before)")
+        ("buffer-alloc-mode", po::value<string>()->default_value("alloc"), "Allocate buffers mode (\"alloc\" with MPF, \"malloc\" before, \"mmap\" before)")
+        ("buffer-pin", po::value<bool>()->default_value(true), "Pin buffers explicitly when allocated with malloc or mmap")
         ("buffer-alloc-test", po::value<bool>()->default_value(false), "Test buffer alloc/free between repetitions")
         ("buffer-size-radix", po::value<int>()->default_value(24), "Radix of buffer size")
         ;
@@ -123,11 +124,13 @@ int TEST_RANDOM::test()
     auto a_mode = vm["buffer-alloc-mode"].as<string>();
     void* buf = NULL;
     fpga::types::shared_buffer::ptr_t mem_buf_handle;
+    volatile uint64_t* mem;
 
     if (boost::iequals(a_mode, "alloc"))
     {
         // Allocate the buffer inside MPF or OPAE.
         mem_buf_handle = this->allocBuffer(n_bytes);
+        mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->c_type());
     }
     else if (boost::iequals(a_mode, "malloc"))
     {
@@ -142,7 +145,18 @@ int TEST_RANDOM::test()
         }
         // Guarantee page alignment
         void* buf_aligned = (void*)((size_t(buf) + pg_size - 1) & ~size_t(pg_size - 1));
-        mem_buf_handle = this->attachBuffer(buf_aligned, n_bytes);
+
+        // Pin the buffers using MPF's prepare buffer or just let them be pinned
+        // automatically when referenced by the FPGA?
+        if (vm["buffer-pin"].as<bool>())
+        {
+            mem_buf_handle = this->attachBuffer(buf_aligned, n_bytes);
+            mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->c_type());
+        }
+        else
+        {
+            mem = reinterpret_cast<volatile uint64_t*>(buf_aligned);
+        }
     }
     else if (boost::iequals(a_mode, "mmap"))
     {
@@ -153,14 +167,24 @@ int TEST_RANDOM::test()
         }
 
         cout << "  Allocating buffer with mmap..." << endl;
-        buf = mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE), flags, 0, 0);
+        buf = mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE), flags, -1, 0);
         if (buf == MAP_FAILED)
         {
             cerr << "Failed to mmap " << n_bytes << " byte buffer" << endl;
             exit(1);
         }
-        // Guarantee page alignment
-        mem_buf_handle = this->attachBuffer(buf, n_bytes);
+
+        // Pin the buffers using MPF's prepare buffer or just let them be pinned
+        // automatically when referenced by the FPGA?
+        if (vm["buffer-pin"].as<bool>())
+        {
+            mem_buf_handle = this->attachBuffer(buf, n_bytes);
+            mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->c_type());
+        }
+        else
+        {
+            mem = reinterpret_cast<volatile uint64_t*>(buf);
+        }
     }
     else
     {
@@ -168,7 +192,6 @@ int TEST_RANDOM::test()
         exit(1);
     }
 
-    auto mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->c_type());
     assert(NULL != mem);
     memset((void*)mem, 0, n_bytes);
 
@@ -286,7 +309,7 @@ int TEST_RANDOM::test()
         // Wait time for something to happen
         struct timespec ms;
         // Longer when simulating
-        ms.tv_sec = (hwIsSimulated() ? 2 : 0);
+        ms.tv_sec = (hwIsSimulated() ? 2 : 1);
         ms.tv_nsec = 2500000;
 
         uint64_t iter_state_end = 0;

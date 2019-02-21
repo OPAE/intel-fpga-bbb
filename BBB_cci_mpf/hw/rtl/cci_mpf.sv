@@ -69,6 +69,14 @@ module cci_mpf
 
     // Enable virtual to physical translation?
     parameter ENABLE_VTP = 1,
+    // Two implementations of physical to virtual page translation are
+    // available in VTP. Pick mode "HARDWARE_WALKER" to walk the VTP
+    // page table using AFU-generated memory reads. Pick mode
+    // "SOFTWARE_SERVICE" to send translation requests to software.
+    // In HARDWARE_WALKER mode it is the user code's responsibility to
+    // pin all pages that may be touched by the FPGA. The SOFTWARE_SERVICE
+    // mode may pin pages automatically on demand.
+    parameter string VTP_PT_MODE = "SOFTWARE_SERVICE",
 
     // Enable mapping of eVC_VA to physical channels?  AFUs that both use
     // eVC_VA and read back memory locations written by the AFU must either
@@ -317,47 +325,30 @@ module cci_mpf
 
     cci_mpf_shim_vtp_svc_if vtp_svc_ports[N_VTP_PORTS] ();
 
-    generate
-        if (ENABLE_VTP)
-        begin : v_to_p
-            cci_mpf_shim_vtp_pt_walk_if pt_walk();
+    always_comb
+    begin
+        mpf_csrs.vtp_out_mode = '0;
+        mpf_csrs.vtp_out_mode.no_hw_page_walker = (VTP_PT_MODE != "HARDWARE_WALKER");
+        mpf_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
+    end
 
-            cci_mpf_svc_vtp
-              #(
-                .N_VTP_PORTS(N_VTP_PORTS),
-                .DEBUG_MESSAGES(0)
-                )
-              vtp
-               (
-                .clk,
-                .reset,
-                .vtp_svc(vtp_svc_ports),
-                .pt_walk(pt_walk),
-                .csrs(mpf_csrs),
-                .events(mpf_csrs)
-                );
-
-            cci_mpf_svc_vtp_pt_walk
-              #(
-                .DEBUG_MESSAGES(0)
-                )
-              walker
-               (
-                .clk,
-                .reset,
-                .pt_walk,
-                .pt_fim,
-                .csrs(mpf_csrs),
-                .events(mpf_csrs)
-                );
-        end
-        else
-        begin : no_vtp
-            // Tie off page table walker
-            assign pt_fim.readEn = 1'b0;
-            assign pt_fim.readAddr = 'x;
-        end
-    endgenerate
+    cci_mpf_svc_vtp_wrapper
+      #(
+        .ENABLE_VTP(ENABLE_VTP),
+        .N_VTP_PORTS(N_VTP_PORTS),
+        .VTP_PT_MODE(VTP_PT_MODE),
+        .DEBUG_MESSAGES(0)
+        )
+      vtp_wrapper
+       (
+        .clk,
+        .reset,
+        .vtp_svc(vtp_svc_ports),
+        .pt_fim,
+        .csrs(mpf_csrs),
+        .vtp_events(mpf_csrs),
+        .pt_events(mpf_csrs)
+        );
 
 
     // ====================================================================

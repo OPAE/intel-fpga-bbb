@@ -58,12 +58,12 @@ fpga_result mpfOsPrepareMutex(
 
 
 /**
- * Release a mutex object.
+ * Delete a mutex object.
  *
  * @param[in] mutex        Mutex object.
  * @returns                FPGA_OK on success.
  */
-fpga_result mpfOsReleaseMutex(
+fpga_result mpfOsDestroyMutex(
     mpf_os_mutex_handle mutex
 );
 
@@ -88,6 +88,29 @@ fpga_result mpfOsLockMutex(
 fpga_result mpfOsUnlockMutex(
     mpf_os_mutex_handle mutex
 );
+
+
+/**
+ * Test whether a mutex is already locked.
+ *
+ * @param[in] mutex        Pointer to mutex object.
+ * @returns                True iff already locked.
+ */
+bool mpfOsTestMutexIsLocked(
+    mpf_os_mutex_handle mutex
+);
+
+
+/*
+ * Macro for debugging a mutex, testing whether it is locked only when
+ * compiling in debug mode.
+ */
+#ifndef DEBUG_BUILD
+    // Nothing in optimized mode
+    #define DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(mutex)
+#else
+    #define DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(mutex) assert(mpfOsTestMutexIsLocked(mutex))
+#endif
 
 
 /**
@@ -117,6 +140,21 @@ fpga_result mpfOsMapMemory(
 fpga_result mpfOsUnmapMemory(
     void* buffer,
     size_t num_bytes
+);
+
+
+/**
+ * Find out the size of the page at vaddr.
+ *
+ * @param[in]  vaddr       Virtual address.
+ * @param[out] page_size   Physical page size mapped at vaddr.
+ * @returns                FPGA_OK on success. FPGA_NOT_FOUND is returned when
+ *                         no mapping is found. FPGA_EXCEPTION is returned for
+ *                         errors encountered while reading the page mapping.
+ */
+fpga_result mpfOsGetPageSize(
+    void* vaddr,
+    mpf_vtp_page_size* page_size
 );
 
 #endif // __FPGA_MPF_OS_H__

@@ -46,11 +46,26 @@
 //
 // ========================================================================
 
+static const uint32_t depth_max = 4;
+
 static void nodeReset(
     mpf_vtp_pt_node* node
 )
 {
     memset(node, -1, sizeof(mpf_vtp_pt_node));
+}
+
+static void nodeEntryReset(
+    mpf_vtp_pt_node* node,
+    uint64_t idx
+)
+{
+    if (idx < 512)
+    {
+        node->ptable[idx] = (mpf_vtp_pt_paddr)-1;
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)-1;
+        memset(&node->meta[idx], -1, sizeof(mpf_vtp_pt_meta));
+    }
 }
 
 static bool nodeIsEmpty(
@@ -59,14 +74,16 @@ static bool nodeIsEmpty(
 {
     for (int idx = 0; idx < 512; idx++)
     {
-        if ((*node)[idx] != -1) return false;
+        // Test vaddr so that all lookup operations in software are on the
+        // same vector. The ptable and vtable entries are parallel.
+        if (node->vtable[idx] != (mpf_vtp_pt_vaddr)-1) return false;
     }
 
     return true;
 }
 
 // Does an entry exist at the index?
-static bool nodeEntryExists(
+static inline bool nodeEntryExists(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -76,12 +93,12 @@ static bool nodeEntryExists(
         return false;
     }
 
-    return ((*node)[idx] != -1);
+    return (node->vtable[idx] != (mpf_vtp_pt_vaddr)-1);
 }
 
 // Is the entry at idx terminal? If so, use GetTranslatedAddr(). If not,
 // use GetChildAddr().
-static bool nodeEntryIsTerminal(
+static inline bool nodeEntryIsTerminal(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -91,40 +108,25 @@ static bool nodeEntryIsTerminal(
         return false;
     }
 
-    return ((*node)[idx] & MPF_VTP_PT_FLAG_TERMINAL) != 0;
+    return ((uint64_t)node->vtable[idx] & MPF_VTP_PT_FLAG_TERMINAL) != 0;
 }
 
-// Walk the tree.  Ideally this would be a pointer to another
-// mpf_vtp_pt_node, but that doesn't work for the virtually indexed
-// table since it holds physical addresses.  The caller will have
-// to interpret the child pointer depending on the type of tree.
-static int64_t nodeGetChildAddr(
+// Walk the tree.
+static inline mpf_vtp_pt_node* nodeGetChildNode(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
 {
     if ((idx >= 512) || nodeEntryIsTerminal(node, idx))
     {
-        return -1;
+        return NULL;
     }
 
-    return (*node)[idx];
+    // Mask the flags in order to recover the true pointer
+    return (mpf_vtp_pt_node*)((uint64_t)node->vtable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK);
 }
 
-static int64_t nodeGetValue(
-    mpf_vtp_pt_node* node,
-    uint64_t idx
-)
-{
-    if (idx >= 512)
-    {
-        return -1;
-    }
-
-    return (*node)[idx];
-}
-
-static int64_t nodeGetTranslatedAddr(
+static inline mpf_vtp_pt_paddr nodeGetTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -134,11 +136,12 @@ static int64_t nodeGetTranslatedAddr(
         return -1;
     }
 
-    // Clear the flags stored in low bits
-    return (*node)[idx] & ~ (int64_t)MPF_VTP_PT_FLAG_MASK;
+    // The terminal entry holds a physical address, even in the vtable.
+    // Clear the flags stored in low bits.
+    return (mpf_vtp_pt_paddr)node->vtable[idx] & ~(mpf_vtp_pt_paddr)MPF_VTP_PT_FLAG_MASK;
 }
 
-static uint32_t nodeGetTranslatedAddrFlags(
+static inline uint32_t nodeGetTranslatedAddrFlags(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -148,32 +151,70 @@ static uint32_t nodeGetTranslatedAddrFlags(
         return 0;
     }
 
-    return (uint32_t)((*node)[idx]) & (uint32_t)MPF_VTP_PT_FLAG_MASK;
+    return (uint64_t)node->vtable[idx] & (uint32_t)MPF_VTP_PT_FLAG_MASK;
 }
 
-static void nodeInsertChildAddr(
+static inline void nodeSetTranslatedAddrFlags(
     mpf_vtp_pt_node* node,
     uint64_t idx,
-    int64_t addr
+    uint32_t flags
 )
 {
     if (idx < 512)
     {
-        (*node)[idx] = addr;
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)((uint64_t)node->vtable[idx] | flags);
+    }
+}
+
+static inline void nodeClearTranslatedAddrFlags(
+    mpf_vtp_pt_node* node,
+    uint64_t idx,
+    uint32_t flags
+)
+{
+    if (idx < 512)
+    {
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)((uint64_t)node->vtable[idx] & ~(uint64_t)flags);
+    }
+}
+
+static void nodeInsertChildNode(
+    mpf_vtp_pt_node* node,
+    uint64_t idx,
+    mpf_vtp_pt_node* child_node,
+    mpf_vtp_pt_paddr child_paddr,
+    uint64_t child_wsid
+)
+{
+    if (idx < 512)
+    {
+        node->ptable[idx] = child_paddr;
+        node->vtable[idx] = child_node;
+        node->meta[idx].wsid = child_wsid;
+        node->meta[idx].alloc_buf_len = 0;
     }
 }
 
 static void nodeInsertTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx,
-    int64_t addr,
+    mpf_vtp_pt_paddr paddr,
+    uint64_t wsid,
     // Flags, ORed from mpf_vtp_pt_flag
     int64_t flags
 )
 {
     if (idx < 512)
     {
-        (*node)[idx] = addr | MPF_VTP_PT_FLAG_TERMINAL | flags;
+        // In the terminal entry both the ptable and the vtable hold the same
+        // value: the translated physical address, plus some flags in the low
+        // bits. The low bits are otherwise guaranteed to be 0 since the page
+        // is aligned at least to 4KB.
+        mpf_vtp_pt_paddr pa = paddr | MPF_VTP_PT_FLAG_TERMINAL | flags;
+        node->ptable[idx] = pa;
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)pa;
+        node->meta[idx].wsid = wsid;
+        node->meta[idx].alloc_buf_len = 0;
     }
 }
 
@@ -184,78 +225,9 @@ static void nodeRemoveTranslatedAddr(
 {
     if (idx < 512)
     {
-        (*node)[idx] = -1;
+        node->ptable[idx] = (mpf_vtp_pt_paddr)-1;
+        node->vtable[idx] = (mpf_vtp_pt_vaddr)-1;
     }
-}
-
-
-
-// ========================================================================
-//
-// Page table node wsid tracker.
-//
-// ========================================================================
-
-//
-// Add a new I/O mapped page table node to the tracker.
-//
-static fpga_result trackNodeWsid(
-    mpf_vtp_pt* pt,
-    uint64_t wsid
-)
-{
-    struct v_to_p_wsid* trk = pt->v_to_p_wsid;
-
-    if ((NULL == trk) || (N_V_TO_P_WSID_ENTRIES == trk->n_entries))
-    {
-        // Need a new tracker entry in the linked list
-        trk = malloc(sizeof(struct v_to_p_wsid));
-        if (NULL == trk) return FPGA_NO_MEMORY;
-
-        // Push the new tracker entry on the head of the list
-        trk->next = pt->v_to_p_wsid;
-        trk->n_entries = 0;
-        pt->v_to_p_wsid = trk;
-    }
-
-    // Add wsid to the tracker
-    trk->wsid[trk->n_entries++] = wsid;
-
-    return FPGA_OK;
-}
-
-
-//
-// Release all I/O mapped page table nodes
-//
-static fpga_result releaseTrackedNodes(
-    mpf_vtp_pt* pt
-)
-{
-    struct v_to_p_wsid* trk = pt->v_to_p_wsid;
-    pt->v_to_p_wsid = NULL;
-
-    while (NULL != trk)
-    {
-        for (uint32_t i = 0; i < trk->n_entries; i++)
-        {
-            if (pt->_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("release I/O mapped TLB node wsid 0x%" PRIx64,
-                             trk->wsid[i]);
-            }
-
-            assert(FPGA_OK == fpgaReleaseBuffer(pt->_mpf_handle->handle,
-                                                trk->wsid[i]));
-        }
-
-        // Done with this tracker node.  Release it and move on to the next.
-        struct v_to_p_wsid* trk_next = trk->next;
-        free(trk);
-        trk = trk_next;
-    }
-
-    return FPGA_OK;
 }
 
 
@@ -264,14 +236,6 @@ static fpga_result releaseTrackedNodes(
 // Internal page table manipulation functions.
 //
 // ========================================================================
-
-static fpga_result addPAtoVA(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_paddr pa,
-    mpf_vtp_pt_vaddr va,
-    uint32_t depth
-);
-
 
 //
 // Compute the node index at specified depth in the tree of a page table
@@ -295,130 +259,99 @@ static uint64_t ptIdxFromAddr(
 }
 
 
-static fpga_result ptTranslatePAtoVA(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_paddr pa,
-    mpf_vtp_pt_vaddr *va
+//
+// Address mask, given a table depth.
+//
+static uint64_t addrMaskFromPtDepth(
+    uint32_t depth
 )
 {
-    mpf_vtp_pt_node* table = pt->p_to_v;
+    uint64_t mask = ~(uint64_t)0;
 
-    uint32_t depth = 4;
-    while (depth--)
-    {
-        // Index in the current level
-        uint64_t idx = ptIdxFromAddr((uint64_t)pa, depth);
+    // Shift the low bits out and back in to clear them
+    mask >>= (12 + (depth * 9));
+    mask <<= (12 + (depth * 9));
 
-        if (! nodeEntryExists(table, idx)) return FPGA_NOT_FOUND;
-
-        if (nodeEntryIsTerminal(table, idx))
-        {
-            *va = (mpf_vtp_pt_vaddr)nodeGetTranslatedAddr(table, idx);
-            return FPGA_OK;
-        }
-
-        // Walk down to child
-        table = (mpf_vtp_pt_node*)nodeGetChildAddr(table, idx);
-    }
-
-    return FPGA_NOT_FOUND;
+    return mask;
 }
 
 
 //
-// Allocate a shared page with the FPGA.
+// Allocate a page table node. The first 4KB region is the virtual to physical
+// table, which is pinned and shared with the FPGA.
 //
-static fpga_result ptAllocSharedPage(
+static fpga_result ptAllocTableNode(
     mpf_vtp_pt* pt,
-    uint64_t length,
-    mpf_vtp_pt_vaddr* va_p,
+    mpf_vtp_pt_node** node_p,
     mpf_vtp_pt_paddr* pa_p,
     uint64_t* wsid_p
 )
 {
     fpga_result r;
 
-    *va_p = NULL;
+    *node_p = NULL;
+    *pa_p = 0;
     *wsid_p = 0;
-    r = fpgaPrepareBuffer(pt->_mpf_handle->handle, length,
-                          (void*)va_p, wsid_p, 0);
+
+    // Map the node's memory
+    mpf_vtp_pt_node* node;
+    mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
+    r = mpfOsMapMemory(sizeof(mpf_vtp_pt_node), &page_size, (void**)&node);
     if (r != FPGA_OK) return r;
+    *node_p = node;
+
+    // Initialize it
+    nodeReset(node);
+
+    // Pin the first page
+    r = fpgaPrepareBuffer(pt->_mpf_handle->handle, 4096, (void*)&node,
+                          wsid_p, FPGA_BUF_PREALLOCATED);
+    if (r != FPGA_OK) goto fail;
 
     // Get the FPGA-side physical address
     r = fpgaGetIOAddress(pt->_mpf_handle->handle, *wsid_p, pa_p);
+    // This failure would be a catastrophic internal OPAE failure. Just give up.
+    assert(FPGA_OK == r);
 
     if (pt->_mpf_handle->dbg_mode)
     {
-        MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%" PRIx64 ", wsid 0x%" PRIx64,
-                     *va_p, *pa_p, *wsid_p);
+        MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                     *node_p, *pa_p, *wsid_p);
     }
 
-    return r;
-}
-
-
-static fpga_result ptAllocTableNode(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_node** node_p,
-    mpf_vtp_pt_paddr* pa_p
-)
-{
-    mpf_vtp_pt_node* n;
-
-    // Is a page available from the free list?
-    if (pt->page_table_free_list != NULL)
-    {
-        // Pop page from free list
-        n = pt->page_table_free_list;
-        pt->page_table_free_list = (mpf_vtp_pt_node*)nodeGetChildAddr(n, 0);
-
-        // Corresponding PA is stored in slot 1
-        *pa_p = (mpf_vtp_pt_paddr)nodeGetChildAddr(n, 1);
-    }
-    else
-    {
-        // Need a new page
-        fpga_result r;
-        uint64_t wsid;
-
-        // Virtual to physical map is shared with the FPGA
-        r = ptAllocSharedPage(pt, sizeof(mpf_vtp_pt_node),
-                              (mpf_vtp_pt_vaddr*)&n, pa_p, &wsid);
-        if (r != FPGA_OK) return r;
-
-        r = trackNodeWsid(pt, wsid);
-        if (FPGA_OK != r) return r;
-
-        // Add new page to physical to virtual translation so the table
-        // can be walked in software
-        r = addPAtoVA(pt, *pa_p, (mpf_vtp_pt_vaddr)n, 4);
-        if (r != FPGA_OK) return r;
-    }
-
-    nodeReset(n);
-
-    *node_p = n;
     return FPGA_OK;
+
+  fail:
+    mpfOsUnmapMemory((void*)node, 4096);
+    return r;
 }
 
 
 static fpga_result ptFreeTableNode(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_node* node,
-    mpf_vtp_pt_paddr pa
+    uint64_t wsid
 )
 {
-    // Push page on the free list
-    nodeInsertChildAddr(node, 0, (int64_t)(pt->page_table_free_list));
-    nodeInsertChildAddr(node, 1, (int64_t)pa);
-    pt->page_table_free_list = node;
+    if (pt->_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("free I/O mapped TLB node VA %p, wsid 0x%" PRIx64, node, wsid);
+    }
 
     // Invalidate the address in any hardware tables (page table walker cache)
-    return mpfVtpInvalVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+    mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+
+    // Unpin the page
+    fpga_result r = fpgaReleaseBuffer(pt->_mpf_handle, wsid);
+
+    // Free the storage
+    mpfOsUnmapMemory((void*)node, sizeof(mpf_vtp_pt_node));
+
+    return r;
 }
 
 
-static fpga_result addVAtoPA(
+static fpga_result addVAtoTable(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_paddr pa,
@@ -427,34 +360,30 @@ static fpga_result addVAtoPA(
     uint32_t flags
 )
 {
-    mpf_vtp_pt_node* table = pt->v_to_p;
-    mpf_vtp_pt_node* wsid_table = pt->v_to_wsid;
+    mpf_vtp_pt_node* table = pt->pt_root;
 
     // Index in the leaf page
-    uint64_t leaf_idx = ptIdxFromAddr((uint64_t)va, 4 - depth);
+    uint64_t leaf_idx = ptIdxFromAddr((uint64_t)va, depth_max - depth);
 
-    uint32_t cur_depth = 4;
+    uint32_t cur_depth = depth_max;
     while (--depth)
     {
-        // Drop 4KB page offset
+        // Table index for the current level
         uint64_t idx = ptIdxFromAddr((uint64_t)va, --cur_depth);
 
         // Need a new page in the table?
         if (! nodeEntryExists(table, idx))
         {
-            mpf_vtp_pt_paddr node_p;
             mpf_vtp_pt_node* child_node;
-            if (FPGA_OK != ptAllocTableNode(pt, &child_node, &node_p)) return FPGA_NO_MEMORY;
+            mpf_vtp_pt_paddr child_pa;
+            uint64_t child_wsid;
+            if (FPGA_OK != ptAllocTableNode(pt, &child_node, &child_pa, &child_wsid))
+            {
+                return FPGA_NO_MEMORY;
+            }
 
-            // Add new page to the FPGA-visible virtual to physical table
-            nodeInsertChildAddr(table, idx, node_p);
-
-            // The parallel VA to wsid map should also need a new node
-            assert(! nodeEntryExists(wsid_table, idx));
-            mpf_vtp_pt_node* wsid_child_node = malloc(sizeof(mpf_vtp_pt_node));
-            if (NULL == wsid_child_node) return FPGA_NO_MEMORY;
-            nodeReset(wsid_child_node);
-            nodeInsertChildAddr(wsid_table, idx, (int64_t)wsid_child_node);
+            // Add new page to the table
+            nodeInsertChildNode(table, idx, child_node, child_pa, child_wsid);
         }
 
         // Are we being asked to add an entry below a larger region that
@@ -462,14 +391,11 @@ static fpga_result addVAtoPA(
         if (nodeEntryIsTerminal(table, idx)) return FPGA_EXCEPTION;
 
         // Continue down the tree
-        mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
-        mpf_vtp_pt_vaddr child_va;
-        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_NOT_FOUND;
-        table = (mpf_vtp_pt_node*)child_va;
+        table = nodeGetChildNode(table, idx);
 
-        // Also down the parallel VA to wsid tree
-        assert(nodeEntryExists(wsid_table, idx));
-        wsid_table = (mpf_vtp_pt_node*)nodeGetChildAddr(wsid_table, idx);
+        // This should never happen. The check for nodeEntryExists() above should
+        // guarantee the child table exists.
+        assert(NULL != table);
     }
 
     // Now at the leaf.  Add the translation.
@@ -480,19 +406,14 @@ static fpga_result addVAtoPA(
             // Entry exists while trying to add a 2MB entry.  Perhaps there is
             // an old leaf that used to hold 4KB pages.  If the existing
             // entry has no active pages then get rid of it.
-            mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, leaf_idx);
-            mpf_vtp_pt_vaddr child_va;
-            if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_EXCEPTION;
+            mpf_vtp_pt_node* child_node = nodeGetChildNode(table, leaf_idx);
 
-            mpf_vtp_pt_node* child_node = (mpf_vtp_pt_node*)child_va;
             if (! nodeIsEmpty(child_node)) return FPGA_EXCEPTION;
 
             // The old page that held 4KB translations is now empty and the
             // pointer will be overwritten with a 2MB page pointer.
-            ptFreeTableNode(pt, child_node, child_pa);
-
-            // Free the parallel VA to wsid node
-            free((void*)nodeGetChildAddr(wsid_table, leaf_idx));
+            ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid);
+            nodeEntryReset(table, leaf_idx);
         }
         else
         {
@@ -500,8 +421,7 @@ static fpga_result addVAtoPA(
         }
     }
 
-    nodeInsertTranslatedAddr(table, leaf_idx, pa, flags);
-    nodeInsertChildAddr(wsid_table, leaf_idx, wsid);
+    nodeInsertTranslatedAddr(table, leaf_idx, pa, wsid, flags);
 
     // Memory fence for updates before claiming the table is ready
     mpfOsMemoryBarrier();
@@ -510,112 +430,100 @@ static fpga_result addVAtoPA(
 }
 
 
-static fpga_result addPAtoVA(
+//
+// Primitive function to search the table for a VA and return the node containing
+// the terminal pointer.
+//
+static inline fpga_result findTerminalNodeAndIndex(
     mpf_vtp_pt* pt,
-    mpf_vtp_pt_paddr pa,
     mpf_vtp_pt_vaddr va,
-    uint32_t depth
+    mpf_vtp_pt_node** node_p,
+    uint64_t* idx_p,
+    uint32_t* depth_p
 )
 {
-    mpf_vtp_pt_node* table = pt->p_to_v;
-
-    // Index in the leaf page
-    uint64_t leaf_idx = ptIdxFromAddr((uint64_t)pa, 4 - depth);
-
-    uint32_t cur_depth = 4;
-    while (--depth)
+    if (depth_p)
     {
-        // Drop 4KB page offset
-        uint64_t idx = ptIdxFromAddr((uint64_t)pa, --cur_depth);
-
-        // Need a new page in the table?
-        if (! nodeEntryExists(table, idx))
-        {
-            // Add new page to the host-side-only physical to virtual table
-            mpf_vtp_pt_node* child_node = malloc(sizeof(mpf_vtp_pt_node));
-            if (NULL == child_node) return FPGA_NO_MEMORY;
-            nodeReset(child_node);
-
-            nodeInsertChildAddr(table, idx, (int64_t)child_node);
-        }
-
-        // Are we being asked to add an entry below a larger region that
-        // is already mapped?
-        if (nodeEntryIsTerminal(table, idx)) return FPGA_EXCEPTION;
-
-        // Continue down the tree
-        table = (mpf_vtp_pt_node*)nodeGetChildAddr(table, idx);
+        *depth_p = depth_max;
     }
 
-    // Now at the leaf.  Add the translation.
-    nodeInsertTranslatedAddr(table, leaf_idx, (int64_t)va, 0);
-    return FPGA_OK;
+    mpf_vtp_pt_node* node = pt->pt_root;
+    if (NULL == node) return FPGA_NOT_FOUND;
+
+    uint32_t depth = depth_max;
+    while (depth--)
+    {
+        // Index in the current level
+        uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
+
+        // Depth is always updated because it may be used, even on failure.
+        if (depth_p)
+        {
+            *depth_p = depth;
+        }
+
+        if (! nodeEntryExists(node, idx)) return FPGA_NOT_FOUND;
+
+        if (nodeEntryIsTerminal(node, idx))
+        {
+            *node_p = node;
+            *idx_p = idx;
+
+            return FPGA_OK;
+        }
+
+        // Walk down to child. We already know that the child exists since
+        // the code above proves that the entry at idx exists and is not
+        // terminal.
+        node = nodeGetChildNode(node, idx);
+    }
+
+    return FPGA_NOT_FOUND;
 }
 
 
 //
-// Release internal PA to VA mapping nodes.
+// Called on termination to delete all mapped pages and page table nodes.
 //
-static fpga_result freePAtoVA(
+static void freeTableAndPinnedPages(
     mpf_vtp_pt* pt,
-    mpf_vtp_pt_node* table,
-    uint32_t depth
-)
-{
-    for (uint64_t idx = 0; idx < 512; idx++)
-    {
-        if (nodeEntryExists(table, idx) && ! nodeEntryIsTerminal(table, idx))
-        {
-            // Recursive walk down the tree
-            assert(depth != 1);
-
-            mpf_vtp_pt_node* child_table;
-            child_table = (mpf_vtp_pt_node*)nodeGetChildAddr(table, idx);
-
-            freePAtoVA(pt, child_table, depth - 1);
-        }
-    }
-
-    // Done with this node in the table
-    if (pt->_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("release PA->VA node %p", table);
-    }
-    free(table);
-
-    return FPGA_OK;
-}
-
-
-//
-// Called on termination to delete all mapped pages.  This only releases
-// the memory returned by mpfVtpBufferAllocate().  It does not release the
-// internal page table nodes.
-//
-// The VA to wsid table is also freed during the walk since it will no longer
-// be needed.
-//
-static void freeAllMappedPages(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_node* table,
-    mpf_vtp_pt_node* wsid_table,
+    mpf_vtp_pt_node* node,
+    uint64_t node_wsid,
+    uint64_t partial_va,
     uint32_t depth)
 {
     for (uint64_t idx = 0; idx < 512; idx++)
     {
-        if (nodeEntryExists(table, idx))
+        if (nodeEntryExists(node, idx))
         {
-            if (nodeEntryIsTerminal(table, idx))
+            uint64_t va = partial_va | (idx << (12 + 9 * (depth - 1)));
+            uint64_t child_wsid = node->meta[idx].wsid;
+
+            if (nodeEntryIsTerminal(node, idx))
             {
-                // Found an allocated page.  Free it.
-                uint64_t wsid = nodeGetValue(wsid_table, idx);
+                uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
+                if (MPF_VTP_PT_FLAG_ALLOC & flags)
+                {
+                    // Free the MPF-allocated virtual buffer
+                    if (pt->_mpf_handle->dbg_mode)
+                    {
+                        MPF_FPGA_MSG("release virtual buffer VA 0x%016" PRIx64 "-0x%016" PRIx64 " (%ld KB)",
+                                     va, va + node->meta[idx].alloc_buf_len,
+                                     node->meta[idx].alloc_buf_len / 1024);
+                    }
+
+                    mpfOsUnmapMemory((void*)va, node->meta[idx].alloc_buf_len);
+                }
+
+                fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
 
                 if (pt->_mpf_handle->dbg_mode)
                 {
-                    MPF_FPGA_MSG("release page wsid 0x%" PRIx64, wsid);
+                    mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
+                    MPF_FPGA_MSG("release pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                                 child_pa, child_wsid);
                 }
 
-                fpgaReleaseBuffer(pt->_mpf_handle->handle, wsid);
             }
             else
             {
@@ -623,38 +531,46 @@ static void freeAllMappedPages(
                 // Follow it to the next level.
                 assert(depth != 1);
 
-                mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
-                mpf_vtp_pt_vaddr child_va;
-                assert(FPGA_OK == ptTranslatePAtoVA(pt, child_pa, &child_va));
-
-                // Follow the parallel VA to wsid table
-                mpf_vtp_pt_node* child_wsid_table;
-                child_wsid_table = (mpf_vtp_pt_node*)nodeGetChildAddr(wsid_table, idx);
-
-                freeAllMappedPages(pt, (mpf_vtp_pt_node*)child_va,
-                                   child_wsid_table, depth - 1);
+                freeTableAndPinnedPages(pt, nodeGetChildNode(node, idx),
+                                        child_wsid, va, depth - 1);
             }
         }
     }
 
-    // Done with this node in the wsid_table
-    free(wsid_table);
+    // Done with this node
+    fpgaReleaseBuffer(pt->_mpf_handle->handle, node_wsid);
+    if (pt->_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("release table node VA %p, wsid 0x%" PRIx64, node, node_wsid);
+    }
 }
 
 
-static void dumpPageTableVAtoPA(
+static void dumpPageTable(
     mpf_vtp_pt* pt,
-    mpf_vtp_pt_node* table,
-    mpf_vtp_pt_node* wsid_table,
+    mpf_vtp_pt_node* node,
+    mpf_vtp_pt_paddr node_pa,
+    uint64_t node_wsid,
     uint64_t partial_va,
     uint32_t depth)
 {
+    // Generate an indent string as a function of depth
+    char indent[17];
+    for (int i = 0; i < 16; i++)
+    {
+        indent[i] = ' ';
+    }
+    indent[2 * (depth_max - depth)] = 0;
+
+    printf("%s  Node prefix VA 0x%016" PRIx64 " at VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64 "\n",
+           indent, partial_va, node, node_pa, node_wsid);
+
     for (uint64_t idx = 0; idx < 512; idx++)
     {
-        if (nodeEntryExists(table, idx))
+        if (nodeEntryExists(node, idx))
         {
             uint64_t va = partial_va | (idx << (12 + 9 * (depth - 1)));
-            if (nodeEntryIsTerminal(table, idx))
+            if (nodeEntryIsTerminal(node, idx))
             {
                 // Found a translation
                 const char *kind;
@@ -671,44 +587,39 @@ static void dumpPageTableVAtoPA(
                     break;
                 }
 
-                printf("    VA 0x%016" PRIx64 " -> PA 0x%016" PRIx64 " (%s)  wsid 0x%" PRIx64,
-                       va,
-                       nodeGetTranslatedAddr(table, idx),
-                       kind,
-                       nodeGetValue(wsid_table, idx));
+                mpf_vtp_pt_paddr pa = nodeGetTranslatedAddr(node, idx);
 
-                uint32_t flags = nodeGetTranslatedAddrFlags(table, idx);
+                printf("%s    VA 0x%016" PRIx64 " -> PA 0x%016" PRIx64 " (%s)  wsid 0x%" PRIx64,
+                       indent, va, pa, kind, node->meta[idx].wsid);
+
+                uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
                 if (flags & (MPF_VTP_PT_FLAG_MASK - MPF_VTP_PT_FLAG_TERMINAL))
                 {
                     printf(" [");
-                    if (flags & MPF_VTP_PT_FLAG_ALLOC_START) printf(" START");
-                    if (flags & MPF_VTP_PT_FLAG_ALLOC_END) printf(" END");
+                    if (flags & MPF_VTP_PT_FLAG_ALLOC) printf(" ALLOC");
+                    if (flags & MPF_VTP_PT_FLAG_PREALLOC) printf(" PREALLOC");
                     if (flags & MPF_VTP_PT_FLAG_INVALID) printf(" INVALID");
-                    if (flags & MPF_VTP_PT_FLAG_PREALLOCATED) printf(" PREALLOC");
+                    if (flags & MPF_VTP_PT_FLAG_IN_USE) printf(" IN_USE");
                     printf(" ]");
                 }
                 printf("\n");
 
-                // Validate translation function
-                mpf_vtp_pt_paddr check_pa;
-                assert(FPGA_OK == mpfVtpPtTranslateVAtoPA(pt, (mpf_vtp_pt_vaddr)va, &check_pa, NULL));
-                assert(nodeGetTranslatedAddr(table, idx) == (int64_t) check_pa);
+                if (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))
+                {
+                    printf("%s      Buffer: VA 0x%016" PRIx64 "-0x%016" PRIx64 " (%ld KB)\n",
+                           indent, va, va + node->meta[idx].alloc_buf_len,
+                           node->meta[idx].alloc_buf_len / 1024);
+                }
             }
             else
             {
                 // Follow pointer to another level
                 assert(depth != 1);
 
-                mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
-                mpf_vtp_pt_vaddr child_va;
-                assert(FPGA_OK == ptTranslatePAtoVA(pt, child_pa, &child_va));
+                mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
 
-                // Follow the parallel VA to wsid table
-                mpf_vtp_pt_node* child_wsid_table;
-                child_wsid_table = (mpf_vtp_pt_node*)nodeGetChildAddr(wsid_table, idx);
-
-                dumpPageTableVAtoPA(pt, (mpf_vtp_pt_node*)child_va,
-                                    child_wsid_table, va, depth - 1);
+                dumpPageTable(pt, nodeGetChildNode(node, idx), child_pa,
+                              node->meta[idx].wsid, va, depth - 1);
             }
         }
     }
@@ -728,7 +639,6 @@ fpga_result mpfVtpPtInit(
 {
     fpga_result r;
     mpf_vtp_pt* new_pt;
-    uint64_t wsid;
 
     new_pt = malloc(sizeof(mpf_vtp_pt));
     *pt = new_pt;
@@ -737,26 +647,16 @@ fpga_result mpfVtpPtInit(
 
     new_pt->_mpf_handle = _mpf_handle;
 
+    // Allocate a mutex that protects the page table manager
+    r = mpfOsPrepareMutex(&new_pt->mutex);
+    if (FPGA_OK != r) return r;
+
     // Virtual to physical map is shared with the FPGA
-    r = ptAllocSharedPage(new_pt, sizeof(mpf_vtp_pt_node),
-                          (mpf_vtp_pt_vaddr*)&(new_pt->v_to_p),
-                          &(new_pt->pt_root_paddr),
-                          &wsid);
+    r = ptAllocTableNode(new_pt,
+                         &new_pt->pt_root,
+                         &new_pt->pt_root_paddr,
+                         &new_pt->pt_root_wsid);
     if (FPGA_OK != r) return r;
-    nodeReset(new_pt->v_to_p);
-
-    r = trackNodeWsid(new_pt, wsid);
-    if (FPGA_OK != r) return r;
-
-    // Virtual to wsid is used only in software
-    new_pt->v_to_wsid = malloc(sizeof(mpf_vtp_pt_node));
-    if (NULL == new_pt->v_to_wsid) return FPGA_NO_MEMORY;
-    nodeReset(new_pt->v_to_wsid);
-
-    // Physical to virtual map is used only in software
-    new_pt->p_to_v = malloc(sizeof(mpf_vtp_pt_node));
-    if (NULL == new_pt->p_to_v) return FPGA_NO_MEMORY;
-    nodeReset(new_pt->p_to_v);
 
     return FPGA_OK;
 }
@@ -766,17 +666,17 @@ fpga_result mpfVtpPtTerm(
     mpf_vtp_pt* pt
 )
 {
-    // Release all shared pages (VTP allocated pages, not the page table)
-    freeAllMappedPages(pt, pt->v_to_p, pt->v_to_wsid, 4);
-    // The v_to_wsid table was released by freeAllMappedPages.
-    pt->v_to_wsid = NULL;
+    // Release all pinned pages and the table
+    mpfOsLockMutex(pt->mutex);
+    freeTableAndPinnedPages(pt, pt->pt_root, pt->pt_root_wsid, 0, depth_max);
+    mpfOsUnlockMutex(pt->mutex);
 
-    // Drop the PA to VA table
-    freePAtoVA(pt, pt->p_to_v, 4);
-    pt->p_to_v = NULL;
+    // Drop the allocated mutex
+    mpfOsDestroyMutex(pt->mutex);
+    pt->mutex = NULL;
 
-    // Drop the I/O mapped virtual to physical TLB nodes
-    releaseTrackedNodes(pt);
+    pt->pt_root = NULL;
+    pt->_mpf_handle = NULL;
 
     // Release the top-level page table descriptor
     free(pt);
@@ -802,6 +702,9 @@ fpga_result mpfVtpPtInsertPageMapping(
     uint32_t flags
 )
 {
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
     // Are the addresses reasonable?
     uint64_t mask = (size == MPF_VTP_PAGE_4KB) ? (1 << 12) - 1 :
                                                  (1 << 21) - 1;
@@ -810,9 +713,104 @@ fpga_result mpfVtpPtInsertPageMapping(
         return FPGA_INVALID_PARAM;
     }
 
-    uint32_t depth = (size == MPF_VTP_PAGE_4KB) ? 4 : 3;
+    uint32_t depth = depth_max;
+    if (size != MPF_VTP_PAGE_4KB)
+    {
+        // 2MB page is one node up in the table hierarchy
+        depth -= 1;
+    }
 
-    return addVAtoPA(pt, va, pa, wsid, depth, flags);
+    return addVAtoTable(pt, va, pa, wsid, depth, flags);
+}
+
+
+fpga_result mpfVtpPtClearInUseFlag(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    fpga_result r;
+    mpf_vtp_pt_node* node;
+    uint64_t idx;
+
+    // Find the containing node
+    r = findTerminalNodeAndIndex(pt, va, &node, &idx, NULL);
+    if (FPGA_OK != r) return r;
+
+    nodeClearTranslatedAddrFlags(node, idx, MPF_VTP_PT_FLAG_IN_USE);
+
+    return FPGA_OK;
+}
+
+
+fpga_result mpfVtpPtSetAllocBufSize(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va,
+    size_t buf_size
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    fpga_result r;
+    mpf_vtp_pt_node* node;
+    uint64_t idx;
+
+    // Find the containing node
+    r = findTerminalNodeAndIndex(pt, va, &node, &idx, NULL);
+    if (FPGA_OK != r) return r;
+
+    // One of the ALLOC flags must be set when buffer size is recorded
+    uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
+    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
+    {
+        return FPGA_EXCEPTION;
+    }
+
+    node->meta[idx].alloc_buf_len = buf_size;
+
+    return FPGA_OK;
+}
+
+
+fpga_result mpfVtpPtGetAllocBufSize(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_vaddr va,
+    mpf_vtp_pt_vaddr* start_va,
+    size_t* buf_size
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    fpga_result r;
+    mpf_vtp_pt_node* node;
+    uint64_t idx;
+    uint32_t depth;
+
+    // Find the containing node
+    r = findTerminalNodeAndIndex(pt, va, &node, &idx, &depth);
+    if (FPGA_OK != r) return r;
+
+    // One of the ALLOC flags must be set when buffer size is recorded
+    uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
+    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
+    {
+        return FPGA_EXCEPTION;
+    }
+
+    *buf_size = node->meta[idx].alloc_buf_len;
+
+    // Mask the start_va so it points to the start of the page
+    if (start_va)
+    {
+        *start_va = (mpf_vtp_pt_vaddr)((uint64_t)va & addrMaskFromPtDepth(depth));
+    }
+
+    return FPGA_OK;
 }
 
 
@@ -820,41 +818,34 @@ fpga_result mpfVtpPtRemovePageMapping(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_pt_paddr *pa,
-    mpf_vtp_pt_paddr *pt_pa,
     uint64_t *wsid,
     mpf_vtp_page_size *size,
     uint32_t *flags
 )
 {
-    mpf_vtp_pt_node* table = pt->v_to_p;
-    mpf_vtp_pt_node* wsid_table = pt->v_to_wsid;
-    // Physical address of the page table at current depth
-    mpf_vtp_pt_paddr pt_depth_pa = 0;
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
-    uint32_t depth = 4;
+    mpf_vtp_pt_node* node = pt->pt_root;
+
+    uint32_t depth = depth_max;
     while (depth--)
     {
         // Index in the current level
         uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
 
-        if (! nodeEntryExists(table, idx)) return FPGA_NOT_FOUND;
+        if (! nodeEntryExists(node, idx)) return FPGA_NOT_FOUND;
 
-        if (nodeEntryIsTerminal(table, idx))
+        if (nodeEntryIsTerminal(node, idx))
         {
             if (pa)
             {
-                *pa = (mpf_vtp_pt_paddr)nodeGetTranslatedAddr(table, idx);
-            }
-
-            if (pt_pa)
-            {
-                // Address of the lowest PTE pointing to the entry just removed
-                *pt_pa = pt_depth_pa + 8 * idx;
+                *pa = nodeGetTranslatedAddr(node, idx);
             }
 
             if (wsid)
             {
-                *wsid = nodeGetValue(wsid_table, idx);
+                *wsid = node->meta[idx].wsid;
             }
 
             if (size)
@@ -864,11 +855,10 @@ fpga_result mpfVtpPtRemovePageMapping(
 
             if (flags)
             {
-                *flags = nodeGetTranslatedAddrFlags(table, idx);
+                *flags = nodeGetTranslatedAddrFlags(node, idx);
             }
 
-            nodeRemoveTranslatedAddr(table, idx);
-            nodeRemoveTranslatedAddr(wsid_table, idx);
+            nodeRemoveTranslatedAddr(node, idx);
 
             mpfOsMemoryBarrier();
 
@@ -876,14 +866,7 @@ fpga_result mpfVtpPtRemovePageMapping(
         }
 
         // Walk down to child
-        mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
-        mpf_vtp_pt_vaddr child_va;
-        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_NOT_FOUND;
-        table = (mpf_vtp_pt_node*)child_va;
-        pt_depth_pa = child_pa;
-
-        // Follow the parallel VA to wsid table
-        wsid_table = (mpf_vtp_pt_node*)nodeGetChildAddr(wsid_table, idx);
+        node = nodeGetChildNode(node, idx);
     }
 
     return FPGA_NOT_FOUND;
@@ -893,40 +876,46 @@ fpga_result mpfVtpPtRemovePageMapping(
 fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
+    bool set_in_use,
     mpf_vtp_pt_paddr *pa,
+    mpf_vtp_page_size *size,
     uint32_t *flags
 )
 {
-    mpf_vtp_pt_node* table = pt->v_to_p;
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
-    uint32_t depth = 4;
-    while (depth--)
+    fpga_result r;
+    mpf_vtp_pt_node* node;
+    uint64_t idx;
+    uint32_t depth;
+
+    r = findTerminalNodeAndIndex(pt, va, &node, &idx, &depth);
+
+    // Update size on every even for failed transactions so callers know
+    // at what level searching stopped.
+    if (size)
     {
-        // Index in the current level
-        uint64_t idx = ptIdxFromAddr((uint64_t)va, depth);
-
-        if (! nodeEntryExists(table, idx)) return FPGA_NOT_FOUND;
-
-        if (nodeEntryIsTerminal(table, idx))
-        {
-            *pa = (mpf_vtp_pt_paddr)nodeGetTranslatedAddr(table, idx);
-
-            if (flags)
-            {
-                *flags = nodeGetTranslatedAddrFlags(table, idx);
-            }
-
-            return FPGA_OK;
-        }
-
-        // Walk down to child
-        mpf_vtp_pt_paddr child_pa = nodeGetChildAddr(table, idx);
-        mpf_vtp_pt_vaddr child_va;
-        if (FPGA_OK != ptTranslatePAtoVA(pt, child_pa, &child_va)) return FPGA_NOT_FOUND;
-        table = (mpf_vtp_pt_node*)child_va;
+        *size = (depth >= 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
     }
 
-    return FPGA_NOT_FOUND;
+    if (FPGA_OK != r)
+    {
+        return FPGA_NOT_FOUND;
+    }
+
+    if (set_in_use)
+    {
+        nodeSetTranslatedAddrFlags(node, idx, MPF_VTP_PT_FLAG_IN_USE);
+    }
+
+    *pa = nodeGetTranslatedAddr(node, idx);
+    if (flags)
+    {
+        *flags = nodeGetTranslatedAddrFlags(node, idx);
+    }
+
+    return FPGA_OK;
 }
 
 
@@ -934,9 +923,9 @@ void mpfVtpPtDumpPageTable(
     mpf_vtp_pt* pt
 )
 {
-    printf("  Page table root VA %p -> PA 0x%016" PRIx64 ":\n",
-           pt->v_to_p,
-           mpfVtpPtGetPageTableRootPA(pt));
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
-    dumpPageTableVAtoPA(pt, pt->v_to_p, pt->v_to_wsid, 0, 4);
+    printf("VTP Page Table:\n");
+    dumpPageTable(pt, pt->pt_root, pt->pt_root_paddr, pt->pt_root_wsid, 0, depth_max);
 }

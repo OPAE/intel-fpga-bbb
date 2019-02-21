@@ -471,6 +471,31 @@ module cci_mpf_svc_vtp_tlb
     logic repl_lookup_rsp_rdy;
 
 
+    // Note page invalidation requests and hold an invalidate signal for 8 cycles
+    // in order to drain the pipeline from the fill engine to here.
+    logic hold_inval_page;
+    logic [2:0] hold_inval_page_cnt;
+
+    always_ff @(posedge clk)
+    begin
+        hold_inval_page <= csrs.vtp_in_inval_page_valid || (hold_inval_page_cnt != 3'b0);
+
+        if (csrs.vtp_in_inval_page_valid)
+        begin
+            hold_inval_page_cnt <= 3'b111;
+        end
+        else if (hold_inval_page_cnt != 3'b0)
+        begin
+            hold_inval_page_cnt <= hold_inval_page_cnt - 3'b1;
+        end
+
+        if (reset)
+        begin
+            hold_inval_page_cnt <= 3'b0;
+        end
+    end
+
+
     // Drop duplicate requests.
     logic fill_not_duplicate;
 
@@ -552,7 +577,12 @@ module cci_mpf_svc_vtp_tlb
             end
         endcase
 
-        if (reset)
+        // Turn off fills for a few cycles when a page invalidation request comes in
+        // so that the fill pipeline drains. Killing all fills avoids a race on
+        // back-to-back invalidate requests that would have to be solved if the
+        // code here were sqaushing fills only to the invalidated line. Given
+        // the latency of a fill it will be rare to lose any.
+        if (reset || csrs.vtp_in_inval_page_valid || hold_inval_page)
         begin
             fill_state <= STATE_TLB_FILL_IDLE;
         end

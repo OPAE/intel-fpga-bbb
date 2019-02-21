@@ -131,8 +131,7 @@ module cci_mpf_svc_vtp_pt_walk
         end
         else
         begin
-            initialized <= csrs.vtp_in_page_table_base_valid &&
-                           csrs.vtp_in_mode.enabled;
+            initialized <= csrs.vtp_in_page_table_base_valid;
         end
     end
 
@@ -518,6 +517,7 @@ module cci_mpf_svc_vtp_pt_walk
 
     // Enable a read request?
     assign pt_fim.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_fim.readRdy;
+    assign pt_fim.writeEn = 1'b0;
 
     // Address of read request
     always_comb
