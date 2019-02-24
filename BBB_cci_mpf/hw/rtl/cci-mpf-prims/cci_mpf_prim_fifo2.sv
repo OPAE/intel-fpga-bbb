@@ -134,7 +134,7 @@ module cci_mpf_prim_fifo2_peek
         begin
             valid <= 2'b0;
         end
-        else
+        else if (reset == 1'b0)
         begin
             assert (! (enq_en && valid[0])) else
                 $fatal("cci_mpf_prim_fifo2: ENQ to full FIFO!");

@@ -105,7 +105,7 @@ module cci_mpf_prim_rob
         begin
             newest <= 0;
         end
-        else
+        else if (reset == 1'b0)
         begin
             newest <= newest + t_idx'(alloc);
 
