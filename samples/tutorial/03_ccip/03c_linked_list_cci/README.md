@@ -1,10 +1,15 @@
-This example demonstrates an AFU that is written using plain CCI-P request and
-response structures, yet still employs MPF to transform the platform memory
-semantics. The example is nearly identical to the [previous linked list
-example](../03b_linked_list). The only file that is different is
-[hw/rtl/linked_list_afu.sv](hw/rtl/linked_list_afu.sv).
+This example is functionally identical to the [previous linked list
+example](../03b_linked_list) but has some key implementation differences.
+The RTL is written using plain CCI-P request and response structures, yet
+still employs MPF to transform the platform memory semantics. The software
+buffer management in [sw/linked_list_malloc.cpp](sw/linked_list_malloc.cpp)
+is also changed. Buffers are allocated using standard functions and are not
+pinned for FPGA access before the addresses are passed to the FPGA. MPF/VTP
+was extended to pin buffers automatically on reference at the beginning of
+March, 2019.
 
-The app_afu() module is replaced with a module that maps the incoming MPF
+In [hw/rtl/linked_list_afu.sv](hw/rtl/linked_list_afu.sv), the
+app_afu() module is replaced with a module that maps the incoming MPF
 SystemVerilog interface (named fiu) back to CCI-P request and response
 structures (cp2af_sTx and af2cp_sTx). There is a 1:1 mapping of all CCI-P
 wires to the MPF interface. app_afu() instantiates the linked list

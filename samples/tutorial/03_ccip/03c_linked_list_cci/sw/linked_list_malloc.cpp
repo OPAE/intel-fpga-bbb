@@ -30,6 +30,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <unistd.h>
 #include <assert.h>
 
@@ -103,6 +104,29 @@ t_linked_list* initList(t_linked_list* head,
 }
 
 
+//
+// The key difference between CPU and FPGA access to memory is the required alignment.
+// malloc_cache_aligned() allocates buffers that are aligned to multiples of cache
+// lines. The FPGA requires natural alignment up to the load/store request size.
+// Namely, 4 line read requests require buffers aligned to 4 cache lines.
+//
+// For this example the allocator is kept simple. It could be turned into a class
+// that wraps the buffer in a smart pointer so it is deallocated on last use.
+//
+static const uint32_t BYTES_PER_LINE = 64;
+static void* malloc_cache_aligned(size_t size, size_t align_to_num_lines = 1)
+{
+    void* buf;
+
+    // Aligned to the requested number of cache lines
+    if (0 == posix_memalign(&buf, BYTES_PER_LINE * align_to_num_lines, size)) {
+      return buf;
+    }
+
+    return NULL;
+}
+
+
 int main(int argc, char *argv[])
 {
     // Find and connect to the accelerator
@@ -112,12 +136,16 @@ int main(int argc, char *argv[])
     // Connect the CSR manager
     CSR_MGR csrs(fpga);
 
-    // Allocate a memory buffer for storing the result.  Unlike the hello
-    // world examples, here we do not need the physical address of the
-    // buffer.  The accelerator instantiates MPF's VTP and will use
-    // virtual addresses.
-    auto result_buf_handle = fpga.allocBuffer(getpagesize());
-    auto result_buf = reinterpret_cast<volatile uint64_t*>(result_buf_handle->c_type());
+    // Like the previous linked list example we use only virtual addresses
+    // here, passing them to the FPGA directly. This example, however, does
+    // not call either OPAE or MPF to allocate the storage. It is allocated
+    // using standard buffer management. The VTP run-time logic in MPF will
+    // automatically call OPAE to pin pages on first use by the FPGA.
+    //
+    // There is one key difference. Addresses used by the FPGA must be at
+    // least cache-line aligned.
+    uint64_t* result_buf =
+        reinterpret_cast<uint64_t*>(malloc_cache_aligned(BYTES_PER_LINE));
     assert(NULL != result_buf);
 
     // Set the low word of the shared buffer to 0.  The FPGA will write
@@ -127,19 +155,19 @@ int main(int argc, char *argv[])
     // Set the result buffer pointer
     csrs.writeCSR(0, intptr_t(result_buf));
 
-    // Allocate a 16MB buffer and share it with the FPGA.  Because the FPGA
-    // is using VTP we can allocate a virtually contiguous region.
-    // OPAE_SVC_WRAPPER detects the presence of VTP and uses it for memory
-    // allocation instead of calling OPAE directly.  The buffer will
-    // be composed of physically discontiguous pages.  VTP will construct
-    // a private TLB to map virtual addresses from this process to FPGA-side
-    // physical addresses.
-    auto list_buf_handle = fpga.allocBuffer(16 * 1024 * 1024);
-    auto list_buf = reinterpret_cast<volatile t_linked_list*>(list_buf_handle->c_type());
+    // Allocate a 16MB buffer, being careful to align it to 4 cache lines.
+    // FPGA multi-line reads and writes require addresses aligned to the
+    // multi-line access size.
+    //
+    // The memory here is allocated using a standard allocator. The
+    // virtual addresses will be passed to the FPGA.  The VTP module will
+    // automatically pin and map pages for access by the FPGA on reference.
+    t_linked_list* list_buf =
+        reinterpret_cast<t_linked_list*>(malloc_cache_aligned(32 * 0x80000, 4));
     assert(NULL != list_buf);
 
     // Initialize a linked list in the buffer
-    initList(const_cast<t_linked_list*>(list_buf), 32, 0x80000);
+    initList(list_buf, 32, 0x80000);
 
     // Start the FPGA, which is waiting for the list head in CSR 1.
     csrs.writeCSR(1, intptr_t(list_buf));
@@ -189,7 +217,8 @@ int main(int argc, char *argv[])
              << vtp_stats.numTLBMisses2MB << endl;
     }
 
-    // All shared buffers are automatically released and the FPGA connection
-    // is closed when their destructors are invoked here.
+    free(result_buf);
+    free(list_buf);
+
     return 0;
 }

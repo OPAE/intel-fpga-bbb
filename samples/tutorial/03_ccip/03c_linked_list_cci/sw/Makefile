@@ -1,7 +1,7 @@
 include ../../base/sw/base_include.mk
 
 # Primary test name
-TEST = linked_list
+TEST = linked_list_malloc
 
 # Build directory
 OBJDIR = obj
@@ -17,7 +17,7 @@ all: $(TEST) $(TEST)_ase
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
-$(AFU_JSON_INFO): ../hw/rtl/$(TEST)_cci.json | objdir
+$(AFU_JSON_INFO): ../hw/rtl/linked_list_cci.json | objdir
 	afu_json_mgr json-info --afu-json=$^ --c-hdr=$@
 $(OBJS): $(AFU_JSON_INFO)
 

@@ -24,4 +24,7 @@ world example using the structured software and hardware modules.
 [03b_linked_list](03b_linked_list) and
 [03c_linked_list_cci](03c_linked_list_cci) introduce MPF building blocks using
 two different RTL representations of CCI-P. Both transform CCI-P to use
-virtual addresses corresponding to address mapping on the host.
+virtual addresses corresponding to address mapping on the host. The 03c
+example demonstrates the MPF ability to pin pages on first reference by
+passing normal virtual addresses to the FPGA without first preparing the
+buffers for FPGA access.
