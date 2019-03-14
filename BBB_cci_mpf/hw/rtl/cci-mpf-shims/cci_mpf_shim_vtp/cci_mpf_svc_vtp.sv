@@ -474,6 +474,7 @@ module cci_mpf_svc_vtp
             rsp_data.pagePA <= tlb_lookup_rsp.pagePA;
             rsp_data.isBigPage <= tlb_lookup_rsp.isBigPage;
             rsp_data.tag <= tlb_processed_req.tag;
+            rsp_data.error <= 1'b0;
         end
     end
 
@@ -494,8 +495,9 @@ module cci_mpf_svc_vtp
                 begin
                     if (rsp_port_onehot[p])
                     begin
-                        $display("VTP SVC %0t: Completed RESP (from %0s) PA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
+                        $display("VTP SVC %0t: Completed %sRESP (from %0s) PA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
                                  $time,
+                                 (rsp_data.error ? "ERROR " : ""),
                                  (pt_walk_rsp_valid_q ? "PT" : "TLB"),
                                  {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                                  {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
@@ -788,6 +790,7 @@ module cci_mpf_svc_vtp_do_pt_walk
         pt_walk.reqEn <= deq_first;
         pt_walk.reqVA <= first.pageVA;
         pt_walk.reqMeta <= t_cci_mpf_shim_vtp_pt_walk_meta'(first_port_idx);
+        pt_walk.reqIsSpeculative <= first.isSpeculative;
         pt_walk.reqTag <= first.tag;
 
         if (reset)
@@ -802,8 +805,13 @@ module cci_mpf_svc_vtp_do_pt_walk
     //
     always_ff @(posedge clk)
     begin
-        pt_walk_rsp_valid <= pt_walk.rspEn && ! pt_walk.rspNotPresent;
+        pt_walk_rsp_valid <= pt_walk.rspEn &&
+                             // rspNotPresent is a fatal error unless the request is
+                             // speculative.
+                             (! pt_walk.rspNotPresent || pt_walk.rspIsSpeculative);
+
         pt_walk_rsp.pagePA <= pt_walk.rspPA;
+        pt_walk_rsp.error <= pt_walk.rspNotPresent;
         pt_walk_rsp.tag <= pt_walk.rspTag;
         pt_walk_rsp.isBigPage <= pt_walk.rspIsBigPage;
         pt_walk_rsp_port_idx <= t_cci_mpf_shim_vtp_port_idx'(pt_walk.rspMeta);
@@ -847,8 +855,9 @@ module cci_mpf_svc_vtp_do_pt_walk
 
             if (pt_walk_rsp_valid)
             begin
-                $display("VTP SVC %0t: RESP page walk PA 0x%x, %0s, tag (%0d, %0d)",
+                $display("VTP SVC %0t: %sRESP page walk PA 0x%x, %0s, tag (%0d, %0d)",
                          $time,
+                         (pt_walk_rsp.error ? "ERROR " : ""),
                          {pt_walk_rsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          (pt_walk_rsp.isBigPage ? "2MB" : "4KB"),
                          pt_walk_rsp_port_idx, pt_walk_rsp.tag);
@@ -873,7 +882,7 @@ module cci_mpf_svc_vtp_do_pt_walk
     begin
         if (! reset)
         begin
-            assert (! pt_walk.rspNotPresent) else
+            assert (! pt_walk.rspEn || ! pt_walk.rspNotPresent || pt_walk.rspIsSpeculative) else
                 $fatal("cci_mpf_svc_vtp: VA 0x%x not present in page table",
                        {pt_walk.rspVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
         end

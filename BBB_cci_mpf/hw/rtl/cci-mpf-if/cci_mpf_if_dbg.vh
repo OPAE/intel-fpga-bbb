@@ -29,6 +29,10 @@
         case (req)
             eREQ_RDLINE_S: return "RdLine_S  ";
             eREQ_RDLINE_I: return "RdLine_I  ";
+`ifdef CCIP_RDLSPEC_AVAIL
+            eREQ_RDLSPEC_S: return "RdLSpec_S ";
+            eREQ_RDLSPEC_I: return "RdLSpec_I ";
+`endif
             default:       return "* c0 REQ ERROR * ";
         endcase
     endfunction
@@ -149,13 +153,18 @@
                 /******************* MEM -> AFU Read Response *****************/
                 if (! reset && c0Rx.rspValid)
                 begin
-                    $fwrite(cci_mpf_if_log_fd, "%m:\t%t (%0d)\t%s\t%0d\t%s\t%s\t%x\t%x\n",
+                    $fwrite(cci_mpf_if_log_fd, "%m:\t%t (%0d)\t%s\t%0d\t%s\t%s%s\t%x\t%x\n",
                             $time, cycle,
                             print_channel(c0Rx.hdr.vc_used),
                             c0Rx.hdr.cl_num,
                             ((c0Rx.hdr.cl_num == 0) ? "S" :
                                cci_mpf_c0Rx_isEOP(c0Rx) ? "E" : "x"),
                             print_c0_resptype(c0Rx.hdr.resp_type),
+`ifdef CCIP_RDLSPEC_AVAIL
+                            (c0Rx.hdr.error ? "ERROR " : ""),
+`else
+                            "",
+`endif
                             c0Rx.hdr.mdata,
                             c0Rx.data);
                 end

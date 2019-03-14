@@ -42,6 +42,9 @@ module cci_mpf_shim_edge_afu
   #(
     parameter N_WRITE_HEAP_ENTRIES = 0,
 
+    // Is virtual to physical translation enabled?
+    parameter ENABLE_VTP = 0,
+
     // Enforce write/write and write/read ordering with cache lines?
     parameter ENFORCE_WR_ORDER = 0,
 
@@ -111,6 +114,7 @@ module cci_mpf_shim_edge_afu
     cci_mpf_shim_edge_afu_wr_data
       #(
         .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
+        .ENABLE_VTP(ENABLE_VTP),
         .ENFORCE_WR_ORDER(ENFORCE_WR_ORDER),
         .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES)
         )
@@ -200,6 +204,7 @@ endmodule // cci_mpf_shim_edge_afu
 module cci_mpf_shim_edge_afu_wr_data
   #(
     parameter N_WRITE_HEAP_ENTRIES = 0,
+    parameter ENABLE_VTP = 0,
 
     // Enforce write/write and write/read ordering with cache lines?
     parameter ENFORCE_WR_ORDER = 0,
@@ -514,6 +519,16 @@ module cci_mpf_shim_edge_afu_wr_data
                     $fatal(2, "cci_mpf_shim_edge_connect: Multi-beat read address must be naturally aligned, cl_len=%0d, addr=0x%x",
                            afu.c0Tx.hdr.base.cl_len, afu.c0Tx.hdr.base.address);
             end
+
+`ifdef CCIP_RDLSPEC_AVAIL
+            // When a speculative read request arrives confirm that something can consume it.
+            // Either VTP must be enabled or the platform must support speculative reads.
+            if (cci_mpf_c0TxIsSpecReadReq(afu.c0Tx))
+            begin
+                assert(ENABLE_VTP || (ccip_cfg_pkg::C0_REQ_RDLSPEC_S & ccip_cfg_pkg::C0_SUPPORTED_REQS)) else
+                    $fatal(2, "cci_mpf_shim_edge_connect: Platform does not support speculative reads and VTP not enabled!");
+            end
+`endif
 
             if (cci_mpf_c1TxIsWriteReq(afu_canon_c1Tx))
             begin

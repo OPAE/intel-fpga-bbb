@@ -97,6 +97,7 @@ module cci_mpf_svc_vtp_pt_sw
     logic send_req;
     t_tlb_4kb_va_page_idx req_va;
     t_cci_mpf_shim_vtp_pt_walk_meta req_meta;
+    logic req_isSpeculative;
     t_cci_mpf_shim_vtp_req_tag req_tag;
 
     assign pt_walk.reqRdy = ~req_valid;
@@ -108,6 +109,7 @@ module cci_mpf_svc_vtp_pt_sw
             req_valid <= 1'b1;
             req_va <= pt_walk.reqVA;
             req_meta <= pt_walk.reqMeta;
+            req_isSpeculative <= pt_walk.reqIsSpeculative;
             req_tag <= pt_walk.reqTag;
         end
 
@@ -132,6 +134,7 @@ module cci_mpf_svc_vtp_pt_sw
     logic rsp_en;
     t_tlb_4kb_va_page_idx rsp_va;
     t_cci_mpf_shim_vtp_pt_walk_meta rsp_meta;
+    logic rsp_isSpeculative;
     t_cci_mpf_shim_vtp_req_tag rsp_tag;
 
     assign send_req = req_valid && req_not_full &&
@@ -141,6 +144,7 @@ module cci_mpf_svc_vtp_pt_sw
       #(
         .N_DATA_BITS($bits(t_tlb_4kb_va_page_idx) +
                      $bits(t_cci_mpf_shim_vtp_pt_walk_meta) +
+                     1 +
                      $bits(t_cci_mpf_shim_vtp_req_tag)),
         .N_ENTRIES(8),
         .REGISTER_OUTPUT(1)
@@ -150,12 +154,12 @@ module cci_mpf_svc_vtp_pt_sw
          .clk,
          .reset,
 
-         .enq_data({ req_va, req_meta, req_tag }),
+         .enq_data({ req_va, req_meta, req_isSpeculative, req_tag }),
          .enq_en(send_req),
          .notFull(req_not_full),
          .almostFull(),
 
-         .first({ rsp_va, rsp_meta, rsp_tag }),
+         .first({ rsp_va, rsp_meta, rsp_isSpeculative, rsp_tag }),
          .deq_en(rsp_en),
          .notEmpty(req_not_empty)
          );
@@ -191,8 +195,10 @@ module cci_mpf_svc_vtp_pt_sw
         // bit is forced to one in case a NULL pointer is sent.
         // Of course NULL will result in an error, but this way it
         // will be detected.
+        //
+        // Bit 1 indicates whether the request is speculative.
         pt_fim.writeData <=
-            { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b1 };
+            { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 4'b0, req_isSpeculative, 1'b1 };
 
         if (send_req)
         begin
@@ -245,6 +251,7 @@ module cci_mpf_svc_vtp_pt_sw
         pt_walk.rspVA <= rsp_va;
         pt_walk.rspPA <= rsp_pa;
         pt_walk.rspMeta <= rsp_meta;
+        pt_walk.rspIsSpeculative <= rsp_isSpeculative;
         pt_walk.rspTag <= rsp_tag;
         pt_walk.rspIsBigPage <= rsp_is_big_page;
         pt_walk.rspNotPresent <= rsp_not_present && rsp_en;
@@ -292,8 +299,9 @@ module cci_mpf_svc_vtp_pt_sw
 
             if (rsp_en && rsp_not_present)
             begin
-                $display("VTP PT WALK %0t: Completed RESP FAILED TRANSLATION, VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                $display("VTP PT WALK %0t: Completed RESP FAILED %sTRANSLATION, VA 0x%x (line 0x%x), tag (%0d, %0d)",
                          $time,
+                         (rsp_isSpeculative ? "speculative " : ""),
                          { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
                          { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
                          rsp_meta, rsp_tag);

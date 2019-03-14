@@ -222,6 +222,7 @@ module cci_mpf_shim_rsp_order
     logic rd_rob_sop;
     logic rd_rob_eop;
     t_cci_clNum rd_rob_cl_num;
+    logic rd_rob_error;
     t_cci_clData rd_rob_out_data;
 
     // Number of read buffer entries to allocate.  More than one must be
@@ -241,6 +242,7 @@ module cci_mpf_shim_rsp_order
             logic rd_rob_rsp_en;
             t_req_idx rd_rob_rsp_idx;
             t_cci_clNum rd_rob_rsp_cl_num;
+            logic rd_rob_rsp_error;
             t_cci_clData rd_rob_rsp_data;
 
             always_comb
@@ -249,6 +251,11 @@ module cci_mpf_shim_rsp_order
                 rd_rob_rsp_idx = t_req_idx'(fiu.c0Rx.hdr.mdata) +
                                  t_req_idx'(fiu.c0Rx.hdr.cl_num);
                 rd_rob_rsp_cl_num = fiu.c0Rx.hdr.cl_num;
+`ifdef CCIP_RDLSPEC_AVAIL
+                rd_rob_rsp_error = fiu.c0Rx.hdr.error;
+`else
+                rd_rob_rsp_error = 1'b0;
+`endif
                 rd_rob_rsp_data = fiu.c0Rx.data;
             end
 
@@ -269,7 +276,7 @@ module cci_mpf_shim_rsp_order
                 // is line-based.  However, in MPF MAX_ACTIVE_LINES is equal
                 // to MAX_ACTIVE_REQS.
                 .N_ENTRIES(MAX_ACTIVE_LINES),
-                .N_DATA_BITS($bits(t_cci_clNum) + CCI_CLDATA_WIDTH),
+                .N_DATA_BITS(1 + $bits(t_cci_clNum) + CCI_CLDATA_WIDTH),
                 .N_META_BITS($bits(t_cci_clNum) + CCI_MDATA_WIDTH),
                 .MIN_FREE_SLOTS((CCI_TX_ALMOST_FULL_THRESHOLD + THRESHOLD_EXTRA) * CCI_MAX_MULTI_LINE_BEATS),
                 .MAX_ALLOC_PER_CYCLE(CCI_MAX_MULTI_LINE_BEATS)
@@ -286,11 +293,11 @@ module cci_mpf_shim_rsp_order
 
                 .enqData_en(rd_rob_rsp_en),
                 .enqDataIdx(rd_rob_rsp_idx),
-                .enqData({ rd_rob_rsp_cl_num, rd_rob_rsp_data }),
+                .enqData({ rd_rob_rsp_error, rd_rob_rsp_cl_num, rd_rob_rsp_data }),
 
                 .deq_en(rd_rob_deq_en),
                 .notEmpty(rd_rob_notEmpty),
-                .T2_first({ rd_rob_cl_num, rd_rob_out_data }),
+                .T2_first({ rd_rob_error, rd_rob_cl_num, rd_rob_out_data }),
                 .T2_firstMeta({ rd_beat_packet_len, rd_beat_mdata })
                 );
 
@@ -397,6 +404,7 @@ module cci_mpf_shim_rsp_order
 
             assign rd_rob_eop = 'x;
             assign rd_rob_cl_num = 'x;
+            assign rd_rob_error = 'x;
             assign rd_rob_out_data = 'x;
             assign rd_rob_mdata = 'x;
             assign rd_rob_notEmpty = 'x;
@@ -472,6 +480,9 @@ module cci_mpf_shim_rsp_order
         begin
             afu.c0Rx.hdr = cci_c0_genRspHdr(eRSP_RDLINE, rd_rob_mdata);
             afu.c0Rx.hdr.cl_num = rd_rob_cl_num;
+`ifdef CCIP_RDLSPEC_AVAIL
+            afu.c0Rx.hdr.error = rd_rob_error;
+`endif
             afu.c0Rx = cci_mpf_c0Rx_updEOP(afu.c0Rx, rd_rob_eop);
             afu.c0Rx.data = rd_rob_out_data;
             afu.c0Rx.rspValid = 1'b1;

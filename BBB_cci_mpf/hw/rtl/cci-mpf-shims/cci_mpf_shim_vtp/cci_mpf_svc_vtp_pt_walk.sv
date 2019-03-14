@@ -193,6 +193,7 @@ module cci_mpf_svc_vtp_pt_walk
         STATE_PT_WALK_READ_RSP,
         STATE_PT_WALK_DONE,
         STATE_PT_WALK_ERROR,
+        STATE_PT_WALK_SPEC_ERROR,
         STATE_PT_WALK_HALT
     }
     t_state_pt_walk;
@@ -226,6 +227,7 @@ module cci_mpf_svc_vtp_pt_walk
 
     // Metadata associated with translation request
     t_cci_mpf_shim_vtp_pt_walk_meta req_meta;
+    logic req_isSpeculative;
     t_cci_mpf_shim_vtp_req_tag req_tag;
 
     // During translation the VA is broken down into 9 bit indices during
@@ -332,6 +334,7 @@ module cci_mpf_svc_vtp_pt_walk
 
                     translate_va <= pt_walk.reqVA;
                     req_meta <= pt_walk.reqMeta;
+                    req_isSpeculative <= pt_walk.reqIsSpeculative;
                     req_tag <= pt_walk.reqTag;
                 end
 
@@ -482,15 +485,30 @@ module cci_mpf_svc_vtp_pt_walk
 
           STATE_PT_WALK_ERROR:
             begin
-                // Terminal state
-                state <= STATE_PT_WALK_HALT;
-                rsp_en <= 1'b1;
-
-                if (! reset)
+                if (req_isSpeculative)
                 begin
-                    $fatal("VTP PT WALK: No translation found for VA 0x%x",
-                           { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
+                    // Speculative translation failure.
+                    state <= STATE_PT_WALK_SPEC_ERROR;
                 end
+                else
+                begin
+                    // Non speculative fatal error. Terminal state.
+                    state <= STATE_PT_WALK_HALT;
+
+                    if (! reset)
+                    begin
+                        $fatal("VTP PT WALK: No translation found for VA 0x%x",
+                               { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
+                    end
+                end
+
+                rsp_en <= 1'b1;
+            end
+
+          STATE_PT_WALK_SPEC_ERROR:
+            begin
+                rsp_en <= 1'b0;
+                state <= STATE_PT_WALK_IDLE;
             end
 
           STATE_PT_WALK_HALT:
@@ -643,12 +661,15 @@ module cci_mpf_svc_vtp_pt_walk
         pt_walk.rspVA <= translate_va;
         pt_walk.rspPA <= pt_walk_cur_page;
         pt_walk.rspMeta <= req_meta;
+        pt_walk.rspIsSpeculative <= req_isSpeculative;
         pt_walk.rspTag <= req_tag;
 
         // Use just bit 0 of translate_depth, which is either 2 for a 2MB page
         // or 3 for a 4KB page.
         pt_walk.rspIsBigPage <= ~(translate_depth[0]);
-        pt_walk.rspNotPresent <= (state == STATE_PT_WALK_HALT);
+        pt_walk.rspNotPresent <= rsp_en &&
+                                 ((state == STATE_PT_WALK_SPEC_ERROR) ||
+                                  (state == STATE_PT_WALK_HALT));
     end
 
     // Statistics and events

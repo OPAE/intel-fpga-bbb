@@ -161,12 +161,17 @@ static void *mpfVtpSrvMain(void *args)
             }
         }
 
-        // Drop the low bit from the request. It was set to guarantee the
-        // value is non-zero.
-        mpf_vtp_pt_vaddr req_va = (mpf_vtp_pt_vaddr)(*next_req ^ 1);
+        // Drop the low bit from the request address. They are used as flags.
+        mpf_vtp_pt_vaddr req_va = (mpf_vtp_pt_vaddr)(*next_req & ~(uint64_t)3);
+
+        // Is the request a speculative?
+        bool req_is_speculative = (*next_req & 2);
+
         if (srv->_mpf_handle->dbg_mode)
         {
-            MPF_FPGA_MSG("VTP translation request from VA %p", req_va);
+            MPF_FPGA_MSG("VTP %stranslation request from VA %p",
+                         (req_is_speculative ? "speculative " : ""),
+                         req_va);
         }
 
         // Translate the address, pinning the page if necessary.
@@ -198,19 +203,31 @@ static void *mpfVtpSrvMain(void *args)
         }
         else
         {
-            // Fatal translation failure! Most likely the memory is not mapped.
+            // Translation failure! Most likely the memory is not mapped.
 
             // Tell the FPGA by setting bit 1 of the response.
             mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
                         CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP,
                         1);
 
-            // Should the code here try to touch the referenced memory location
-            // in order to raise a SEGV? For now we just abort.
-            fprintf(stderr,
-                    "MPF VTP Translation error: FPGA refers to unmapped virtual address %p\n",
-                    req_va);
-            assert(FPGA_OK == r);
+            if (req_is_speculative)
+            {
+                if (srv->_mpf_handle->dbg_mode)
+                {
+                    MPF_FPGA_MSG("VTP speculative translation failure VA %p, %s",
+                                 req_va,
+                                 (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                }
+            }
+            else
+            {
+                // Should the code here try to touch the referenced memory location
+                // in order to raise a SEGV? For now we just abort.
+                fprintf(stderr,
+                        "MPF VTP Translation error: FPGA refers to unmapped virtual address %p\n",
+                        req_va);
+                assert(FPGA_OK == r);
+            }
         }
 
         // Done with request. Move on to the next one. Only one request is sent

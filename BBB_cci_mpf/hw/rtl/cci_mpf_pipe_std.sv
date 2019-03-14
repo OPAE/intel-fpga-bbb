@@ -385,6 +385,7 @@ module cci_mpf_pipe_std
     cci_mpf_shim_edge_afu
       #(
         .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
+        .ENABLE_VTP(ENABLE_VTP),
         .ENFORCE_WR_ORDER(ENFORCE_WR_ORDER),
         .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES),
         .REGISTER_RESPONSES(1),

@@ -686,7 +686,13 @@ package cci_mpf_if_pkg;
         );
 
         return ((r.hdr.base.req_type == eREQ_RDLINE_I) ||
-                (r.hdr.base.req_type == eREQ_RDLINE_S));
+                (r.hdr.base.req_type == eREQ_RDLINE_S)
+`ifdef CCIP_RDLSPEC_AVAIL
+                ||
+                (r.hdr.base.req_type == eREQ_RDLSPEC_I) ||
+                (r.hdr.base.req_type == eREQ_RDLSPEC_S)
+`endif
+                );
     endfunction
 
     // Does an MPF C0 TX have a valid read request?
@@ -695,6 +701,28 @@ package cci_mpf_if_pkg;
         );
 
         return r.valid && cci_mpf_c0TxIsReadReq_noCheckValid(r);
+    endfunction
+
+    // Does an MPF C0 TX have speculative read request?
+    function automatic logic cci_mpf_c0TxIsSpecReadReq_noCheckValid(
+        input t_if_cci_mpf_c0_Tx r
+        );
+
+`ifdef CCIP_RDLSPEC_AVAIL
+        return ((r.hdr.base.req_type == eREQ_RDLSPEC_I) ||
+                (r.hdr.base.req_type == eREQ_RDLSPEC_S));
+`else
+        // No RDLSPEC instruction in older CCI-P versions.
+        return 1'b0;
+`endif
+    endfunction
+
+    // Does an MPF C0 TX have a valid speculative read request?
+    function automatic logic cci_mpf_c0TxIsSpecReadReq(
+        input t_if_cci_mpf_c0_Tx r
+        );
+
+        return r.valid && cci_mpf_c0TxIsSpecReadReq_noCheckValid(r);
     endfunction
 
 

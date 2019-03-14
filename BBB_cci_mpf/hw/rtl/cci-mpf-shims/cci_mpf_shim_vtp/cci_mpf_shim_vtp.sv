@@ -76,8 +76,10 @@ module cci_mpf_shim_vtp
 
     logic c0chan_outValid;
     t_if_cci_mpf_c0_Tx c0chan_outTx;
+    logic c0chan_outError;
     t_tlb_4kb_pa_page_idx c0chan_outPhysAddr;
     logic c0chan_outAddrIsBigPage;
+    logic error_fifo_almostFull;
 
     // Pass TX requests through a translation pipeline
     cci_mpf_shim_vtp_chan_lookup
@@ -97,13 +99,15 @@ module cci_mpf_shim_vtp
         .cTxValid(cci_mpf_c0TxIsValid(afu.c0Tx)),
         .cTx(afu.c0Tx),
         .cTxAddrIsVirtual(cci_mpf_c0_getReqAddrIsVirtual(afu.c0Tx.hdr)),
+        .cTxReqIsSpeculative(cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu.c0Tx)),
+        .cTxReqIsOrdered(1'b0),
 
         .cTxValid_out(c0chan_outValid),
         .cTx_out(c0chan_outTx),
+        .cTxError_out(c0chan_outError),
         .cTxPhysAddr_out(c0chan_outPhysAddr),
         .cTxAddrIsBigPage_out(c0chan_outAddrIsBigPage),
-        .cTxReqIsOrdered(1'b0),
-        .almostFullFromFIU(fiu.c0TxAlmFull),
+        .almostFullFromFIU(fiu.c0TxAlmFull || error_fifo_almostFull),
 
         .vtp_svc(vtp_svc[0]),
         .csrs
@@ -112,7 +116,7 @@ module cci_mpf_shim_vtp
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
-        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_outValid);
+        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_outValid && ! c0chan_outError);
 
         // Set the physical address. The page comes from the TLB and the
         // offset from the original memory request.
@@ -133,6 +137,18 @@ module cci_mpf_shim_vtp
                     t_cci_clAddr'({ c0chan_outPhysAddr,
                                     vtp4kbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
             end
+
+`ifdef CCIP_RDLSPEC_AVAIL
+            // If the read request is speculative and the FIU doesn't support
+            // speculation (e.g. no IOMMU) then make the request non-speculative.
+            // At this point it has already passed VTP and a valid translation
+            // was found.
+            if (cci_mpf_c0TxIsSpecReadReq_noCheckValid(c0chan_outTx) &&
+                ! (ccip_cfg_pkg::C0_REQ_RDLSPEC_S & ccip_cfg_pkg::C0_SUPPORTED_REQS))
+            begin
+                fiu.c0Tx.hdr.base.req_type[1] <= 1'b0;
+            end
+`endif
         end
     end
 
@@ -140,7 +156,102 @@ module cci_mpf_shim_vtp
     //
     // Responses
     //
-    assign afu.c0Rx = fiu.c0Rx;
+
+    // There are two sources of read responses: the normal path from the FIU and the
+    // error path from failed translations of speculative loads. The FIFO holds
+    // speculative failures and will be used to generate read error responses on
+    // cycles when there is no FIU response.
+
+    t_cci_c0_RspMemHdr c0_error_hdr_in, c0_error_hdr;
+    logic c0_deq_error_hdr;
+    logic c0_error_hdr_notEmpty;
+    t_cci_clNum c0_error_hdr_cl_num;
+
+    always_comb
+    begin
+        c0_error_hdr_in = cci_c0_genRspHdr(eRSP_RDLINE, c0chan_outTx.hdr.base.mdata);
+        // Store the number of responses (lines) needed in the cl_len field.
+        c0_error_hdr_in.cl_num = t_cci_clLen'(c0chan_outTx.hdr.base.cl_len);
+
+        // Signal the translation error
+`ifdef CCIP_RDLSPEC_AVAIL
+        c0_error_hdr_in.error = 1'b1;
+`endif
+    end
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_cci_c0_RspMemHdr)),
+        .N_ENTRIES(8),
+        .THRESHOLD(4),
+        .REGISTER_OUTPUT(1)
+        )
+      error_fifo
+       (
+        .clk,
+        .reset(reset),
+
+        .enq_en(c0chan_outValid && c0chan_outError),
+        .enq_data(c0_error_hdr_in),
+        .notFull(),
+        .almostFull(error_fifo_almostFull),
+
+        .first(c0_error_hdr),
+        .deq_en(c0_deq_error_hdr),
+        .notEmpty(c0_error_hdr_notEmpty)
+        );
+
+
+    // Track cl_num for multi-line speculative error responses
+    always_ff @(posedge clk)
+    begin
+        if (reset || c0_deq_error_hdr)
+        begin
+            c0_error_hdr_cl_num <= t_cci_clNum'(0);
+        end
+        else if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
+        begin
+            // Error response generated this cycle
+            c0_error_hdr_cl_num <= c0_error_hdr_cl_num + t_cci_clNum'(1);
+        end
+    end
+
+    // The standard c0 response path just forwards messages from the FIU.
+    // When a speculation error is needed it will be injected in cycles
+    // that aren't already occupied by FIU messages.
+    always_ff @(posedge clk)
+    begin
+        afu.c0Rx <= fiu.c0Rx;
+
+        c0_deq_error_hdr <= 1'b0;
+        if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
+        begin
+            afu.c0Rx.rspValid <= 1'b1;
+            afu.c0Rx.hdr <= c0_error_hdr;
+            afu.c0Rx.hdr.cl_num <= c0_error_hdr_cl_num;
+
+            // Done with the speculation error when responses are generated
+            // for all lines.
+            c0_deq_error_hdr <= (c0_error_hdr_cl_num == c0_error_hdr.cl_num);
+        end
+    end
+
+
+    //
+    // Debugging
+    //
+    always_ff @(posedge clk)
+    begin
+        if (DEBUG_MESSAGES && ! reset)
+        begin
+            if (c0chan_outValid && c0chan_outError)
+            begin
+                $display("%m VTP: %0t Speculative load translation error from VA 0x%x",
+                         $time,
+                         {cci_mpf_c0_getReqAddr(c0chan_outTx.hdr), 6'b0});
+            end
+        end
+    end
 
 
     // ====================================================================
@@ -157,6 +268,7 @@ module cci_mpf_shim_vtp
 
     logic c1chan_outValid;
     t_if_cci_mpf_c1_Tx c1chan_outTx;
+    logic c1chan_outError;
     t_tlb_4kb_pa_page_idx c1chan_outPhysAddr;
     logic c1chan_outAddrIsBigPage;
 
@@ -179,12 +291,14 @@ module cci_mpf_shim_vtp
         .cTxValid(cci_mpf_c1TxIsValid(afu.c1Tx)),
         .cTx(afu.c1Tx),
         .cTxAddrIsVirtual(cci_mpf_c1_getReqAddrIsVirtual(afu.c1Tx.hdr)),
+        .cTxReqIsSpeculative(1'b0),
+        .cTxReqIsOrdered(c1_order_sensitive),
 
         .cTxValid_out(c1chan_outValid),
         .cTx_out(c1chan_outTx),
+        .cTxError_out(c1chan_outError),
         .cTxPhysAddr_out(c1chan_outPhysAddr),
         .cTxAddrIsBigPage_out(c1chan_outAddrIsBigPage),
-        .cTxReqIsOrdered(c1_order_sensitive),
         .almostFullFromFIU(fiu.c1TxAlmFull),
 
         .vtp_svc(vtp_svc[1]),
@@ -223,6 +337,19 @@ module cci_mpf_shim_vtp
     // Responses
     //
     assign afu.c1Rx = fiu.c1Rx;
+
+
+    //
+    // Assertions
+    //
+    always_ff @(posedge clk)
+    begin
+        if (! reset)
+        begin
+            assert((c1chan_outValid == 1'b0) || (c1chan_outError == 1'b0)) else
+                $fatal(2, "cci_mpf_shim_vtp.sv: Store channel should never raise a speculative translation error");
+        end
+    end
 
 
     // ====================================================================
@@ -282,6 +409,8 @@ module cci_mpf_shim_vtp_chan_lookup
     input  logic cTxValid,
     input  logic [N_CTX_BITS-1 : 0] cTx,
     input  logic cTxAddrIsVirtual,
+    // Is the request a speculative translation?
+    input  logic cTxReqIsSpeculative,
     // Is the request ordered (e.g. a write fence)? If so, the channel logic
     // will wait for all earlier requests to drain from the VTP pipelines.
     // It is illegal to set both cTxAddrIsVirtual and cTxReqIsOrdered.
@@ -291,6 +420,9 @@ module cci_mpf_shim_vtp_chan_lookup
     output logic cTxValid_out,
     // Unchanged from the value passed to cTx above.
     output logic [N_CTX_BITS-1 : 0] cTx_out,
+    // Failed translation. This error may be raised only if cTxReqIsSpeculative
+    // was set.
+    output logic cTxError_out,
     // A translated physical address if cTxAddr is virtual.
     output t_tlb_4kb_pa_page_idx cTxPhysAddr_out,
     output logic cTxAddrIsBigPage_out,
@@ -315,6 +447,7 @@ module cci_mpf_shim_vtp_chan_lookup
     logic l1_fifo_deq;
     logic l1_fifo_notEmpty;
     logic [N_CTX_BITS-1 : 0] l1_cTx_out;
+    logic l1_cTxReqIsSpeculative_out;
     logic l1_cTxReqIsOrdered_out;
     logic l1_cTxAddrIsVirtual_out;
     logic l1_cTxAddrTranslationValid_out;
@@ -340,8 +473,8 @@ module cci_mpf_shim_vtp_chan_lookup
       #(
         .THRESHOLD(THRESHOLD),
         .CTX_NUMBER(CTX_NUMBER),
-        // An extra bit in the payload holds cTxReqIsOrdered
-        .N_CTX_BITS(N_CTX_BITS + 1),
+        // Extra bits in the payload hold cTxReq flags
+        .N_CTX_BITS(N_CTX_BITS + 2),
         .N_LOCAL_4KB_CACHE_ENTRIES(N_LOCAL_4KB_CACHE_ENTRIES),
         .N_LOCAL_2MB_CACHE_ENTRIES(N_LOCAL_2MB_CACHE_ENTRIES),
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
@@ -353,12 +486,12 @@ module cci_mpf_shim_vtp_chan_lookup
 
         .almostFull(almostFullToAFU),
         .cTxValid,
-        .cTx({ cTxReqIsOrdered, cTx }),
+        .cTx({ cTxReqIsSpeculative, cTxReqIsOrdered, cTx }),
         .cTxAddrIsVirtual,
 
         .notEmpty(l1_fifo_notEmpty),
         // cTx must be the low bits of cTx_out so that get_4kb_va_page_idx() works.
-        .cTx_out({ l1_cTxReqIsOrdered_out, l1_cTx_out }),
+        .cTx_out({ l1_cTxReqIsSpeculative_out, l1_cTxReqIsOrdered_out, l1_cTx_out }),
         .cTxAddrIsVirtual_out(l1_cTxAddrIsVirtual_out),
         .cTxAddrTranslationValid_out(l1_cTxAddrTranslationValid_out),
         .cTxPhysAddr_out(l1_cTxPhysAddr_out),
@@ -382,6 +515,7 @@ module cci_mpf_shim_vtp_chan_lookup
 
     logic l2_cTxValid_out;
     logic [N_CTX_BITS-1 : 0] l2_cTx_out;
+    logic l2_cTxError_out;
     t_tlb_4kb_pa_page_idx l2_cTxPhysAddr_out;
     logic l2_cTxAddrIsBigPage_out;
 
@@ -404,9 +538,11 @@ module cci_mpf_shim_vtp_chan_lookup
         // Send to L2 when L1 translation fails
         .cTxValid(l1_fwd_to_l2),
         .cTx(l1_cTx_out),
+        .cTxReqIsSpeculative(l1_cTxReqIsSpeculative_out),
 
         .cTxValid_out(l2_cTxValid_out),
         .cTx_out(l2_cTx_out),
+        .cTxError_out(l2_cTxError_out),
         .cTxPhysAddr_out(l2_cTxPhysAddr_out),
         .cTxAddrIsBigPage_out(l2_cTxAddrIsBigPage_out),
         .cTxAlmostFull(almostFullFromFIU_q),
@@ -461,12 +597,14 @@ module cci_mpf_shim_vtp_chan_lookup
         if (l1_fwd_to_fiu)
         begin
             cTx_out <= l1_cTx_out;
+            cTxError_out <= 1'b0;
             cTxPhysAddr_out <= l1_cTxPhysAddr_out;
             cTxAddrIsBigPage_out <= l1_cTxAddrIsBigPage_out;
         end
         else
         begin
             cTx_out <= l2_cTx_out;
+            cTxError_out <= l2_cTxError_out;
             cTxPhysAddr_out <= l2_cTxPhysAddr_out;
             cTxAddrIsBigPage_out <= l2_cTxAddrIsBigPage_out;
         end
@@ -646,7 +784,9 @@ module cci_mpf_shim_vtp_chan_l1_lookup
         .N_DATA_BITS($bits(t_vtp_shim_chan_l1_state) + $bits(t_vtp_shim_l1_result)),
         .N_ENTRIES(FIFO_THRESHOLD + 4),
         .THRESHOLD(FIFO_THRESHOLD),
-        .REGISTER_OUTPUT(1)
+        .REGISTER_OUTPUT(1),
+        // Bypass to save a cycle on c0 (reads), don't bother for writes.
+        .BYPASS_TO_REGISTER((CTX_NUMBER == 0) ? 1 : 0)
         )
       fifo
        (
@@ -698,6 +838,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // physical translation will be passed in.
     input  logic cTxValid,
     input  logic [N_CTX_BITS-1 : 0] cTx,
+    input  logic cTxReqIsSpeculative,
 
     // Outbound TX channel containing translated requests. The only flow
     // control here is cTxAlmostFull. The parent is expected to handle
@@ -705,6 +846,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     output logic cTxValid_out,
     output logic [N_CTX_BITS-1 : 0] cTx_out,
     output t_tlb_4kb_pa_page_idx cTxPhysAddr_out,
+    output logic cTxError_out,
     output logic cTxAddrIsBigPage_out,
     input  logic cTxAlmostFull,
 
@@ -767,12 +909,14 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     t_cci_mpf_shim_vtp_req_tag allocIdx_q;
     logic cTxValid_q;
     logic [N_CTX_BITS-1 : 0] cTx_q;
+    logic cTxReqIsSpeculative_q;
 
     always_ff @(posedge clk)
     begin
         allocIdx_q <= allocIdx;
         cTxValid_q <= cTxValid;
         cTx_q <= cTx;
+        cTxReqIsSpeculative_q <= cTxReqIsSpeculative;
     end
 
     t_cci_mpf_shim_vtp_req_tag readIdx;
@@ -817,6 +961,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     begin
         vtp_svc.lookupEn <= cTxValid_q;
         vtp_svc.lookupReq.pageVA <= get_4kb_va_page_idx(cTx_q);
+        vtp_svc.lookupReq.isSpeculative <= cTxReqIsSpeculative_q;
         vtp_svc.lookupReq.tag <= allocIdx_q;
 
         vtp_svc.invalComplete <= allow_fills;
@@ -890,6 +1035,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     begin
         cTxValid_out <= tlb_lookup_deq_q;
         cTxPhysAddr_out <= tlb_lookup_rsp_q.pagePA;
+        cTxError_out <= tlb_lookup_rsp_q.error;
         cTxAddrIsBigPage_out <= tlb_lookup_rsp_q.isBigPage;
         cTx_out <= read_cTx_out;
 
@@ -902,10 +1048,13 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     //
     // Set values for updating the local L1 cache.
     //
+    logic en_insert;
+    assign en_insert = tlb_lookup_deq_q && allow_fills && ! tlb_lookup_rsp_q.error;
+
     always_ff @(posedge clk)
     begin
-        en_insert_4kb <= tlb_lookup_deq_q && allow_fills && ! tlb_lookup_rsp_q.isBigPage;
-        en_insert_2mb <= tlb_lookup_deq_q && allow_fills && tlb_lookup_rsp_q.isBigPage;
+        en_insert_4kb <= en_insert && ! tlb_lookup_rsp_q.isBigPage;
+        en_insert_2mb <= en_insert && tlb_lookup_rsp_q.isBigPage;
 
         insertVA <= get_4kb_va_page_idx(read_cTx_out);
         insertPA <= tlb_lookup_rsp_q.pagePA;
@@ -1282,15 +1431,15 @@ module cci_mpf_shim_vtp_chan_l1_caches
             begin
                 if (insert_addr_is_valid)
                 begin
-                    $display("%m: 4KB: Insert idx %0d, VA 0x%x, PA 0x%x",
+                    $display("%m VTP: %0t 4KB: Insert idx %0d, VA 0x%x, PA 0x%x",
+                             $time,
                              cacheIdx4KB(insert_va),
                              {insert_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                              {insert_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
                 end
                 else
                 begin
-                    $display("%m: 4KB: Remove idx %0d",
-                             cacheIdx4KB(insert_va));
+                    $display("%m VTP: %0t 4KB: Remove idx %0d", $time, cacheIdx4KB(insert_va));
                 end
             end
 
@@ -1298,15 +1447,15 @@ module cci_mpf_shim_vtp_chan_l1_caches
             begin
                 if (insert_addr_is_valid)
                 begin
-                    $display("%m: 2MB: Insert idx %0d, VA 0x%x, PA 0x%x",
+                    $display("%m VTP: %0t 2MB: Insert idx %0d, VA 0x%x, PA 0x%x",
+                             $time,
                              cacheIdx2MB(insert_va),
                              {vtp4kbTo2mbVA(insert_va), CCI_PT_2MB_PAGE_OFFSET_BITS'(0), 6'b0},
                              {insert_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
                 end
                 else
                 begin
-                    $display("%m: 2MB: Remove idx %0d",
-                             cacheIdx2MB(insert_va));
+                    $display("%m VTP: %0t 2MB: Remove idx %0d", $time, cacheIdx2MB(insert_va));
                 end
             end
         end

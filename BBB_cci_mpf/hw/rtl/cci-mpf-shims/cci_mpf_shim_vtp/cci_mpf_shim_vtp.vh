@@ -166,6 +166,9 @@ typedef struct packed
     // Virtual page to translate
     t_tlb_4kb_va_page_idx pageVA;
 
+    // Is the request speculative? No hard errors on speculative translations.
+    logic isSpeculative;
+
     // Dynamically unique tag for lookup request for associating out of order
     // responses with requests.
     t_cci_mpf_shim_vtp_req_tag tag;
@@ -176,6 +179,9 @@ typedef struct packed
 {
     // Translated physical address
     t_tlb_4kb_pa_page_idx pagePA;
+
+    // Translation error?
+    logic error;
 
     // Tag from lookup request
     t_cci_mpf_shim_vtp_req_tag tag;
@@ -343,6 +349,7 @@ interface cci_mpf_shim_vtp_pt_walk_if;
 
     // Meta-data associated with requests and returned with responses.
     t_cci_mpf_shim_vtp_pt_walk_meta reqMeta;
+    logic reqIsSpeculative;
     t_cci_mpf_shim_vtp_req_tag reqTag;
 
     // Responses. These may be returned out of order. The client will use
@@ -351,6 +358,7 @@ interface cci_mpf_shim_vtp_pt_walk_if;
     t_tlb_4kb_va_page_idx rspVA;
     t_tlb_4kb_pa_page_idx rspPA;
     t_cci_mpf_shim_vtp_pt_walk_meta rspMeta;
+    logic rspIsSpeculative;
     t_cci_mpf_shim_vtp_req_tag rspTag;
     // 2MB page? If 0 then it is a 4KB page.
     logic rspIsBigPage;
@@ -364,12 +372,14 @@ interface cci_mpf_shim_vtp_pt_walk_if;
         input  reqVA,
         input  reqEn,
         input  reqMeta,
+        input  reqIsSpeculative,
         input  reqTag,
 
         output rspEn,
         output rspVA,
         output rspPA,
         output rspMeta,
+        output rspIsSpeculative,
         output rspTag,
         output rspIsBigPage,
         output rspNotPresent
@@ -382,12 +392,14 @@ interface cci_mpf_shim_vtp_pt_walk_if;
         output reqVA,
         output reqEn,
         output reqMeta,
+        output reqIsSpeculative,
         output reqTag,
 
         input  rspEn,
         input  rspVA,
         input  rspPA,
         input  rspMeta,
+        input  rspIsSpeculative,
         input  rspTag,
         input  rspIsBigPage,
         input  rspNotPresent
