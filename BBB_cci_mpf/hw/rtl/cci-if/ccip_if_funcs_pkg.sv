@@ -84,6 +84,18 @@ package ccip_if_funcs_pkg;
         return r.rspValid && (r.hdr.resp_type == eRSP_RDLINE);
     endfunction
 
+    function automatic logic ccip_c0Rx_isError(
+        input t_if_ccip_c0_Rx r
+        );
+        // Speculative translation error? This field was added
+        // later, so we must test whether it is supported.
+`ifdef CCIP_RDLSPEC_AVAIL
+        return r.hdr.error;
+`else
+        return 1'b0;
+`endif
+    endfunction
+
     function automatic logic ccip_c1Rx_isWriteRsp(
         input t_if_ccip_c1_Rx r
         );

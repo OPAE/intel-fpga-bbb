@@ -1,0 +1,3 @@
++define+MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+
+C:sources_common.txt

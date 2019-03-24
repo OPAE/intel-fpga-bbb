@@ -507,8 +507,9 @@ module cci_mpf_svc_vtp_pt_walk
 
           STATE_PT_WALK_SPEC_ERROR:
             begin
-                rsp_en <= 1'b0;
                 state <= STATE_PT_WALK_IDLE;
+                state_is_walk_idle <= 1'b1;
+                rsp_en <= 1'b0;
             end
 
           STATE_PT_WALK_HALT:

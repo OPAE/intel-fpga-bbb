@@ -155,15 +155,16 @@ int main(int argc, char *argv[])
         cout << "#" << endl;
     }
 
-    uint64_t mhz = t->getAFUMHz();
-    double usec_per_cycle = 1.0 / double(mhz);
+    uint64_t mhz = t->getAFUMHz(false);
+    double usec_per_cycle = 0;
+    if (mhz) usec_per_cycle = 1.0 / double(mhz);
 
     uint64_t cycles = t->testNumCyclesExecuted();
     if (cycles != 0)
     {
         cout << "#" << endl
              << "# Test cycles executed: " << cycles
-             << " (" << mhz << " MHz)"
+             << " (" << (mhz ? std::to_string(mhz) : "unknown uClk") << " MHz)"
              << (svc.hwIsSimulated() ? " [simulated]" : "")
              << endl;
     }
