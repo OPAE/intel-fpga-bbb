@@ -50,6 +50,13 @@ static const size_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
 //
 // ========================================================================
 
+static fpga_result vtpInvalHWVAMapping(
+    mpf_handle_t mpf_handle,
+    bool pt_locked,
+    mpf_vtp_pt_vaddr va
+);
+
+
 //
 // Turn the FPGA side on.
 //
@@ -125,7 +132,7 @@ static fpga_result vtpPinRegion(
 
         this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
 
-        r = mpfVtpPinAndInsertPage(_mpf_handle, page, this_page_size, pt_flags, NULL);
+        r = mpfVtpPinAndInsertPage(_mpf_handle, true, page, this_page_size, pt_flags, NULL);
         if (FPGA_OK != r) goto fail;
 
         if (pt_flags)
@@ -259,6 +266,7 @@ static fpga_result vtpAllocBuffer(
 
 fpga_result mpfVtpPinAndInsertPage(
     _mpf_handle_p _mpf_handle,
+    bool pt_locked,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
     uint32_t flags,
@@ -319,6 +327,12 @@ fpga_result mpfVtpPinAndInsertPage(
 
         return FPGA_NO_MEMORY;
     }
+
+    // Invalidate any old address translation in the FPGA. There may be failed
+    // speculation entries in the FPGA cache that have to be removed now that
+    // the page is valid.
+    r = vtpInvalHWVAMapping(_mpf_handle, pt_locked, va);
+    if (FPGA_OK != r) return r;
 
     // Get the physical address of the buffer
     mpf_vtp_pt_paddr alloc_pa;
@@ -659,8 +673,9 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
 }
 
 
-fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
+static fpga_result vtpInvalHWVAMapping(
     mpf_handle_t mpf_handle,
+    bool pt_locked,
     mpf_vtp_pt_vaddr va
 )
 {
@@ -672,7 +687,7 @@ fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
     // Previous request must be complete!
     while (! mpfVtpInvalHWVAMappingComplete(_mpf_handle)) ;
 
-    mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+    if (! pt_locked) mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
 
     // Clear the FPGA-side in-use flag. If the flag gets set again
     // we will know that the translation has been reloaded by the FPGA.
@@ -695,8 +710,17 @@ fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
                      va, _mpf_handle->vtp.csr_inval_page_toggle);
     }
 
-    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    if (! pt_locked) mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     return FPGA_OK;
+}
+
+
+fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pt_vaddr va
+)
+{
+    return vtpInvalHWVAMapping(mpf_handle, false, va);
 }
 
 

@@ -109,7 +109,7 @@ static fpga_result mapVA(
                      (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
     }
 
-    r = mpfVtpPinAndInsertPage(_mpf_handle, req_va, *page_size,
+    r = mpfVtpPinAndInsertPage(_mpf_handle, true, req_va, *page_size,
                                MPF_VTP_PT_FLAG_IN_USE, rsp_pa);
     mpfVtpPtUnlockMutex(pt);
     return r;
