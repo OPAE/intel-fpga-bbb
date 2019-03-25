@@ -137,6 +137,12 @@ module cci_mpf_svc_vtp_tlb
     {
         t_tlb_virtual_tag tag;
         t_tlb_pa_page_idx idx;
+
+        // When set, the entry is an indication that no translation is
+        // present in the page table. This allows us to cache failed
+        // speculative loads in order to avoid repeated page walks.
+        logic notPresent;
+
         // Must be in lowest bit position so that initialization works.
         logic valid;
     }
@@ -237,6 +243,7 @@ module cci_mpf_svc_vtp_tlb
     //
     typedef struct {
         logic did_lookup;
+        logic lookup_is_speculative;
         t_tlb_va_page_idx lookup_page_va;
     } t_tlb_stage_state;
 
@@ -255,6 +262,7 @@ module cci_mpf_svc_vtp_tlb
             stg_state[1].did_lookup <= tlb_if.lookupEn;
         end 
 
+        stg_state[1].lookup_is_speculative <= tlb_if.lookupIsSpeculative;
         stg_state[1].lookup_page_va <= tlbVAIdxFrom4K(tlb_if.lookupPageVA);
 
         for (int s = 1; s < NUM_PIPE_STAGES; s = s + 1)
@@ -386,6 +394,7 @@ module cci_mpf_svc_vtp_tlb
     logic lookup_valid;
     logic lookup_miss;
     t_tlb_4kb_pa_page_idx lookup_page_pa;
+    logic lookup_not_present;
 
     always_ff @(posedge clk)
     begin
@@ -401,6 +410,7 @@ module cci_mpf_svc_vtp_tlb
         end
 
         lookup_page_pa <= tlbPAIdxTo4K(stg_tlb_rdata[4][stg4_way_hit].idx);
+        lookup_not_present <= stg_tlb_rdata[4][stg4_way_hit].notPresent;
     end
 
     //
@@ -425,17 +435,26 @@ module cci_mpf_svc_vtp_tlb
     // Final stage, follows tag comparison
     //
 
+    // Special case: non-speculative hit on an entry that is indicating a failed
+    // translation. In that case, take the miss path.
+    logic non_speculative_not_present;
+    assign non_speculative_not_present = lookup_not_present &&
+                                         ! stg_state[NUM_PIPE_STAGES].lookup_is_speculative;
+
     always_ff @(posedge clk)
     begin
         // Lookup is valid if some way hit
-        tlb_if.lookupRspHit <= lookup_valid;
+        tlb_if.lookupRspHit <= lookup_valid && ! non_speculative_not_present;
 
         // Flag misses.
-        tlb_if.lookupMiss <= lookup_miss;
+        tlb_if.lookupMiss <= lookup_miss || (lookup_valid && non_speculative_not_present);
         tlb_if.lookupMissVA <= tlbVAIdxTo4K(stg_state[NUM_PIPE_STAGES].lookup_page_va);
 
         // Get the physical page index from the chosen way
         tlb_if.lookupRspPagePA <= lookup_page_pa;
+
+        // Is this a valid translation or just failed speculation?
+        tlb_if.lookupRspNotPresent <= lookup_not_present;
     end
 
 
@@ -461,6 +480,7 @@ module cci_mpf_svc_vtp_tlb
     // Translation insertion request from page walker.
     t_tlb_va_page_idx fill_va;
     t_tlb_pa_page_idx fill_pa;
+    logic fill_not_present;
 
     // Separate the set index and tag components of the fill VA.
     t_tlb_virtual_tag fill_tag;
@@ -534,6 +554,7 @@ module cci_mpf_svc_vtp_tlb
                     // Convert from VA to TLB tag/index
                     fill_va <= tlbVAIdxFrom4K(tlb_if.fillVA);
                     fill_pa <= tlbPAIdxFrom4K(tlb_if.fillPA);
+                    fill_not_present <= tlb_if.fillNotPresent;
                 end
             end
 
@@ -639,6 +660,7 @@ module cci_mpf_svc_vtp_tlb
         tlb_wdata.valid <= 1'b1;
         tlb_wdata.tag <= fill_tag;
         tlb_wdata.idx <= fill_pa;
+        tlb_wdata.notPresent <= fill_not_present;
 
         tlb_waddr <= t_tlb_idx'(fill_idx);
 
@@ -690,19 +712,21 @@ module cci_mpf_svc_vtp_tlb
         begin
             if (tlb_if.lookupEn)
             begin
-                $display("VTP TLB %s: %0t Lookup VA 0x%x",
+                $display("VTP TLB %s: %0t Lookup VA 0x%x%0s",
                          DEBUG_NAME, $time,
-                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         (tlb_if.lookupIsSpeculative ? ", speculative" : ""));
             end
 
             if (lookup_valid)
             begin
-                $display("VTP TLB %s: %0t Hit idx %0d, way %0d, VA 0x%x, PA 0x%x",
+                $display("VTP TLB %s: %0t Hit idx %0d, way %0d, VA 0x%x, PA 0x%x%0s",
                          DEBUG_NAME, $time,
                          target_tlb_idx(stg_state[NUM_PIPE_STAGES].lookup_page_va),
                          lookup_way_hit,
                          {stg_state[NUM_PIPE_STAGES].lookup_page_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {lookup_page_pa, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {lookup_page_pa, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         (lookup_not_present ? " [NOT PRESENT]" : ""));
             end
 
             for (int way = 0; way < NUM_TLB_SET_WAYS; way = way + 1)
@@ -728,13 +752,14 @@ module cci_mpf_svc_vtp_tlb
 
             if (tlb_if.fillEn)
             begin
-                $display("VTP TLB %s: %0t TLB %s fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x)",
+                $display("VTP TLB %s: %0t TLB %s fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x)%0s",
                          DEBUG_NAME, $time,
                          ((fill_state == STATE_TLB_FILL_IDLE) ? "accepted" : "ignored"),
                          {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
                          {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0)},
                          {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0)});
+                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0)},
+                         (tlb_if.fillNotPresent ? " [NOT PRESENT]" : ""));
             end
 
             if ((fill_state == STATE_TLB_FILL_DROP_DUPS) && ! fill_not_duplicate)

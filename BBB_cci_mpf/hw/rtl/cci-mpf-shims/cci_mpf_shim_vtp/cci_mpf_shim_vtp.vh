@@ -262,6 +262,7 @@ interface cci_mpf_shim_vtp_tlb_if;
     // to compute offsets into pages.
     logic lookupEn;         // Enable the request
     t_tlb_4kb_va_page_idx lookupPageVA;
+    logic lookupIsSpeculative;
     logic lookupRdy;        // Ready to accept a request?
 
     // Did the lookup hit in the TLB cache?
@@ -269,7 +270,9 @@ interface cci_mpf_shim_vtp_tlb_if;
     // Respond with page's physical address two cycles after lookupEn
     t_tlb_4kb_pa_page_idx lookupRspPagePA;
     logic lookupRspIsBigPage;
-
+    // Is the page present in the translation table? Even failed translations
+    // are cached so that speculative loads don't keep forcing page walks.
+    logic lookupRspNotPresent;
 
     //
     // Signals for handling misses and fills.
@@ -282,29 +285,35 @@ interface cci_mpf_shim_vtp_tlb_if;
     t_tlb_4kb_pa_page_idx fillPA;
     // 2MB page? If 0 then it is a 4KB page.
     logic fillBigPage;
+    // Failed speculative translation?
+    logic fillNotPresent;
 
     modport server
        (
         input  lookupEn,
         input  lookupPageVA,
+        input  lookupIsSpeculative,
         output lookupRdy,
 
         output lookupRspHit,
         output lookupRspPagePA,
         output lookupRspIsBigPage,
+        output lookupRspNotPresent,
 
         output lookupMiss,
         output lookupMissVA,
         input  fillEn,
         input  fillVA,
         input  fillPA,
-        input  fillBigPage
+        input  fillBigPage,
+        input  fillNotPresent
         );
 
     modport client
        (
         output lookupEn,
         output lookupPageVA,
+        output lookupIsSpeculative,
         input  lookupRdy,
 
         // Responses are returned from the TLB in the order translations were
@@ -314,7 +323,8 @@ interface cci_mpf_shim_vtp_tlb_if;
         input  lookupMiss,
         input  lookupRspHit,
         input  lookupRspPagePA,
-        input  lookupRspIsBigPage
+        input  lookupRspIsBigPage,
+        input  lookupRspNotPresent
         );
 
     // Fill -- add a new translation
@@ -323,7 +333,8 @@ interface cci_mpf_shim_vtp_tlb_if;
         output fillEn,
         output fillVA,
         output fillPA,
-        output fillBigPage
+        output fillBigPage,
+        output fillNotPresent
         );
 
 endinterface

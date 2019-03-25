@@ -302,6 +302,7 @@ module cci_mpf_svc_vtp
     begin
         tlb_if.lookupEn = first_rdy && ! tlb_almostFull && tlb_if.lookupRdy;
         tlb_if.lookupPageVA = first.pageVA;
+        tlb_if.lookupIsSpeculative = first.isSpeculative;
     end
 
     always_ff @(posedge clk)
@@ -311,11 +312,12 @@ module cci_mpf_svc_vtp
         begin
             if (tlb_if.lookupEn)
             begin
-                $display("VTP SVC %0t: TLB lookup REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
+                $display("VTP SVC %0t: TLB lookup REQ VA 0x%x (line 0x%x), tag (%0d, %0d)%0s",
                          $time,
                          {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
-                         first_port_idx, first.tag);
+                         first_port_idx, first.tag,
+                         (first.isSpeculative ? ", speculative" : ""));
             end
         end
         // synthesis translate_on
@@ -333,6 +335,7 @@ module cci_mpf_svc_vtp
         logic tlbHit;
         logic tlbMiss;
         logic isBigPage;
+        logic notPresent;    // Failed speculative translation (not in page table)
     }
     t_cci_mpf_shim_vtp_tlb_rsp;
 
@@ -345,6 +348,7 @@ module cci_mpf_svc_vtp
         tlb_rsp_in.tlbHit <= tlb_if.lookupRspHit;
         tlb_rsp_in.tlbMiss <= tlb_if.lookupMiss;
         tlb_rsp_in.isBigPage <= tlb_if.lookupRspIsBigPage;
+        tlb_rsp_in.notPresent <= tlb_if.lookupRspNotPresent;
     end
 
     cci_mpf_prim_fifo_lutram
@@ -377,13 +381,14 @@ module cci_mpf_svc_vtp
         begin
             if (tlb_rsp_in.tlbHit)
             begin
-                $display("VTP SVC %0t: TLB lookup RESP hit PA 0x%x (line 0x%x), %0s page",
+                $display("VTP SVC %0t: TLB lookup RESP hit PA 0x%x (line 0x%x), %0s page%0s",
                          $time,
                          {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
-                         (tlb_rsp_in.isBigPage ? "2MB" : "4KB"));
+                         (tlb_rsp_in.isBigPage ? "2MB" : "4KB"),
+                         (tlb_rsp_in.notPresent ? " [NOT PRESENT]" : ""));
             end
-            if (tlb_rsp_in.tlbHit || tlb_rsp_in.tlbMiss)
+            if (tlb_rsp_in.tlbMiss)
             begin
                 $display("VTP SVC %0t: TLB lookup RESP miss", $time);
             end
@@ -474,7 +479,7 @@ module cci_mpf_svc_vtp
             rsp_data.pagePA <= tlb_lookup_rsp.pagePA;
             rsp_data.isBigPage <= tlb_lookup_rsp.isBigPage;
             rsp_data.tag <= tlb_processed_req.tag;
-            rsp_data.error <= 1'b0;
+            rsp_data.error <= tlb_lookup_rsp.notPresent;
         end
     end
 
@@ -610,8 +615,12 @@ module cci_mpf_svc_vtp_multi_size_tlb
     // When the pipeline requests a TLB lookup do it on both pipelines.
     assign tlb_if_4kb.lookupPageVA = tlb_if.lookupPageVA;
     assign tlb_if_4kb.lookupEn = tlb_if.lookupEn;
+    assign tlb_if_4kb.lookupIsSpeculative = tlb_if.lookupIsSpeculative;
+
     assign tlb_if_2mb.lookupPageVA = tlb_if.lookupPageVA;
     assign tlb_if_2mb.lookupEn = tlb_if.lookupEn;
+    assign tlb_if_2mb.lookupIsSpeculative = tlb_if.lookupIsSpeculative;
+
     assign tlb_if.lookupRdy = tlb_if_4kb.lookupRdy && tlb_if_2mb.lookupRdy;
 
     // The TLB pipeline is fixed length, so responses arrive together.
@@ -622,6 +631,9 @@ module cci_mpf_svc_vtp_multi_size_tlb
     assign tlb_if.lookupRspPagePA =
         tlb_if_4kb.lookupRspHit ? tlb_if_4kb.lookupRspPagePA :
                                   tlb_if_2mb.lookupRspPagePA;
+    assign tlb_if.lookupRspNotPresent =
+        tlb_if_4kb.lookupRspHit ? tlb_if_4kb.lookupRspNotPresent :
+                                  tlb_if_2mb.lookupRspNotPresent;
 
     // Read the page table if both TLBs miss
     assign tlb_if.lookupMiss = tlb_if_4kb.lookupMiss && tlb_if_2mb.lookupMiss;
@@ -660,6 +672,9 @@ module cci_mpf_svc_vtp_multi_size_tlb
 
         tlb_if_4kb.fillBigPage <= 1'b0;
         tlb_if_2mb.fillBigPage <= 1'b1;
+
+        tlb_if_4kb.fillNotPresent <= tlb_if.fillNotPresent;
+        tlb_if_2mb.fillNotPresent <= tlb_if.fillNotPresent;
 
         if (reset)
         begin
@@ -828,10 +843,11 @@ module cci_mpf_svc_vtp_do_pt_walk
     //
     always_ff @(posedge clk)
     begin
-        tlb_if.fillEn <= pt_walk.rspEn && ! pt_walk.rspNotPresent;
+        tlb_if.fillEn <= pt_walk.rspEn;
         tlb_if.fillVA <= pt_walk.rspVA;
         tlb_if.fillPA <= pt_walk.rspPA;
         tlb_if.fillBigPage <= pt_walk.rspIsBigPage;
+        tlb_if.fillNotPresent <= pt_walk.rspNotPresent;
 
         if (reset)
         begin
@@ -865,13 +881,14 @@ module cci_mpf_svc_vtp_do_pt_walk
 
             if (tlb_if.fillEn)
             begin
-                $display("VTP SVC %0t: TLB fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x), %0s",
+                $display("VTP SVC %0t: TLB fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x), %0s%0s",
                          $time,
                          {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
                          {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
-                         (tlb_if.fillBigPage ? "2MB" : "4KB"));
+                         (tlb_if.fillBigPage ? "2MB" : "4KB"),
+                         (tlb_if.fillNotPresent ? " [NOT PRESENT]" : ""));
             end
         end
         // synthesis translate_on

@@ -28,6 +28,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+`include "platform_if.vh"
 `include "cci_mpf_if.vh"
 `include "cci_test_csrs.vh"
 
@@ -87,6 +88,8 @@ module test_afu
     //
     // ====================================================================
 
+    typedef logic [39:0] t_counter;
+
     //
     // Configuration state, set by host.
     //
@@ -109,12 +112,26 @@ module test_afu
     t_rd_engine_cfg;
 
     t_rd_engine_cfg rd_engine_cfg[MAX_RD_ENGINES];
-    t_hash rd_engine_last_hash[MAX_RD_ENGINES];
-    logic [31:0] rd_engine_trips[MAX_RD_ENGINES];
     logic [MAX_RD_ENGINES-1 : 0] rd_engine_error;
+
+    typedef struct packed {
+        t_hash last_hash;
+        t_counter trips;
+        t_counter dropped_reads;
+        t_counter spec_errors;
+    }
+    t_rd_engine_data;
+
+    t_rd_engine_data rd_engine_data[MAX_RD_ENGINES];
+    t_rd_engine_data cur_rd_engine_data;
 
     logic enabled;
     logic [47:0] test_cycles;
+
+    always_ff @(posedge clk)
+    begin
+        cur_rd_engine_data <= rd_engine_data[cur_rd_engine_csr_idx];
+    end
 
     always_comb
     begin
@@ -134,8 +151,10 @@ module test_afu
         csrs.cpu_rd_csrs[0].data = 64'({8'(MAX_RD_ENGINES), 6'b0, c1NotEmpty, c0NotEmpty});
         csrs.cpu_rd_csrs[1].data = 64'(test_cycles);
         csrs.cpu_rd_csrs[2].data = 64'(rd_engine_error);
-        csrs.cpu_rd_csrs[3].data = 64'(rd_engine_trips[cur_rd_engine_csr_idx]);
-        csrs.cpu_rd_csrs[4].data = 64'(rd_engine_last_hash[cur_rd_engine_csr_idx]);
+        csrs.cpu_rd_csrs[3].data = 64'(cur_rd_engine_data.trips);
+        csrs.cpu_rd_csrs[4].data = 64'(cur_rd_engine_data.last_hash);
+        csrs.cpu_rd_csrs[5].data = 64'(cur_rd_engine_data.dropped_reads);
+        csrs.cpu_rd_csrs[6].data = 64'(cur_rd_engine_data.spec_errors);
     end
 
 
@@ -479,6 +498,8 @@ module test_afu
     // Extracted state from read responses
     //
     logic rd_rsp_valid;
+    logic rd_rsp_present;
+    logic rd_rsp_error;
     logic rd_rsp_epoch;
     t_rd_engine_idx rd_rsp_engine_idx;
     logic rd_rsp_end_of_stream;
@@ -487,6 +508,9 @@ module test_afu
     always_ff @(posedge clk)
     begin
         rd_rsp_valid <= cci_c0Rx_isReadRsp(fiu.c0Rx) && ! cci_c0Rx_isError(fiu.c0Rx);
+        rd_rsp_present <= cci_c0Rx_isReadRsp(fiu.c0Rx);
+        rd_rsp_error <= cci_c0Rx_isReadRsp(fiu.c0Rx) && cci_c0Rx_isError(fiu.c0Rx);
+
         {rd_rsp_engine_idx, rd_rsp_epoch} <= fiu.c0Rx.hdr.mdata;
 
         // Bit 0 data indicates end of stream when 1.
@@ -541,13 +565,40 @@ module test_afu
                 end
             end
 
+            // Statistics
+            always_ff @(posedge clk)
+            begin
+                if (rd_rsp_present && (rd_rsp_engine_idx == t_rd_engine_idx'(e)))
+                begin
+                    // Prefetches dropped
+                    if ((rd_rsp_epoch != cur_rd_epoch[e]) || switch_rd_epoch[e])
+                    begin
+                        rd_engine_data[e].dropped_reads <= rd_engine_data[e].dropped_reads +
+                                                           t_counter'(1);
+                    end
+
+                    // Prefetches (hopefully) with failed address translations
+                    if (rd_rsp_error)
+                    begin
+                        rd_engine_data[e].spec_errors <= rd_engine_data[e].spec_errors +
+                                                         t_counter'(1);
+                    end
+                end
+
+                if (reset || (state == STATE_START))
+                begin
+                    rd_engine_data[e].dropped_reads <= 0;
+                    rd_engine_data[e].spec_errors <= 0;
+                end
+            end
+
             // Is the hash the expected value at stream end?
             always_ff @(posedge clk)
             begin
                 if (switch_rd_epoch[e])
                 begin
-                    rd_engine_trips[e] <= rd_engine_trips[e] + 1;
-                    rd_engine_last_hash[e] <= hash_value;
+                    rd_engine_data[e].trips <= rd_engine_data[e].trips + t_counter'(1);
+                    rd_engine_data[e].last_hash <= hash_value;
 
                     if (hash_value != rd_engine_cfg[e].expected_hash)
                     begin
@@ -564,8 +615,8 @@ module test_afu
                 if (reset || (state == STATE_START))
                 begin
                     rd_engine_error[e] <= 1'b0;
-                    rd_engine_trips[e] <= 0;
-                    rd_engine_last_hash[e] <= 0;
+                    rd_engine_data[e].trips <= 0;
+                    rd_engine_data[e].last_hash <= 0;
                 end
             end
         end

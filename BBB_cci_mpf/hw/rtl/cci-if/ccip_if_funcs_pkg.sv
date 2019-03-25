@@ -2,6 +2,10 @@
 // Functions that operate on CCI-P data types.
 //
 
+`ifdef PLATFORM_IF_AVAIL
+`include "platform_if.vh"
+`endif
+
 package ccip_if_funcs_pkg;
 
     import ccip_if_pkg::*;

@@ -153,7 +153,12 @@ int TEST_SPEC_LOAD::test()
             // Set the engine index being probed
             writeTestCSR(3, e);
             uint64_t trips = readTestCSR(3);
-            cout << "    Engine 0 trips: " << trips << endl;
+            uint64_t dropped_reads = readTestCSR(5);
+            uint64_t spec_errors = readTestCSR(6);
+            cout << "    Engine 0 trips: " << trips
+                 << ", dropped reads: " << dropped_reads
+                 << ", spec errors: " << spec_errors
+                 << endl;
         }
 
         uint64_t error_mask = readTestCSR(2);
