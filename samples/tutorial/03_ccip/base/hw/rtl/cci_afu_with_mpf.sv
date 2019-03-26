@@ -195,6 +195,18 @@ module ccip_std_afu
         // addrIsVirtual flag in the MPF extended Tx channel
         // request header.
         .ENABLE_VTP(`MPF_CONF_ENABLE_VTP),
+        // Two implementations of physical to virtual page translation are
+        // available in VTP. Pick mode "HARDWARE_WALKER" to walk the VTP
+        // page table using AFU-generated memory reads. Pick mode
+        // "SOFTWARE_SERVICE" to send translation requests to software.
+        // In HARDWARE_WALKER mode it is the user code's responsibility to
+        // pin all pages that may be touched by the FPGA. The SOFTWARE_SERVICE
+        // mode may pin pages automatically on demand.
+  `ifdef MPF_CONF_VTP_PT_MODE_HARDWARE_WALKER
+        .VTP_PT_MODE("HARDWARE_WALKER"),
+  `elsif MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+        .VTP_PT_MODE("SOFTWARE_SERVICE"),
+  `endif
 
         // Enable mapping of eVC_VA to physical channels?  AFUs that both use
         // eVC_VA and read back memory locations written by the AFU must either

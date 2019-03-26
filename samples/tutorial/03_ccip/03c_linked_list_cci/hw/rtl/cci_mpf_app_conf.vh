@@ -37,3 +37,6 @@
 
 // Ordered responses are required by the application
 `define MPF_CONF_SORT_READ_RESPONSES 1
+
+// Software translation service
+`define MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE

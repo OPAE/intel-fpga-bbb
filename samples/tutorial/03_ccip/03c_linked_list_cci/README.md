@@ -4,9 +4,18 @@ The RTL is written using plain CCI-P request and response structures, yet
 still employs MPF to transform the platform memory semantics. The software
 buffer management in [sw/linked_list_malloc.cpp](sw/linked_list_malloc.cpp)
 is also changed. Buffers are allocated using standard functions and are not
-pinned for FPGA access before the addresses are passed to the FPGA. MPF/VTP
-was extended to pin buffers automatically on reference at the beginning of
-March, 2019.
+pinned for FPGA access before the addresses are passed to the FPGA. At the
+beginning of March, 2019, MPF/VTP was extended with the option to pin
+buffers automatically on reference.
+
+In [hw/rtl/cci_mpf_app_conf.vh](hw/rtl/cci_mpf_app_conf.vh), the
+preprocessor variable MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE is defined.
+This variable enables the automatic pinning of pages on reference in
+VTP by setting VTP_PT_MODE to "SOFTWARE_SERVICE" in
+[../base/hw/rtl/cci_afu_with_mpf.sv](../base/hw/rtl/cci_afu_with_mpf.sv).
+Instead of a hardware page table walker, VTP invokes a software handler
+for each miss. The software handler confirms that pages are pinned
+before adding them to VTP's private virtual to physical translation table.
 
 In [hw/rtl/linked_list_afu.sv](hw/rtl/linked_list_afu.sv), the
 app_afu() module is replaced with a module that maps the incoming MPF
