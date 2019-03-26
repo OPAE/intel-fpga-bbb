@@ -166,12 +166,15 @@ module cci_mpf_shim_vtp
     logic c0_deq_error_hdr;
     logic c0_error_hdr_notEmpty;
     t_cci_clNum c0_error_hdr_cl_num;
+    logic c0_error_last_cl;
 
     always_comb
     begin
         c0_error_hdr_in = cci_c0_genRspHdr(eRSP_RDLINE, c0chan_outTx.hdr.base.mdata);
         // Store the number of responses (lines) needed in the cl_len field.
         c0_error_hdr_in.cl_num = t_cci_clLen'(c0chan_outTx.hdr.base.cl_len);
+
+        c0_error_hdr_in = cci_mpf_c0Rx_updEOP(c0_error_hdr_in, c0_error_last_cl);
 
         // Signal the translation error
 `ifdef CCIP_RDLSPEC_AVAIL
@@ -223,18 +226,19 @@ module cci_mpf_shim_vtp
     begin
         afu.c0Rx <= fiu.c0Rx;
 
-        c0_deq_error_hdr <= 1'b0;
         if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
         begin
             afu.c0Rx.rspValid <= 1'b1;
             afu.c0Rx.hdr <= c0_error_hdr;
             afu.c0Rx.hdr.cl_num <= c0_error_hdr_cl_num;
-
-            // Done with the speculation error when responses are generated
-            // for all lines.
-            c0_deq_error_hdr <= (c0_error_hdr_cl_num == c0_error_hdr.cl_num);
         end
     end
+
+    // Done with the speculation error when responses are generated
+    // for all lines.
+    assign c0_error_last_cl = (c0_error_hdr_cl_num == c0_error_hdr.cl_num);
+    assign c0_deq_error_hdr = c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx) &&
+                              c0_error_last_cl;
 
 
     //

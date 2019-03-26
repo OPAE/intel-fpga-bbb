@@ -137,7 +137,7 @@ class CCI_TEST
         }
     }
 
-    uint64_t getAFUMHz()
+    uint64_t getAFUMHz(bool uclk_freq_required = true)
     {
         // What's the AFU frequency (MHz)?
         uint64_t afu_mhz = readCommonCSR(CSR_COMMON_FREQ);
@@ -155,7 +155,7 @@ class CCI_TEST
             afu_mhz = uint64_t(vm["uclk-freq"].as<int>()) >> 1;
         }
 
-        if (afu_mhz == 0)
+        if ((afu_mhz == 0) && uclk_freq_required)
         {
             cerr << "--uclk-freq must be specified when connecting to uClk_usr" << endl;
             exit(1);

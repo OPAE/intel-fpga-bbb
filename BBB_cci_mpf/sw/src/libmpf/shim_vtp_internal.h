@@ -83,6 +83,7 @@ bool mpfVtpPinOnDemandMode(
  * Pin and insert a single page in the translation table.
  *
  * @param[in]  _mpf_handle Internal handle to MPF state.
+ * @param[in]  pt_locked   True if the page table manager lock is held already.
  * @param[in]  va          Virtual address of page start.
  * @param[in]  page_size   Size of the page.
  * @param[in]  flags       Flags passed to mpfVtpPtInsertPageMapping().
@@ -91,6 +92,7 @@ bool mpfVtpPinOnDemandMode(
  */
 fpga_result mpfVtpPinAndInsertPage(
     _mpf_handle_p _mpf_handle,
+    bool pt_locked,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
     uint32_t flags,

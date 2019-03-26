@@ -1,0 +1,8 @@
+test_spec_load.json
+
+SI:../../../base/hw/sim/cci_mpf_test_base_addenda.txt
+QI:../../../base/hw/par/cci_mpf_test_base_PAR_files.qsf
+
++incdir+.
+test_spec_load.sv
+hash32.sv

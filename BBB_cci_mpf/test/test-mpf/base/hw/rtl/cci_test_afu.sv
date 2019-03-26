@@ -210,6 +210,12 @@ module ccip_std_afu
         // request header.
         .ENABLE_VTP(`MPF_CONF_ENABLE_VTP),
 
+  `ifdef MPF_CONF_VTP_PT_MODE_HARDWARE_WALKER
+        .VTP_PT_MODE("HARDWARE_WALKER"),
+  `elsif MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+        .VTP_PT_MODE("SOFTWARE_SERVICE"),
+  `endif
+
         // Enable mapping of eVC_VA to physical channels?  AFUs that both use
         // eVC_VA and read back memory locations written by the AFU must either
         // emit WrFence on VA or use explicit physical channels and enforce

@@ -162,6 +162,12 @@ package cci_mpf_if_pkg;
         return ccip_c0Rx_isReadRsp(r);
     endfunction
 
+    function automatic logic cci_c0Rx_isError(
+        input t_if_ccip_c0_Rx r
+        );
+        return ccip_c0Rx_isError(r);
+    endfunction
+
     function automatic logic cci_c1Rx_isWriteRsp(
         input t_if_cci_c1_Rx r
         );

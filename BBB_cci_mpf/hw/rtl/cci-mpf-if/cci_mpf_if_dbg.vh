@@ -157,8 +157,8 @@
                             $time, cycle,
                             print_channel(c0Rx.hdr.vc_used),
                             c0Rx.hdr.cl_num,
-                            ((c0Rx.hdr.cl_num == 0) ? "S" :
-                               cci_mpf_c0Rx_isEOP(c0Rx) ? "E" : "x"),
+                            (cci_mpf_c0Rx_isEOP(c0Rx) ? "E" :
+                               (c0Rx.hdr.cl_num == 0) ? "S" : "x"),
                             print_c0_resptype(c0Rx.hdr.resp_type),
 `ifdef CCIP_RDLSPEC_AVAIL
                             (c0Rx.hdr.error ? "ERROR " : ""),
