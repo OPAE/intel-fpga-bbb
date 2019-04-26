@@ -109,8 +109,26 @@ static fpga_result mapVA(
                      (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
     }
 
+    // Pin the page and store it in the page table.
+    fpga_result pin_result;
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_IN_USE;
     r = mpfVtpPinAndInsertPage(_mpf_handle, true, req_va, *page_size,
-                               MPF_VTP_PT_FLAG_IN_USE, rsp_pa);
+                               pt_flags, rsp_pa, &pin_result);
+    if (pin_result != FPGA_OK)
+    {
+        // Pinning failed. Try read-only.
+        if (srv->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("VTP retrying pinning VA %p on a %s page as READ ONLY",
+                         req_va,
+                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+        }
+
+        pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
+        r = mpfVtpPinAndInsertPage(_mpf_handle, true, req_va, *page_size,
+                                   pt_flags, rsp_pa, &pin_result);
+    }
+
     mpfVtpPtUnlockMutex(pt);
     return r;
 }

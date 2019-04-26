@@ -55,9 +55,11 @@ typedef enum
     MPF_VTP_PT_FLAG_INVALID = 8,
     // Page may be in FPGA-side VTP caches.
     MPF_VTP_PT_FLAG_IN_USE = 16,
+    // Page is mapped read-only
+    MPF_VTP_PT_FLAG_READ_ONLY = 32,
 
     // All flags (mask)
-    MPF_VTP_PT_FLAG_MASK = 31
+    MPF_VTP_PT_FLAG_MASK = 63
 }
 mpf_vtp_pt_flag;
 

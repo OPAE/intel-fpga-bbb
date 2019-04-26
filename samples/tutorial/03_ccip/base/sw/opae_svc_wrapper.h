@@ -80,7 +80,8 @@ class OPAE_SVC_WRAPPER
     // When VTP is not present, the standard physical page allocator
     // is used.
     //
-    fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes);
+    fpga::types::shared_buffer::ptr_t allocBuffer(size_t nBytes,
+                                                  bool read_only = false);
 
     fpga::types::handle::ptr_t accel;
     mpf::types::mpf_handle::ptr_t mpf;

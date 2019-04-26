@@ -73,7 +73,7 @@ OPAE_SVC_WRAPPER::~OPAE_SVC_WRAPPER()
 
 
 shared_buffer::ptr_t
-OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes)
+OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes, bool read_only)
 {
     fpga_result r;
     void* va;
@@ -94,7 +94,7 @@ OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes)
         // VTP is available.  Use it to get a virtually contiguous region.
         // The region may be composed of multiple non-contiguous physical
         // pages.
-        buf = mpf_shared_buffer::allocate(mpf, nBytes);
+        buf = mpf_shared_buffer::allocate(mpf, nBytes, read_only);
     }
     else
     {

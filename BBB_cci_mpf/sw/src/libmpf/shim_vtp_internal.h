@@ -86,8 +86,12 @@ bool mpfVtpPinOnDemandMode(
  * @param[in]  pt_locked   True if the page table manager lock is held already.
  * @param[in]  va          Virtual address of page start.
  * @param[in]  page_size   Size of the page.
- * @param[in]  flags       Flags passed to mpfVtpPtInsertPageMapping().
+ * @param[in]  pt_flags    Flags passed to mpfVtpPtInsertPageMapping().
  * @param[out] pinned_pa   Physical address to which the page was pinned.
+ * @param[out] pin_result  The result of calling fpgaPrepareBuffer() to pin
+ *                         the page. This return value allows callers to
+ *                         differentiate between fpgaPrepareBuffer() errors
+ *                         and page table errors.
  * @returns                True iff in on-demand pinning mode.
  */
 fpga_result mpfVtpPinAndInsertPage(
@@ -95,8 +99,9 @@ fpga_result mpfVtpPinAndInsertPage(
     bool pt_locked,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
-    uint32_t flags,
-    mpf_vtp_pt_paddr* pinned_pa
+    uint32_t pt_flags,
+    mpf_vtp_pt_paddr* pinned_pa,
+    fpga_result* pin_result
 );
 
 

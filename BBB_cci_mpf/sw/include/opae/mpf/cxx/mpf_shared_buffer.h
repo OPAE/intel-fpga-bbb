@@ -55,24 +55,28 @@ class mpf_shared_buffer : public opae::fpga::types::shared_buffer {
   virtual ~mpf_shared_buffer();
 
   /** shared_buffer factory method - allocate a shared_buffer.
-   * @param[in] handle The handle used to allocate the buffer.
-   * @param[in] len    The length in bytes of the requested buffer.
+   * @param[in] handle    The handle used to allocate the buffer.
+   * @param[in] len       The length in bytes of the requested buffer.
+   * @param[in] read_only Allow only read access from the FPGA.
    * @return A valid shared_buffer smart pointer on success, or an
    * empty smart pointer on failure.
    */
   static mpf_shared_buffer::ptr_t allocate(mpf_handle::ptr_t mpf_handle,
-                                           size_t len);
+                                           size_t len,
+                                           bool read_only = false);
 
   /** shared_buffer factory method - attach an existing buffer.
-   * @param[in] handle The handle used to allocate the buffer.
-   * @param[in] base   The base of the pre-allocated memory.
-   * @param[in] len    The length in bytes of the requested buffer.
+   * @param[in] handle    The handle used to allocate the buffer.
+   * @param[in] base      The base of the pre-allocated memory.
+   * @param[in] len       The length in bytes of the requested buffer.
+   * @param[in] read_only Allow only read access from the FPGA.
    * @return A valid shared_buffer smart pointer on success, or an
    * empty smart pointer on failure.
    */
   static mpf_shared_buffer::ptr_t attach(mpf_handle::ptr_t mpf_handle,
                                          uint8_t *base,
-                                         size_t len);
+                                         size_t len,
+                                         bool read_only = false);
 
  protected:
   mpf_shared_buffer(mpf_handle::ptr_t mpf_handle, size_t len,

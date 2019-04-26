@@ -91,9 +91,10 @@ bool __MPF_API__ mpfVtpIsAvailable(
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  len         Length of the buffer to allocate in bytes.
  * @param[out] buf_addr    Virtual base address of the allocated buffer.
- * @param[in]  flags       Flags. FPGA_BUF_PREALLOCATED indicates that memory
- *                         pointed at in '*buf_addr' is already allocated an
- *                         mapped into virtual memory.
+ * @param[in]  flags       The same flags as fpgaPrepareBuffer().
+ *                         FPGA_BUF_PREALLOCATED indicates that memory
+ *                         pointed at in '*buf_addr' is already allocated
+ *                         and mapped into virtual memory.
  * @returns                FPGA_OK on success.
  */
 fpga_result __MPF_API__ mpfVtpPrepareBuffer(

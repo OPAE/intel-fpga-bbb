@@ -600,6 +600,7 @@ static void dumpPageTable(
                     if (flags & MPF_VTP_PT_FLAG_PREALLOC) printf(" PREALLOC");
                     if (flags & MPF_VTP_PT_FLAG_INVALID) printf(" INVALID");
                     if (flags & MPF_VTP_PT_FLAG_IN_USE) printf(" IN_USE");
+                    if (flags & MPF_VTP_PT_FLAG_READ_ONLY) printf(" READ_ONLY");
                     printf(" ]");
                 }
                 printf("\n");

@@ -132,7 +132,8 @@ static fpga_result vtpPinRegion(
 
         this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
 
-        r = mpfVtpPinAndInsertPage(_mpf_handle, true, page, this_page_size, pt_flags, NULL);
+        r = mpfVtpPinAndInsertPage(_mpf_handle, true, page, this_page_size, pt_flags,
+                                   NULL, NULL);
         if (FPGA_OK != r) goto fail;
 
         if (pt_flags)
@@ -141,7 +142,8 @@ static fpga_result vtpPinRegion(
         }
 
       already_pinned:
-        pt_flags = 0;
+        // The alloc flags are set only on the first page
+        pt_flags &= ~(MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC);
         page += this_page_bytes;
         len -= this_page_bytes;
 
@@ -162,7 +164,8 @@ static fpga_result vtpPinRegion(
 static fpga_result vtpPreallocBuffer(
     _mpf_handle_p _mpf_handle,
     uint64_t len,
-    void** buf_addr
+    void** buf_addr,
+    int fpga_flags      // enum fpga_buffer_flags
 )
 {
     fpga_result r;
@@ -175,12 +178,8 @@ static fpga_result vtpPreallocBuffer(
 
     if (! _mpf_handle->vtp.use_fpga_buf_preallocated)
     {
-        if (_mpf_handle->dbg_mode)
-        {
-            MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
-                         "ASE does not yet support the flag.  If using with an FPGA, please\n"
-                         "install a more recent version of the OPAE SDK.");
-        }
+        MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
+                     "It is very old. Please install a more recent version of the OPAE SDK.");
         return FPGA_INVALID_PARAM;
     }
 
@@ -217,7 +216,12 @@ static fpga_result vtpPreallocBuffer(
     len += (uint64_t)*buf_addr - (uint64_t)page;
 
     // Share each page with the FPGA and insert them into the VTP page table.
-    r = vtpPinRegion(_mpf_handle, len, (void*)page, MPF_VTP_PT_FLAG_PREALLOC);
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_PREALLOC;
+    if (FPGA_BUF_READ_ONLY & fpga_flags)
+    {
+        pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
+    }
+    r = vtpPinRegion(_mpf_handle, len, (void*)page, pt_flags);
     return r;
 }
 
@@ -228,7 +232,8 @@ static fpga_result vtpPreallocBuffer(
 static fpga_result vtpAllocBuffer(
     _mpf_handle_p _mpf_handle,
     uint64_t len,
-    void** buf_addr
+    void** buf_addr,
+    int fpga_flags      // enum fpga_buffer_flags
 )
 {
     fpga_result r;
@@ -252,7 +257,12 @@ static fpga_result vtpAllocBuffer(
     if (FPGA_OK != r) return FPGA_NO_MEMORY;
 
     // Share each page with the FPGA and insert them into the VTP page table.
-    r = vtpPinRegion(_mpf_handle, len, *buf_addr, MPF_VTP_PT_FLAG_ALLOC);
+    uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC;
+    if (FPGA_BUF_READ_ONLY & fpga_flags)
+    {
+        pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
+    }
+    r = vtpPinRegion(_mpf_handle, len, *buf_addr, pt_flags);
     return r;
 }
 
@@ -269,8 +279,9 @@ fpga_result mpfVtpPinAndInsertPage(
     bool pt_locked,
     mpf_vtp_pt_vaddr va,
     mpf_vtp_page_size page_size,
-    uint32_t flags,
-    mpf_vtp_pt_paddr* pinned_pa
+    uint32_t pt_flags,
+    mpf_vtp_pt_paddr* pinned_pa,
+    fpga_result* pin_result
 )
 {
     fpga_result r;
@@ -281,28 +292,25 @@ fpga_result mpfVtpPinAndInsertPage(
     // Allocate buffer at va
     mpf_vtp_pt_vaddr alloc_va = va;
     uint64_t wsid;
+
     int fpga_flags = FPGA_BUF_PREALLOCATED;
+    if (MPF_VTP_PT_FLAG_READ_ONLY & pt_flags)
+    {
+        fpga_flags |= FPGA_BUF_READ_ONLY;
+    }
 
     if (! _mpf_handle->vtp.use_fpga_buf_preallocated)
     {
-        // fpgaPrepareBuffer() is an old version that doesn't support
-        // FPGA_BUF_PREALLOCATED.
-        fpga_flags = 0;
-
-        // The strategy here of unmapping the page will lose state. Not
-        // supported, but likely not a problem since this code hasn't been
-        // needed since around 2017.
-        assert(! mpfVtpPinOnDemandMode(_mpf_handle));
-
-        // Unmap the page.  fpgaPrepareBuffer() will map it again, hopefully
-        // at the same address.
-        r = mpfOsUnmapMemory(va, page_bytes);
-
-        // Unmap should never fail unless there is a bug inside VTP
-        assert (FPGA_OK == r);
+        MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
+                     "It is very old. Please install a more recent version of the OPAE SDK.");
+        return FPGA_INVALID_PARAM;
     }
 
     r = fpgaPrepareBuffer(_mpf_handle->handle, page_bytes, &va, &wsid, fpga_flags);
+    if (NULL != pin_result)
+    {
+        *pin_result = r;
+    }
     if (FPGA_OK != r)
     {
         if (_mpf_handle->dbg_mode)
@@ -353,7 +361,7 @@ fpga_result mpfVtpPinAndInsertPage(
 
     // Insert VTP page table entry
     r = mpfVtpPtInsertPageMapping(_mpf_handle->vtp.pt,
-                                  alloc_va, alloc_pa, wsid, page_size, flags);
+                                  alloc_va, alloc_pa, wsid, page_size, pt_flags);
     if (FPGA_OK != r)
     {
         if (_mpf_handle->dbg_mode)
@@ -486,11 +494,11 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
 
     if (preallocated)
     {
-        r = vtpPreallocBuffer(_mpf_handle, len, buf_addr);
+        r = vtpPreallocBuffer(_mpf_handle, len, buf_addr, flags);
     }
     else
     {
-        r = vtpAllocBuffer(_mpf_handle, len, buf_addr);
+        r = vtpAllocBuffer(_mpf_handle, len, buf_addr, flags);
     }
 
     if (_mpf_handle->dbg_mode)

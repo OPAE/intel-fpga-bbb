@@ -49,7 +49,8 @@ mpf_shared_buffer::~mpf_shared_buffer() {
 }
 
 mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handle,
-                                                     size_t len) {
+                                                     size_t len,
+                                                     bool read_only) {
   ptr_t p;
 
   if (!len) {
@@ -62,10 +63,13 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handl
 
   uint8_t *virt = nullptr;
   uint64_t wsid = 0;
-
+  int flags = 0;
+  if (read_only) {
+      flags |= FPGA_BUF_READ_ONLY;
+  }
   fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
                                         reinterpret_cast<void **>(&virt),
-                                        0);
+                                        flags);
   ASSERT_FPGA_OK(res);
 
   uint64_t iova = mpfVtpGetIOAddress(*mpf_handle, virt);
@@ -77,7 +81,8 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handl
 
 mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
                                                    uint8_t *base,
-                                                   size_t len) {
+                                                   size_t len,
+                                                   bool read_only) {
   ptr_t p;
 
   if (!len) {
@@ -90,10 +95,13 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
 
   uint8_t *virt = base;
   uint64_t wsid = 0;
-
+  int flags = FPGA_BUF_PREALLOCATED;
+  if (read_only) {
+      flags |= FPGA_BUF_READ_ONLY;
+  }
   fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
                                         reinterpret_cast<void **>(&virt),
-                                        FPGA_BUF_PREALLOCATED);
+                                        flags);
   ASSERT_FPGA_OK(res);
 
   uint64_t iova = mpfVtpGetIOAddress(*mpf_handle, virt);
