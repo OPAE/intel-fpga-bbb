@@ -100,7 +100,7 @@ OPAE_SVC_WRAPPER::allocBuffer(size_t nBytes, bool read_only)
     {
         // VTP is not available.  Map a page without a TLB entry.  nBytes
         // must not be larger than a page.
-        buf = shared_buffer::allocate(accel, nBytes);
+        buf = shared_buffer::allocate(accel, nBytes, read_only);
     }
 
     return buf;
