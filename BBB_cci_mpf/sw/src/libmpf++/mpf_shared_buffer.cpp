@@ -65,7 +65,11 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handl
   uint64_t wsid = 0;
   int flags = 0;
   if (read_only) {
-      flags |= FPGA_BUF_READ_ONLY;
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
+    flags |= FPGA_BUF_READ_ONLY;
+#else
+    throw except(OPAECXX_HERE);
+#endif
   }
   fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
                                         reinterpret_cast<void **>(&virt),
@@ -97,7 +101,11 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
   uint64_t wsid = 0;
   int flags = FPGA_BUF_PREALLOCATED;
   if (read_only) {
-      flags |= FPGA_BUF_READ_ONLY;
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
+    flags |= FPGA_BUF_READ_ONLY;
+#else
+    throw except(OPAECXX_HERE);
+#endif
   }
   fpga_result res = mpfVtpPrepareBuffer(*mpf_handle, len,
                                         reinterpret_cast<void **>(&virt),

@@ -217,10 +217,12 @@ static fpga_result vtpPreallocBuffer(
 
     // Share each page with the FPGA and insert them into the VTP page table.
     uint32_t pt_flags = MPF_VTP_PT_FLAG_PREALLOC;
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
     if (FPGA_BUF_READ_ONLY & fpga_flags)
     {
         pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
     }
+#endif
     r = vtpPinRegion(_mpf_handle, len, (void*)page, pt_flags);
     return r;
 }
@@ -258,10 +260,12 @@ static fpga_result vtpAllocBuffer(
 
     // Share each page with the FPGA and insert them into the VTP page table.
     uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC;
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
     if (FPGA_BUF_READ_ONLY & fpga_flags)
     {
         pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
     }
+#endif
     r = vtpPinRegion(_mpf_handle, len, *buf_addr, pt_flags);
     return r;
 }
@@ -296,7 +300,9 @@ fpga_result mpfVtpPinAndInsertPage(
     int fpga_flags = FPGA_BUF_PREALLOCATED;
     if (MPF_VTP_PT_FLAG_READ_ONLY & pt_flags)
     {
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
         fpga_flags |= FPGA_BUF_READ_ONLY;
+#endif
     }
 
     if (! _mpf_handle->vtp.use_fpga_buf_preallocated)

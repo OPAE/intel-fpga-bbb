@@ -58,6 +58,7 @@
 #include <stdint.h>
 
 #include <opae/fpga.h>
+#include <opae/mpf/mpf_opae_config.h>
 #include <opae/mpf/types.h>
 #include <opae/mpf/connect.h>
 #include <opae/mpf/csrs.h>
