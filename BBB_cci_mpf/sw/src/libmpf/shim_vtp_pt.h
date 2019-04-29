@@ -136,6 +136,10 @@ typedef struct
 
     // PT mutex (one update at a time)
     mpf_os_mutex_handle mutex;
+
+    // Is there a harware page table walker? If yes, the page table must be
+    // pinned.
+    bool hw_pt_walker_present;
 }
 mpf_vtp_pt;
 
@@ -305,7 +309,9 @@ fpga_result mpfVtpPtRemovePageMapping(
  * Translate an address from virtual to physical.
  *
  * @param[in]  pt          Page table.
- * @param[in]  va          Virtual address to remove.
+ * @param[in]  va          Virtual address to translate. The address does not
+ *                         have to be page aligned. Low address bits will
+ *                         be ignored.
  * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE in the page table
  *                         indicating that the translation has been sent
  *                         to the FPGA.

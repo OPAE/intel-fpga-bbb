@@ -91,14 +91,10 @@ fpga_result __MPF_API__ mpfConnect(
 
     _mpf_find_features(_mpf_handle);
 
-    //
-    // Initialize features that require it.
-    //
-    if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
-    {
-        r = mpfVtpInit(_mpf_handle);
-        if (FPGA_OK != r) return r;
-    }
+    // Initialize VTP, even if no VTP hardware is present. Software may still
+    // use VTP to manage a collection of virtual to physical page translations.
+    r = mpfVtpInit(_mpf_handle);
+    if (FPGA_OK != r) return r;
 
     return FPGA_OK;
 }
@@ -111,14 +107,9 @@ fpga_result __MPF_API__ mpfDisconnect(
     fpga_result r;
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
-    //
-    // Terminate features that require it.
-    //
-    if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
-    {
-        r = mpfVtpTerm(_mpf_handle);
-        if (FPGA_OK != r) return r;
-    }
+    // Terminate VTP.
+    r = mpfVtpTerm(_mpf_handle);
+    if (FPGA_OK != r) return r;
 
     free(_mpf_handle);
 

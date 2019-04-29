@@ -303,20 +303,32 @@ static fpga_result ptAllocTableNode(
     // Initialize it
     nodeReset(node);
 
-    // Pin the first page
-    r = fpgaPrepareBuffer(pt->_mpf_handle->handle, 4096, (void*)&node,
-                          wsid_p, FPGA_BUF_PREALLOCATED);
-    if (r != FPGA_OK) goto fail;
-
-    // Get the FPGA-side physical address
-    r = fpgaGetIOAddress(pt->_mpf_handle->handle, *wsid_p, pa_p);
-    // This failure would be a catastrophic internal OPAE failure. Just give up.
-    assert(FPGA_OK == r);
-
-    if (pt->_mpf_handle->dbg_mode)
+    if (pt->hw_pt_walker_present)
     {
-        MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
-                     *node_p, *pa_p, *wsid_p);
+        // Pin the first page
+        r = fpgaPrepareBuffer(pt->_mpf_handle->handle, 4096, (void*)&node,
+                              wsid_p, FPGA_BUF_PREALLOCATED);
+        if (r != FPGA_OK) goto fail;
+
+        // Get the FPGA-side physical address
+        r = fpgaGetIOAddress(pt->_mpf_handle->handle, *wsid_p, pa_p);
+        // This failure would be a catastrophic internal OPAE failure.
+        // Just give up.
+        assert(FPGA_OK == r);
+
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                         *node_p, *pa_p, *wsid_p);
+        }
+    }
+    else
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("allocate host-only TLB node VA %p, PA 0x%016" PRIx64,
+                         *node_p, *pa_p);
+        }
     }
 
     return FPGA_OK;
@@ -330,19 +342,34 @@ static fpga_result ptAllocTableNode(
 static fpga_result ptFreeTableNode(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_node* node,
-    uint64_t wsid
+    uint64_t wsid,
+    bool do_inval
 )
 {
-    if (pt->_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("free I/O mapped TLB node VA %p, wsid 0x%" PRIx64, node, wsid);
-    }
-
-    // Invalidate the address in any hardware tables (page table walker cache)
-    mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
-
     // Unpin the page
-    fpga_result r = fpgaReleaseBuffer(pt->_mpf_handle, wsid);
+    fpga_result r = FPGA_OK;
+    if (pt->hw_pt_walker_present)
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("free I/O mapped TLB node VA %p, wsid 0x%" PRIx64, node, wsid);
+        }
+
+        // Invalidate the address in any hardware tables (page table walker cache)
+        if (do_inval)
+        {
+            mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+        }
+
+        r = fpgaReleaseBuffer(pt->_mpf_handle->handle, wsid);
+    }
+    else
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("free host-only TLB node VA %p", node);
+        }
+    }
 
     // Free the storage
     mpfOsUnmapMemory((void*)node, sizeof(mpf_vtp_pt_node));
@@ -412,7 +439,7 @@ static fpga_result addVAtoTable(
 
             // The old page that held 4KB translations is now empty and the
             // pointer will be overwritten with a 2MB page pointer.
-            ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid);
+            ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid, true);
             nodeEntryReset(table, leaf_idx);
         }
         else
@@ -538,11 +565,7 @@ static void freeTableAndPinnedPages(
     }
 
     // Done with this node
-    fpgaReleaseBuffer(pt->_mpf_handle->handle, node_wsid);
-    if (pt->_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("release table node VA %p, wsid 0x%" PRIx64, node, node_wsid);
-    }
+    ptFreeTableNode(pt, node, node_wsid, false);
 }
 
 
@@ -647,6 +670,19 @@ fpga_result mpfVtpPtInit(
     memset(new_pt, 0, sizeof(mpf_vtp_pt));
 
     new_pt->_mpf_handle = _mpf_handle;
+
+    // Is there a VTP hardware page table walker instantiated on the FPGA?
+    new_pt->hw_pt_walker_present = false;
+    if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
+    {
+        // The VTP hardware miss handler may either walk the page table itself
+        // or call a service, in which case the page table doesn't need to
+        // be pinned. This is indicated in bit 3 of the VTP mode CSR.
+        uint64_t vtp_mode = mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
+                                       CCI_MPF_VTP_CSR_MODE, NULL);
+        bool sw_translation = (vtp_mode & 8);
+        new_pt->hw_pt_walker_present = ! sw_translation;
+    }
 
     // Allocate a mutex that protects the page table manager
     r = mpfOsPrepareMutex(&new_pt->mutex);
