@@ -569,6 +569,81 @@ static void freeTableAndPinnedPages(
 }
 
 
+//
+// Release a virtual range of pinned pages.
+//
+static bool releaseRange(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_node* node,
+    uint64_t node_wsid,
+    uintptr_t min_va,
+    uintptr_t max_va,
+    uintptr_t partial_va,
+    uint32_t depth)
+{
+    bool node_active = false;
+
+    for (uint64_t idx = 0; idx < 512; idx++)
+    {
+        if (nodeEntryExists(node, idx))
+        {
+            uintptr_t va = partial_va | (idx << (12 + 9 * (depth - 1)));
+            uint64_t child_wsid = node->meta[idx].wsid;
+
+            // Is the node within the address range being unpinned?
+            if ((min_va <= va) && (va < max_va))
+            {
+                // Yes, address is in range. Keep walking down the tree.
+                if (nodeEntryIsTerminal(node, idx))
+                {
+                    fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
+
+                    if (pt->_mpf_handle->dbg_mode)
+                    {
+                        mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
+                        MPF_FPGA_MSG("release pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                                     child_pa, child_wsid);
+                    }
+
+                }
+                else
+                {
+                    // The entry is a pointer internal to the page table.
+                    // Follow it to the next level.
+                    assert(depth != 1);
+
+                    mpf_vtp_pt_node* child_node = nodeGetChildNode(node, idx);
+                    bool child_active;
+                    child_active = releaseRange(pt, child_node, child_wsid,
+                                                min_va, max_va,
+                                                va, depth - 1);
+
+                    if (child_active)
+                    {
+                        node_active = true;
+                    }
+                    else
+                    {
+                        // Drop the page table node for the subtree since nothing
+                        // below it is active.
+                        ptFreeTableNode(pt, child_node, child_wsid, true);
+                    }
+                }
+            }
+            else
+            {
+                // Node is outside the range being unpinned. Part of the node
+                // remains active.
+                node_active = true;
+            }
+        }
+    }
+
+    // Done with this node
+    return node_active;
+}
+
+
 static void dumpPageTable(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_node* node,
@@ -907,6 +982,23 @@ fpga_result mpfVtpPtRemovePageMapping(
     }
 
     return FPGA_NOT_FOUND;
+}
+
+
+fpga_result mpfVtpPtReleaseRange(
+    mpf_vtp_pt* pt,
+    void* min_va,
+    void* max_va
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    releaseRange(pt, pt->pt_root, pt->pt_root_wsid,
+                 (uintptr_t)min_va, (uintptr_t)max_va,
+                 0, depth_max);
+
+    return FPGA_OK;
 }
 
 

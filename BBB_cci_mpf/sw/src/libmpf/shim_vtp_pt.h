@@ -306,6 +306,21 @@ fpga_result mpfVtpPtRemovePageMapping(
 
 
 /**
+ * Release a virtual range of pinned pages.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  min_va      Start address to release.
+ * @param[in]  max_va      End address to release (exclusive).
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtReleaseRange(
+    mpf_vtp_pt* pt,
+    void* min_va,
+    void* max_va
+);
+
+
+/**
  * Translate an address from virtual to physical.
  *
  * @param[in]  pt          Page table.
