@@ -178,7 +178,7 @@ static inline void nodeClearTranslatedAddrFlags(
     }
 }
 
-static void nodeInsertChildNode(
+static inline void nodeInsertChildNode(
     mpf_vtp_pt_node* node,
     uint64_t idx,
     mpf_vtp_pt_node* child_node,
@@ -195,7 +195,7 @@ static void nodeInsertChildNode(
     }
 }
 
-static void nodeInsertTranslatedAddr(
+static inline void nodeInsertTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx,
     mpf_vtp_pt_paddr paddr,
@@ -218,7 +218,7 @@ static void nodeInsertTranslatedAddr(
     }
 }
 
-static void nodeRemoveTranslatedAddr(
+static inline void nodeRemoveTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -228,6 +228,13 @@ static void nodeRemoveTranslatedAddr(
         node->ptable[idx] = (mpf_vtp_pt_paddr)-1;
         node->vtable[idx] = (mpf_vtp_pt_vaddr)-1;
     }
+}
+
+static inline void invalFindNodeCache(
+    mpf_vtp_pt* pt
+)
+{
+    pt->prev_find_term_node = NULL;
 }
 
 
@@ -303,20 +310,32 @@ static fpga_result ptAllocTableNode(
     // Initialize it
     nodeReset(node);
 
-    // Pin the first page
-    r = fpgaPrepareBuffer(pt->_mpf_handle->handle, 4096, (void*)&node,
-                          wsid_p, FPGA_BUF_PREALLOCATED);
-    if (r != FPGA_OK) goto fail;
-
-    // Get the FPGA-side physical address
-    r = fpgaGetIOAddress(pt->_mpf_handle->handle, *wsid_p, pa_p);
-    // This failure would be a catastrophic internal OPAE failure. Just give up.
-    assert(FPGA_OK == r);
-
-    if (pt->_mpf_handle->dbg_mode)
+    if (pt->hw_pt_walker_present)
     {
-        MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
-                     *node_p, *pa_p, *wsid_p);
+        // Pin the first page
+        r = fpgaPrepareBuffer(pt->_mpf_handle->handle, 4096, (void*)&node,
+                              wsid_p, FPGA_BUF_PREALLOCATED);
+        if (r != FPGA_OK) goto fail;
+
+        // Get the FPGA-side physical address
+        r = fpgaGetIOAddress(pt->_mpf_handle->handle, *wsid_p, pa_p);
+        // This failure would be a catastrophic internal OPAE failure.
+        // Just give up.
+        assert(FPGA_OK == r);
+
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("allocate I/O mapped TLB node VA %p, PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                         *node_p, *pa_p, *wsid_p);
+        }
+    }
+    else
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("allocate host-only TLB node VA %p, PA 0x%016" PRIx64,
+                         *node_p, *pa_p);
+        }
     }
 
     return FPGA_OK;
@@ -330,22 +349,38 @@ static fpga_result ptAllocTableNode(
 static fpga_result ptFreeTableNode(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_node* node,
-    uint64_t wsid
+    uint64_t wsid,
+    bool do_inval
 )
 {
-    if (pt->_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("free I/O mapped TLB node VA %p, wsid 0x%" PRIx64, node, wsid);
-    }
-
-    // Invalidate the address in any hardware tables (page table walker cache)
-    mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
-
     // Unpin the page
-    fpga_result r = fpgaReleaseBuffer(pt->_mpf_handle, wsid);
+    fpga_result r = FPGA_OK;
+    if (pt->hw_pt_walker_present)
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("free I/O mapped TLB node VA %p, wsid 0x%" PRIx64, node, wsid);
+        }
+
+        // Invalidate the address in any hardware tables (page table walker cache)
+        if (do_inval)
+        {
+            mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+        }
+
+        r = fpgaReleaseBuffer(pt->_mpf_handle->handle, wsid);
+    }
+    else
+    {
+        if (pt->_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("free host-only TLB node VA %p", node);
+        }
+    }
 
     // Free the storage
     mpfOsUnmapMemory((void*)node, sizeof(mpf_vtp_pt_node));
+    invalFindNodeCache(pt);
 
     return r;
 }
@@ -398,6 +433,8 @@ static fpga_result addVAtoTable(
         assert(NULL != table);
     }
 
+    invalFindNodeCache(pt);
+
     // Now at the leaf.  Add the translation.
     if (nodeEntryExists(table, leaf_idx))
     {
@@ -412,7 +449,7 @@ static fpga_result addVAtoTable(
 
             // The old page that held 4KB translations is now empty and the
             // pointer will be overwritten with a 2MB page pointer.
-            ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid);
+            ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid, true);
             nodeEntryReset(table, leaf_idx);
         }
         else
@@ -442,15 +479,31 @@ static inline fpga_result findTerminalNodeAndIndex(
     uint32_t* depth_p
 )
 {
-    if (depth_p)
+    //
+    // This function may be on a critical path, so we cache the result of
+    // the last tree walk. When the FPGA is streaming through memory, the
+    // cache will often hit since virtually contiguous translations are
+    // likely to be on the same node.
+    //
+    uint32_t depth = pt->prev_depth;
+    mpf_vtp_pt_node* node = pt->prev_find_term_node;
+    uint64_t mask = addrMaskFromPtDepth(pt->prev_depth);
+    if (! pt->prev_find_term_node ||
+        // Previous VA and current one's bits must match in the node index portion
+        (0 != (mask & ((uint64_t)pt->prev_va ^ (uint64_t)va))))
     {
-        *depth_p = depth_max;
+        // Last result was on a different node. Start from the root.
+        depth = depth_max;
+        node = pt->pt_root;
     }
 
-    mpf_vtp_pt_node* node = pt->pt_root;
+    if (depth_p)
+    {
+        *depth_p = depth;
+    }
+
     if (NULL == node) return FPGA_NOT_FOUND;
 
-    uint32_t depth = depth_max;
     while (depth--)
     {
         // Index in the current level
@@ -469,6 +522,10 @@ static inline fpga_result findTerminalNodeAndIndex(
             *node_p = node;
             *idx_p = idx;
 
+            pt->prev_depth = depth + 1;
+            pt->prev_va = va;
+            pt->prev_find_term_node = node;
+
             return FPGA_OK;
         }
 
@@ -478,6 +535,7 @@ static inline fpga_result findTerminalNodeAndIndex(
         node = nodeGetChildNode(node, idx);
     }
 
+    pt->prev_find_term_node = NULL;
     return FPGA_NOT_FOUND;
 }
 
@@ -538,11 +596,82 @@ static void freeTableAndPinnedPages(
     }
 
     // Done with this node
-    fpgaReleaseBuffer(pt->_mpf_handle->handle, node_wsid);
-    if (pt->_mpf_handle->dbg_mode)
+    ptFreeTableNode(pt, node, node_wsid, false);
+}
+
+
+//
+// Release a virtual range of pinned pages.
+//
+static bool releaseRange(
+    mpf_vtp_pt* pt,
+    mpf_vtp_pt_node* node,
+    uint64_t node_wsid,
+    uintptr_t min_va,
+    uintptr_t max_va,
+    uintptr_t partial_va,
+    uint32_t depth)
+{
+    bool node_active = false;
+
+    for (uint64_t idx = 0; idx < 512; idx++)
     {
-        MPF_FPGA_MSG("release table node VA %p, wsid 0x%" PRIx64, node, node_wsid);
+        if (nodeEntryExists(node, idx))
+        {
+            uintptr_t va = partial_va | (idx << (12 + 9 * (depth - 1)));
+            uint64_t child_wsid = node->meta[idx].wsid;
+
+            // Is the node within the address range being unpinned?
+            if ((min_va <= va) && (va < max_va))
+            {
+                // Yes, address is in range. Keep walking down the tree.
+                if (nodeEntryIsTerminal(node, idx))
+                {
+                    fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
+
+                    if (pt->_mpf_handle->dbg_mode)
+                    {
+                        mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
+                        MPF_FPGA_MSG("release pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                                     child_pa, child_wsid);
+                    }
+
+                }
+                else
+                {
+                    // The entry is a pointer internal to the page table.
+                    // Follow it to the next level.
+                    assert(depth != 1);
+
+                    mpf_vtp_pt_node* child_node = nodeGetChildNode(node, idx);
+                    bool child_active;
+                    child_active = releaseRange(pt, child_node, child_wsid,
+                                                min_va, max_va,
+                                                va, depth - 1);
+
+                    if (child_active)
+                    {
+                        node_active = true;
+                    }
+                    else
+                    {
+                        // Drop the page table node for the subtree since nothing
+                        // below it is active.
+                        ptFreeTableNode(pt, child_node, child_wsid, true);
+                    }
+                }
+            }
+            else
+            {
+                // Node is outside the range being unpinned. Part of the node
+                // remains active.
+                node_active = true;
+            }
+        }
     }
+
+    // Done with this node
+    return node_active;
 }
 
 
@@ -648,6 +777,19 @@ fpga_result mpfVtpPtInit(
 
     new_pt->_mpf_handle = _mpf_handle;
 
+    // Is there a VTP hardware page table walker instantiated on the FPGA?
+    new_pt->hw_pt_walker_present = false;
+    if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
+    {
+        // The VTP hardware miss handler may either walk the page table itself
+        // or call a service, in which case the page table doesn't need to
+        // be pinned. This is indicated in bit 3 of the VTP mode CSR.
+        uint64_t vtp_mode = mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
+                                       CCI_MPF_VTP_CSR_MODE, NULL);
+        bool sw_translation = (vtp_mode & 8);
+        new_pt->hw_pt_walker_present = ! sw_translation;
+    }
+
     // Allocate a mutex that protects the page table manager
     r = mpfOsPrepareMutex(&new_pt->mutex);
     if (FPGA_OK != r) return r;
@@ -670,6 +812,7 @@ fpga_result mpfVtpPtTerm(
     // Release all pinned pages and the table
     mpfOsLockMutex(pt->mutex);
     freeTableAndPinnedPages(pt, pt->pt_root, pt->pt_root_wsid, 0, depth_max);
+    invalFindNodeCache(pt);
     mpfOsUnlockMutex(pt->mutex);
 
     // Drop the allocated mutex
@@ -860,6 +1003,7 @@ fpga_result mpfVtpPtRemovePageMapping(
             }
 
             nodeRemoveTranslatedAddr(node, idx);
+            invalFindNodeCache(pt);
 
             mpfOsMemoryBarrier();
 
@@ -871,6 +1015,23 @@ fpga_result mpfVtpPtRemovePageMapping(
     }
 
     return FPGA_NOT_FOUND;
+}
+
+
+fpga_result mpfVtpPtReleaseRange(
+    mpf_vtp_pt* pt,
+    void* min_va,
+    void* max_va
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    releaseRange(pt, pt->pt_root, pt->pt_root_wsid,
+                 (uintptr_t)min_va, (uintptr_t)max_va,
+                 0, depth_max);
+
+    return FPGA_OK;
 }
 
 

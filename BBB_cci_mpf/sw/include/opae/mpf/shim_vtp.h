@@ -157,7 +157,7 @@ fpga_result __MPF_API__ mpfVtpBufferFree(
 /**
  * Return the IOVA associated with a virtual address.
  *
- * The function works only with addresses allocated by VTP.
+ * The function works only with addresses managed by VTP.
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  buf_addr    Virtual base address of the allocated buffer.
@@ -167,6 +167,55 @@ fpga_result __MPF_API__ mpfVtpBufferFree(
 uint64_t __MPF_API__ mpfVtpGetIOAddress(
     mpf_handle_t mpf_handle,
     void* buf_addr
+);
+
+
+/**
+ * Mode for mpfVtpPinAndGetIOAddress.
+ */
+typedef enum
+{
+    // Lookup only: don't pin if page isn't already pinned for the FPGA.
+    MPF_VTP_PIN_MODE_LOOKUP_ONLY = 0,
+    // Standard mode: pin the page if necessary, using the flags
+    // passed in to modify fpgaPrepareBuffer().
+    MPF_VTP_PIN_MODE_STD = 1,
+    // Similar to standard mode, but try pinning the page read-only if
+    // pinning in read/write mode fails.
+    MPF_VTP_PIN_MODE_TRY_READ_ONLY = 2
+}
+mpf_vtp_pin_mode;
+
+
+/**
+ * Return the IOVA associated with a virtual address.
+ *
+ * The function works only with addresses allocated by VTP.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  mode        Set the behavior when the page isn't already pinned.
+ * @param[in]  buf_addr    Virtual address to translate. The address does not
+ *                         have to be page aligned. Low address bits will
+ *                         be ignored.
+ * @param[out] ioaddr      The corresponding physical address (IOVA). The
+ *                         value is always the start of the page, even when
+ *                         buf_addr does not point to the page start.
+ * @param[out] page_size   Size of the pinned page. The enumeration values
+ *                         are log2(page bytes).
+ * @param[inout] flags     Flags passed to fpgaPrepareBuffer(). Assumed to be
+ *                         0 if flags is NULL. The returned value of flags
+ *                         will set FPGA_BUF_READ_ONLY when the page is pinned
+ *                         in read-only mode. Some input flags make no sense
+ *                         here and are ignored (e.g. FPGA_BUF_PREALLOCATED).
+ * @returns                FPGA_OK on success.
+ */
+fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pin_mode mode,
+    void* buf_addr,
+    uint64_t* ioaddr,
+    mpf_vtp_page_size* page_size,
+    int* flags
 );
 
 

@@ -136,6 +136,15 @@ typedef struct
 
     // PT mutex (one update at a time)
     mpf_os_mutex_handle mutex;
+
+    // Cache of most recent node in findTerminalNodeAndIndex().
+    mpf_vtp_pt_node* prev_find_term_node;
+    mpf_vtp_pt_vaddr prev_va;
+    uint32_t prev_depth;
+
+    // Is there a harware page table walker? If yes, the page table must be
+    // pinned.
+    bool hw_pt_walker_present;
 }
 mpf_vtp_pt;
 
@@ -302,10 +311,27 @@ fpga_result mpfVtpPtRemovePageMapping(
 
 
 /**
+ * Release a virtual range of pinned pages.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  min_va      Start address to release.
+ * @param[in]  max_va      End address to release (exclusive).
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfVtpPtReleaseRange(
+    mpf_vtp_pt* pt,
+    void* min_va,
+    void* max_va
+);
+
+
+/**
  * Translate an address from virtual to physical.
  *
  * @param[in]  pt          Page table.
- * @param[in]  va          Virtual address to remove.
+ * @param[in]  va          Virtual address to translate. The address does not
+ *                         have to be page aligned. Low address bits will
+ *                         be ignored.
  * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE in the page table
  *                         indicating that the translation has been sent
  *                         to the FPGA.

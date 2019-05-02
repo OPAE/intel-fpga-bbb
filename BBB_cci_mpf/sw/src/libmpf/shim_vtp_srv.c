@@ -42,98 +42,6 @@
 #include "mpf_internal.h"
 
 
-//
-// Map VA for use on the FPGA if it isn't already.
-//
-static fpga_result mapVA(
-    _mpf_handle_p _mpf_handle,
-    mpf_vtp_pt_vaddr req_va,
-    mpf_vtp_pt_paddr* rsp_pa,
-    mpf_vtp_page_size* page_size
-)
-{
-    mpf_vtp_srv* srv = _mpf_handle->vtp.srv;
-    mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
-
-    fpga_result r;
-    uint32_t flags;
-
-    mpfVtpPtLockMutex(pt);
-
-    r = mpfVtpPtTranslateVAtoPA(pt, req_va, true, rsp_pa, page_size, &flags);
-    if (FPGA_OK == r)
-    {
-        // Already mapped
-        mpfVtpPtUnlockMutex(pt);
-        return FPGA_OK;
-    }
-
-    //
-    // Need to pin the memory.
-    //
-
-    // What size is the underlying physical page? As an optimization, if
-    // mpfVtpPtTranslateVAtoPA indicates failure at the 4KB level then we
-    // already know the new page must also be a 4KB page, since 4KB pages
-    // have already been mapped within the corresponding huge page's region.
-    // The mpfOsGetPageSize() call is expensive, so avoid it when possible.
-    if (*page_size != MPF_VTP_PAGE_4KB)
-    {
-        r = mpfOsGetPageSize(req_va, page_size);
-        if (FPGA_OK != r)
-        {
-            // Strange. Perhaps the page isn't mapped. We will detect that
-            // later, so soldier on with the worst-case assumption.
-            *page_size = MPF_VTP_PAGE_4KB;
-
-            if (srv->_mpf_handle->dbg_mode)
-            {
-                MPF_FPGA_MSG("VTP error reading page size at VA %p. Assuming 4KB.", req_va);
-            }
-        }
-
-        if (srv->_mpf_handle->dbg_mode)
-        {
-            MPF_FPGA_MSG("VTP kernel says page at VA %p is on a %s page", req_va,
-                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
-        }
-    }
-
-    // Align the VA to the page size.
-    size_t page_bytes = mpfPageSizeEnumToBytes(*page_size);
-    req_va = (mpf_vtp_pt_vaddr)((uint64_t)req_va & ~(page_bytes - 1));
-
-    if (srv->_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("VTP pinning VA %p on a %s page", req_va,
-                     (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
-    }
-
-    // Pin the page and store it in the page table.
-    fpga_result pin_result;
-    uint32_t pt_flags = MPF_VTP_PT_FLAG_IN_USE;
-    r = mpfVtpPinAndInsertPage(_mpf_handle, true, req_va, *page_size,
-                               pt_flags, rsp_pa, &pin_result);
-    if (pin_result != FPGA_OK)
-    {
-        // Pinning failed. Try read-only.
-        if (srv->_mpf_handle->dbg_mode)
-        {
-            MPF_FPGA_MSG("VTP retrying pinning VA %p on a %s page as READ ONLY",
-                         req_va,
-                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
-        }
-
-        pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
-        r = mpfVtpPinAndInsertPage(_mpf_handle, true, req_va, *page_size,
-                                   pt_flags, rsp_pa, &pin_result);
-    }
-
-    mpfVtpPtUnlockMutex(pt);
-    return r;
-}
-
-
 static void *mpfVtpSrvMain(void *args)
 {
     mpf_vtp_srv* srv = (mpf_vtp_srv*)args;
@@ -195,7 +103,8 @@ static void *mpfVtpSrvMain(void *args)
         // Translate the address, pinning the page if necessary.
         mpf_vtp_pt_paddr rsp_pa;
         mpf_vtp_page_size page_size;
-        r = mapVA(_mpf_handle, req_va, &rsp_pa, &page_size);
+        r = mpfVtpPinAndGetIOAddress(_mpf_handle, MPF_VTP_PIN_MODE_TRY_READ_ONLY,
+                                     req_va, &rsp_pa, &page_size, NULL);
 
         if (FPGA_OK == r)
         {

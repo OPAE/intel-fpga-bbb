@@ -45,6 +45,9 @@
   `define MPF_CONF_ENABLE_VTP 1
 `endif
 
+// Software translation service
+//`define MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+
 `ifndef MPF_CONF_ENABLE_VC_MAP
   `define MPF_CONF_ENABLE_VC_MAP 1
 `endif

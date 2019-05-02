@@ -66,6 +66,9 @@ static fpga_result vtpEnable(
 {
     fpga_result r;
 
+    // Nothing to do if now HW VTP
+    if (! _mpf_handle->vtp.is_hw_vtp_available) return FPGA_OK;
+
     // Disable VTP
     r = mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
 
@@ -271,6 +274,24 @@ static fpga_result vtpAllocBuffer(
 }
 
 
+// Convert PT flags read-only to OPAE standard flag.
+static int vtpReportReadOnly(
+    uint32_t pt_flags
+)
+{
+    int f = 0;
+
+    if (MPF_VTP_PT_FLAG_READ_ONLY & pt_flags)
+    {
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
+        f = FPGA_BUF_READ_ONLY;
+#endif
+    }
+
+    return f;
+}
+
+
 // ========================================================================
 //
 //   MPF internal methods.
@@ -400,20 +421,11 @@ fpga_result mpfVtpInit(
     fpga_result r;
 
     // Is the VTP feature present?
-    _mpf_handle->vtp.is_available = false;
-    if (! mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP)) return FPGA_NOT_SUPPORTED;
-    _mpf_handle->vtp.is_available = true;
+    _mpf_handle->vtp.is_hw_vtp_available = false;
 
     // Already initialized?
     if (NULL != _mpf_handle->vtp.pt) return FPGA_EXCEPTION;
     if (NULL != _mpf_handle->vtp.srv) return FPGA_EXCEPTION;
-
-    // Initialize the page table
-    r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
-    if (FPGA_OK != r) return r;
-
-    // Reset the HW TLB
-    r = mpfVtpInvalHWTLB(_mpf_handle);
 
     // Test whether FPGA_BUF_PREALLOCATED is supported.  libfpga on old systems
     // might not.  fpgaPrepareBuffer() has a special mode for probing by
@@ -433,9 +445,21 @@ fpga_result mpfVtpInit(
     _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
     _mpf_handle->vtp.csr_inval_page_toggle = false;
 
-    // Initialize the software translation service
-    r = mpfVtpSrvInit(_mpf_handle, &(_mpf_handle->vtp.srv));
-    if (FPGA_OK != r) goto fail;
+    // Initialize the page table
+    r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
+    if (FPGA_OK != r) return r;
+
+    if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
+    {
+        _mpf_handle->vtp.is_hw_vtp_available = true;
+
+        // Reset the HW TLB
+        r = mpfVtpInvalHWTLB(_mpf_handle);
+
+        // Initialize the software translation service
+        r = mpfVtpSrvInit(_mpf_handle, &(_mpf_handle->vtp.srv));
+        if (FPGA_OK != r) goto fail;
+    }
 
     return FPGA_OK;
 
@@ -451,15 +475,21 @@ fpga_result mpfVtpTerm(
 {
     fpga_result r;
 
-    if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
-
-    // Turn off VTP in the FPGA, blocking all traffic.
-    mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
-
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("VTP terminating...");
 
-    r = mpfVtpSrvTerm(_mpf_handle->vtp.srv);
-    _mpf_handle->vtp.srv = NULL;
+    if (_mpf_handle->vtp.is_hw_vtp_available)
+    {
+        // Turn off VTP in the FPGA, blocking all traffic.
+        mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
+
+        r = mpfVtpSrvTerm(_mpf_handle->vtp.srv);
+        _mpf_handle->vtp.srv = NULL;
+    }
+    else if (_mpf_handle->vtp.srv)
+    {
+        // VTP pinning service shouldn't be running if there is no HW VTP!
+        return FPGA_EXCEPTION;
+    }
 
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
@@ -480,7 +510,7 @@ bool __MPF_API__ mpfVtpIsAvailable(
 )
 {
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
-    return _mpf_handle->vtp.is_available;
+    return _mpf_handle->vtp.is_hw_vtp_available;
 }
 
 
@@ -495,7 +525,6 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
     bool preallocated = (flags & FPGA_BUF_PREALLOCATED);
 
-    if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
     if ((NULL == buf_addr) || (0 == len)) return FPGA_INVALID_PARAM;
 
     if (preallocated)
@@ -541,8 +570,6 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     uint32_t flags;
     uint64_t wsid;
     fpga_result r;
-
-    if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
 
     if (_mpf_handle->dbg_mode)
     {
@@ -667,6 +694,113 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
 }
 
 
+fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pin_mode mode,
+    void* buf_addr,
+    uint64_t* ioaddr,
+    mpf_vtp_page_size* page_size,
+    int* flags
+)
+{
+    fpga_result r;
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+    mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
+    uint32_t pt_flags;
+
+    mpfVtpPtLockMutex(pt);
+
+    r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, ioaddr, page_size, &pt_flags);
+    if (FPGA_OK == r)
+    {
+        // Already mapped
+        mpfVtpPtUnlockMutex(pt);
+
+        if (NULL != flags)
+        {
+            *flags = vtpReportReadOnly(pt_flags);
+        }
+
+        return FPGA_OK;
+    }
+
+    // Need to pin the memory.
+    if (MPF_VTP_PIN_MODE_LOOKUP_ONLY == mode) return r;
+
+    // What size is the underlying physical page? As an optimization, if
+    // mpfVtpPtTranslateVAtoPA indicates failure at the 4KB level then we
+    // already know the new page must also be a 4KB page, since 4KB pages
+    // have already been mapped within the corresponding huge page's region.
+    // The mpfOsGetPageSize() call is expensive, so avoid it when possible.
+    if (*page_size != MPF_VTP_PAGE_4KB)
+    {
+        r = mpfOsGetPageSize(buf_addr, page_size);
+        if (FPGA_OK != r)
+        {
+            // Strange. Perhaps the page isn't mapped. We will detect that
+            // later, so soldier on with the worst-case assumption.
+            *page_size = MPF_VTP_PAGE_4KB;
+
+            if (_mpf_handle->dbg_mode)
+            {
+                MPF_FPGA_MSG("VTP error reading page size at VA %p. Assuming 4KB.", buf_addr);
+            }
+        }
+
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("VTP kernel says page at VA %p is on a %s page", buf_addr,
+                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+        }
+    }
+
+    // Align the VA to the page size.
+    size_t page_bytes = mpfPageSizeEnumToBytes(*page_size);
+    buf_addr = (void*)((uintptr_t)buf_addr & ~(page_bytes - 1));
+
+    if (_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("VTP pinning VA %p on a %s page", buf_addr,
+                     (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+    }
+
+    if (NULL != flags)
+    {
+        *flags = 0;
+    }
+
+    // Pin the page and store it in the page table.
+    fpga_result pin_result;
+    pt_flags = MPF_VTP_PT_FLAG_IN_USE;
+    r = mpfVtpPinAndInsertPage(_mpf_handle, true, buf_addr, *page_size,
+                               pt_flags, ioaddr, &pin_result);
+    if ((FPGA_OK != pin_result) && (MPF_VTP_PIN_MODE_TRY_READ_ONLY == mode))
+    {
+        // Pinning failed. Try read-only.
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("VTP retrying pinning VA %p on a %s page as READ ONLY",
+                         buf_addr,
+                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+        }
+
+        if (NULL != flags)
+        {
+#ifdef MFP_OPAE_HAS_BUF_READ_ONLY
+            *flags = FPGA_BUF_READ_ONLY;
+#endif
+        }
+
+        pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
+        r = mpfVtpPinAndInsertPage(_mpf_handle, true, buf_addr, *page_size,
+                                   pt_flags, ioaddr, &pin_result);
+    }
+
+    mpfVtpPtUnlockMutex(pt);
+    return r;
+}
+
+
 fpga_result __MPF_API__ mpfVtpInvalHWTLB(
     mpf_handle_t mpf_handle
 )
@@ -674,7 +808,8 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
     fpga_result r;
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
-    if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
+    // Nothing to do if now HW VTP
+    if (! _mpf_handle->vtp.is_hw_vtp_available) return FPGA_OK;
 
     // Mode 2 blocks traffic and invalidates the FPGA-side TLB cache
     r = mpfWriteCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 2);
@@ -696,7 +831,8 @@ static fpga_result vtpInvalHWVAMapping(
     fpga_result r;
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
-    if (! _mpf_handle->vtp.is_available) return FPGA_NOT_SUPPORTED;
+    // Nothing to do if now HW VTP
+    if (! _mpf_handle->vtp.is_hw_vtp_available) return FPGA_OK;
 
     // Previous request must be complete!
     while (! mpfVtpInvalHWVAMappingComplete(_mpf_handle)) ;
@@ -743,6 +879,9 @@ bool __MPF_API__ mpfVtpInvalHWVAMappingComplete(
 )
 {
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+
+    // Nothing to do if now HW VTP
+    if (! _mpf_handle->vtp.is_hw_vtp_available) return true;
 
     if (_mpf_handle->vtp.csr_inval_page_toggle ==
         mpfReadCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR, NULL))
