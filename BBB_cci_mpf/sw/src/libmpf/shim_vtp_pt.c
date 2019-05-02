@@ -178,7 +178,7 @@ static inline void nodeClearTranslatedAddrFlags(
     }
 }
 
-static void nodeInsertChildNode(
+static inline void nodeInsertChildNode(
     mpf_vtp_pt_node* node,
     uint64_t idx,
     mpf_vtp_pt_node* child_node,
@@ -195,7 +195,7 @@ static void nodeInsertChildNode(
     }
 }
 
-static void nodeInsertTranslatedAddr(
+static inline void nodeInsertTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx,
     mpf_vtp_pt_paddr paddr,
@@ -218,7 +218,7 @@ static void nodeInsertTranslatedAddr(
     }
 }
 
-static void nodeRemoveTranslatedAddr(
+static inline void nodeRemoveTranslatedAddr(
     mpf_vtp_pt_node* node,
     uint64_t idx
 )
@@ -228,6 +228,13 @@ static void nodeRemoveTranslatedAddr(
         node->ptable[idx] = (mpf_vtp_pt_paddr)-1;
         node->vtable[idx] = (mpf_vtp_pt_vaddr)-1;
     }
+}
+
+static inline void invalFindNodeCache(
+    mpf_vtp_pt* pt
+)
+{
+    pt->prev_find_term_node = NULL;
 }
 
 
@@ -373,6 +380,7 @@ static fpga_result ptFreeTableNode(
 
     // Free the storage
     mpfOsUnmapMemory((void*)node, sizeof(mpf_vtp_pt_node));
+    invalFindNodeCache(pt);
 
     return r;
 }
@@ -425,6 +433,8 @@ static fpga_result addVAtoTable(
         assert(NULL != table);
     }
 
+    invalFindNodeCache(pt);
+
     // Now at the leaf.  Add the translation.
     if (nodeEntryExists(table, leaf_idx))
     {
@@ -469,15 +479,31 @@ static inline fpga_result findTerminalNodeAndIndex(
     uint32_t* depth_p
 )
 {
-    if (depth_p)
+    //
+    // This function may be on a critical path, so we cache the result of
+    // the last tree walk. When the FPGA is streaming through memory, the
+    // cache will often hit since virtually contiguous translations are
+    // likely to be on the same node.
+    //
+    uint32_t depth = pt->prev_depth;
+    mpf_vtp_pt_node* node = pt->prev_find_term_node;
+    uint64_t mask = addrMaskFromPtDepth(pt->prev_depth);
+    if (! pt->prev_find_term_node ||
+        // Previous VA and current one's bits must match in the node index portion
+        (0 != (mask & ((uint64_t)pt->prev_va ^ (uint64_t)va))))
     {
-        *depth_p = depth_max;
+        // Last result was on a different node. Start from the root.
+        depth = depth_max;
+        node = pt->pt_root;
     }
 
-    mpf_vtp_pt_node* node = pt->pt_root;
+    if (depth_p)
+    {
+        *depth_p = depth;
+    }
+
     if (NULL == node) return FPGA_NOT_FOUND;
 
-    uint32_t depth = depth_max;
     while (depth--)
     {
         // Index in the current level
@@ -496,6 +522,10 @@ static inline fpga_result findTerminalNodeAndIndex(
             *node_p = node;
             *idx_p = idx;
 
+            pt->prev_depth = depth + 1;
+            pt->prev_va = va;
+            pt->prev_find_term_node = node;
+
             return FPGA_OK;
         }
 
@@ -505,6 +535,7 @@ static inline fpga_result findTerminalNodeAndIndex(
         node = nodeGetChildNode(node, idx);
     }
 
+    pt->prev_find_term_node = NULL;
     return FPGA_NOT_FOUND;
 }
 
@@ -781,6 +812,7 @@ fpga_result mpfVtpPtTerm(
     // Release all pinned pages and the table
     mpfOsLockMutex(pt->mutex);
     freeTableAndPinnedPages(pt, pt->pt_root, pt->pt_root_wsid, 0, depth_max);
+    invalFindNodeCache(pt);
     mpfOsUnlockMutex(pt->mutex);
 
     // Drop the allocated mutex
@@ -971,6 +1003,7 @@ fpga_result mpfVtpPtRemovePageMapping(
             }
 
             nodeRemoveTranslatedAddr(node, idx);
+            invalFindNodeCache(pt);
 
             mpfOsMemoryBarrier();
 

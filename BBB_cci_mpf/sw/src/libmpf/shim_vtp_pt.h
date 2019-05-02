@@ -137,6 +137,11 @@ typedef struct
     // PT mutex (one update at a time)
     mpf_os_mutex_handle mutex;
 
+    // Cache of most recent node in findTerminalNodeAndIndex().
+    mpf_vtp_pt_node* prev_find_term_node;
+    mpf_vtp_pt_vaddr prev_va;
+    uint32_t prev_depth;
+
     // Is there a harware page table walker? If yes, the page table must be
     // pinned.
     bool hw_pt_walker_present;

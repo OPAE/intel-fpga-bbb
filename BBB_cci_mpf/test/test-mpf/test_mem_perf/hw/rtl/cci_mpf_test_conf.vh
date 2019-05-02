@@ -41,5 +41,8 @@
   `define MPF_CONF_ENABLE_VC_MAP 1
 `endif
 
+// Software translation service
+//`define MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+
 // Enable flow control management in cci_test_afu
 `define CCI_TEST_FLOW_CONTROL
