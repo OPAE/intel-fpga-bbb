@@ -234,7 +234,6 @@ module cci_mpf_svc_vtp
 
     // Interface to the TLB
     cci_mpf_shim_vtp_tlb_if tlb_if();
-    logic vtp_out_inval_page_complete;
 
     cci_mpf_svc_vtp_multi_size_tlb
       #(
@@ -245,7 +244,6 @@ module cci_mpf_svc_vtp
         .clk,
         .reset,
         .tlb_if,
-        .vtp_out_inval_page_complete,
         .csrs,
         .events
         );
@@ -515,38 +513,6 @@ module cci_mpf_svc_vtp
         end
     endgenerate
 
-
-    // ====================================================================
-    //
-    //   Client epoch management (TLB invalidation).
-    //
-    // ====================================================================
-
-    //
-    // When clients get a TLB shootdown they go through a transition,
-    // draining all requests initiated before the shootdown. Once drained,
-    // they signal the server. The server here merges all the ready
-    // wires into a single signal, which is exported to the host as a CSR
-    // to indicate completion of the shootdown.
-    //
-
-    logic vtp_l1_shootdown_done;
-    logic [N_VTP_PORTS-1 : 0] vtp_l1_shootdown_port_done;
-
-    generate
-        for (p = 0; p < N_VTP_PORTS; p = p + 1)
-        begin : smap
-            assign vtp_l1_shootdown_port_done[p] = vtp_svc[p].invalComplete;
-        end
-    endgenerate
-
-    always_ff @(posedge clk)
-    begin
-        // Are all clients ready?
-        vtp_l1_shootdown_done <= &(vtp_l1_shootdown_port_done);
-        vtp_out_inval_page_complete <= vtp_l1_shootdown_done;
-    end
-
 endmodule // cci_mpf_svc_vtp
 
 
@@ -563,7 +529,6 @@ module cci_mpf_svc_vtp_multi_size_tlb
 
     // TLB lookup
     cci_mpf_shim_vtp_tlb_if.server tlb_if,
-    input  logic vtp_out_inval_page_complete,
 
     // CSRs
     cci_mpf_csrs.vtp csrs,
@@ -683,27 +648,6 @@ module cci_mpf_svc_vtp_multi_size_tlb
         end
     end
 
-
-    // Invalidation completion toggle. When all clients signal completion
-    // of a page translation invalidation, toggle the CSR.
-    logic vtp_out_inval_page_complete_q;
-    logic vtp_out_inval_page_complete_toggle;
-
-    always_ff @(posedge clk)
-    begin
-        events.vtp_out_inval_page_complete_toggle <= vtp_out_inval_page_complete_toggle;
-        vtp_out_inval_page_complete_q <= vtp_out_inval_page_complete;
-
-        if (! vtp_out_inval_page_complete_q && vtp_out_inval_page_complete)
-        begin
-            vtp_out_inval_page_complete_toggle <= vtp_out_inval_page_complete_toggle ^ 1'b1;
-        end
-
-        if (reset || csrs.vtp_in_mode.inval_translation_cache)
-        begin
-            vtp_out_inval_page_complete_toggle <= 1'b0;
-        end
-    end
 
     // Statistics
     always_ff @(posedge clk)
@@ -843,7 +787,7 @@ module cci_mpf_svc_vtp_do_pt_walk
     //
     always_ff @(posedge clk)
     begin
-        tlb_if.fillEn <= pt_walk.rspEn;
+        tlb_if.fillEn <= pt_walk.rspEn && pt_walk.rspIsCacheable;
         tlb_if.fillVA <= pt_walk.rspVA;
         tlb_if.fillPA <= pt_walk.rspPA;
         tlb_if.fillBigPage <= pt_walk.rspIsBigPage;

@@ -376,13 +376,6 @@ module cci_mpf_shim_csr
                         c2_rsp.mmioRdValid <= 1'b1;
                     end
 
-                 (CCI_MPF_VTP_CSR_OFFSET + CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR) >> 3:
-                    begin
-                        // VTP page translation invalidation state
-                        c2_rsp.data <= { '0, events.vtp_out_inval_page_complete_toggle };
-                        c2_rsp.mmioRdValid <= 1'b1;
-                    end
-
                  (CCI_MPF_VTP_CSR_OFFSET + CCI_MPF_VTP_CSR_STAT_PT_WALK_LAST_VADDR) >> 3:
                     begin
                         // VTP last translated address

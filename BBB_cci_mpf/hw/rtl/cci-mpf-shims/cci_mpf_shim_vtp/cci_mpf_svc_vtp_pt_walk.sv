@@ -656,6 +656,22 @@ module cci_mpf_svc_vtp_pt_walk
     //
     // ====================================================================
 
+    // Current lookup becomes uncacheable if there is a TLB invalidation
+    // during the walk.
+    logic rsp_is_cacheable;
+    always_ff @(posedge clk)
+    begin
+        if (pt_walk.reqEn && (state == STATE_PT_WALK_IDLE))
+        begin
+            rsp_is_cacheable <= 1'b1;
+        end
+
+        if (reset || csrs.vtp_in_inval_page_valid)
+        begin
+            rsp_is_cacheable <= 1'b0;
+        end
+    end
+
     always_ff @(posedge clk)
     begin
         pt_walk.rspEn <= rsp_en;
@@ -668,6 +684,7 @@ module cci_mpf_svc_vtp_pt_walk
         // Use just bit 0 of translate_depth, which is either 2 for a 2MB page
         // or 3 for a 4KB page.
         pt_walk.rspIsBigPage <= ~(translate_depth[0]);
+        pt_walk.rspIsCacheable <= rsp_is_cacheable;
         pt_walk.rspNotPresent <= rsp_en &&
                                  ((state == STATE_PT_WALK_SPEC_ERROR) ||
                                   (state == STATE_PT_WALK_HALT));

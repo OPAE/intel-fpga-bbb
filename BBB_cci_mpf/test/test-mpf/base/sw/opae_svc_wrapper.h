@@ -95,6 +95,11 @@ class OPAE_SVC_WRAPPER
                                                 MPF_VTP_PAGE_2MB));
     }
 
+    void syncBufferState()
+    {
+        mpfVtpSync(*mpf, true);
+    }
+
     fpga::types::handle::ptr_t accel;
     mpf::types::mpf_handle::ptr_t mpf;
 

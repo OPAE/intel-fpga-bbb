@@ -43,7 +43,6 @@ class TEST_RANDOM : public CCI_TEST
         totalCycles(0),
         doBufferTests(false)
     {
-        memset(testBuffers, 0, sizeof(testBuffers));
     }
 
     ~TEST_RANDOM() {};
@@ -54,16 +53,11 @@ class TEST_RANDOM : public CCI_TEST
     uint64_t testNumCyclesExecuted();
 
   private:
-    void reallocTestBuffers();
-    // Return true about 20% of the time
-    bool rand20();
+    void reallocTestBuffers(void *mem, uint64_t n_bytes);
 
     void dbgRegDump(uint64_t r);
 
     uint64_t totalCycles;
-
-    // Used to test VTP malloc/free when --buffer-alloc-test=1
-    fpga::types::shared_buffer::ptr_t testBuffers[10];
     bool doBufferTests;
 };
 

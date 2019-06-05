@@ -35,6 +35,7 @@
 
 #include "shim_vtp_pt.h"
 #include "shim_vtp_srv.h"
+#include "shim_vtp_monitor.h"
 
 
 /**
@@ -106,6 +107,25 @@ fpga_result mpfVtpPinAndInsertPage(
 
 
 /**
+ * Invalidate a single virtual page in the FPGA-side translation cache.
+ *
+ * This method does not affect allocated storage or the contents of the
+ * VTP-managed translation table.  It invalidates one address in the
+ * translation caches in the FPGA.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  va          Virtual address to invalidate.
+ * @param[in]  pt_locked   Is the internal page table lock already held? Usually false.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result vtpInvalHWVAMapping(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pt_vaddr va,
+    bool pt_locked
+);
+
+
+/**
  * VTP persistent state.  An instance of this struct is stored in the
  * MPF handle.
  */
@@ -117,6 +137,9 @@ typedef struct
     // VTP transation server state
     mpf_vtp_srv* srv;
 
+    // VTP munmap event monitor state
+    mpf_vtp_monitor* munmap_monitor;
+
     // Maximum requested page size
     mpf_vtp_page_size max_physical_page_size;
 
@@ -126,11 +149,6 @@ typedef struct
 
     // Is VTP available in the FPGA?
     bool is_hw_vtp_available;
-
-    // State of the invalidation register toggle. This value is coordinated
-    // with CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR in order to detect completion
-    // of translation invalidation requests.
-    bool csr_inval_page_toggle;
 }
 mpf_vtp_state;
 

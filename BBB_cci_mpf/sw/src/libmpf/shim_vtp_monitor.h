@@ -30,64 +30,70 @@
 
 
 /**
- * \file shim_vtp_srv.h
- * \brief Internal functions and data structures for managing VTP translation.
+ * \file shim_vtp_monitor.h
+ * \brief Monitor munmap events in order to unpin and invalidate device mappings.
  */
 
-#ifndef __FPGA_MPF_SHIM_VTP_SRV_H__
-#define __FPGA_MPF_SHIM_VTP_SRV_H__
+#ifndef __FPGA_MPF_SHIM_VTP_MONITOR_H__
+#define __FPGA_MPF_SHIM_VTP_MONITOR_H__
 
 #include <opae/mpf/shim_vtp.h>
 
 
 
 /**
- * VTP translation server state.
+ * VTP munmap event monitor state
  */
 typedef struct
 {
-    // Request ring buffer
-    uint64_t req_wsid;
-    mpf_vtp_pt_vaddr req_va;
-    mpf_vtp_pt_paddr req_pa;
-
-    // Handle for server thread
-    pthread_t srv_tid;
+    // Handle for monitor thread
+    pthread_t mon_tid;
 
     // Opaque parent MPF handle.  It is opaque because the internal MPF handle
     // points to the page table, so the dependence would be circular.
     _mpf_handle_p _mpf_handle;
+
+    // Event monitor file handle
+    int mon_fd;
+    int evt_fd;
 }
-mpf_vtp_srv;
+mpf_vtp_monitor;
 
 
 /**
- * Initialize a page translation server.
+ * Block when monitor events are pending.
  *
- * Initializes and starts a page translation server if the FPGA
- * requires one.
+ * The monitor protocol requires that any pending events be processed before
+ * a new page is pinned. This function checks whether any events are pending.
+ * The monitor is initialized as a side-effect the first time this function
+ * is called.
  *
- * @param[in]  _mpf_handle Internal handle to MPF state.
- * @param[out] srv         Allocated server handle.
- * @returns                FPGA_OK on success.
+ * @param[in]  _mpf_handle    Internal handle to MPF state.
+ * @param[in]  wait_for_sync  When true, the function waits until state
+ *                            is synchronized to return. When false,
+ *                            the function returns immediately and
+ *                            indicates synchronization state with the
+ *                            return value.
+ * @returns                   FPGA_OK on success. FPGA_BUSY when not
+ *                            synchronized and wait_for_sync is false.
  */
-fpga_result mpfVtpSrvInit(
+fpga_result mpfVtpMonitorWaitWhenBusy(
     _mpf_handle_p _mpf_handle,
-    mpf_vtp_srv** srv
+    bool wait_for_sync
 );
 
 
 /**
- * Destroy a page translation server.
+ * Destroy a munmap monitor.
  *
- * Terminate and deallocate a page translation server.
+ * Terminate and deallocate an munmap monitor.
  *
- * @param[in]  srv         Translation server handle.
+ * @param[in]  monitor     Monitor handle.
  * @returns                FPGA_OK on success.
  */
-fpga_result mpfVtpSrvTerm(
-    mpf_vtp_srv* srv
+fpga_result mpfVtpMonitorTerm(
+    mpf_vtp_monitor* monitor
 );
 
 
-#endif // __FPGA_MPF_SHIM_VTP_SRV_H__
+#endif // __FPGA_MPF_SHIM_VTP_MONITOR_H__

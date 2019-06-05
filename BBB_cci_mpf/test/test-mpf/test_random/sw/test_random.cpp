@@ -121,6 +121,7 @@ int TEST_RANDOM::test()
         cout << "Allocating " << n_bytes << " byte test buffer..." << endl;
     }
 
+    doBufferTests = vm["buffer-alloc-test"].as<bool>();
     auto a_mode = vm["buffer-alloc-mode"].as<string>();
     void* buf = NULL;
     fpga::types::shared_buffer::ptr_t mem_buf_handle;
@@ -129,12 +130,24 @@ int TEST_RANDOM::test()
     if (boost::iequals(a_mode, "alloc"))
     {
         // Allocate the buffer inside MPF or OPAE.
+        if (doBufferTests)
+        {
+            cerr << "--buffer-alloc-test not allowed when --buffer-alloc-mode is alloc" << endl;
+            exit(1);
+        }
+
         mem_buf_handle = this->allocBuffer(n_bytes);
         mem = reinterpret_cast<volatile uint64_t*>(mem_buf_handle->c_type());
     }
     else if (boost::iequals(a_mode, "malloc"))
     {
         // Allocate a page-aligned buffer
+        if (doBufferTests)
+        {
+            cerr << "--buffer-alloc-test not allowed when --buffer-alloc-mode is malloc" << endl;
+            exit(1);
+        }
+
         size_t pg_size = sysconf(_SC_PAGE_SIZE);
         cout << "  Allocating buffer with malloc..." << endl;
         buf = malloc(n_bytes + pg_size);
@@ -194,8 +207,6 @@ int TEST_RANDOM::test()
 
     assert(NULL != mem);
     memset((void*)mem, 0, n_bytes);
-
-    doBufferTests = vm["buffer-alloc-test"].as<bool>();
 
     //
     // Configure the HW test
@@ -384,7 +395,22 @@ int TEST_RANDOM::test()
 
         *dsm = 0;
 
-        reallocTestBuffers();
+        reallocTestBuffers((void*)mem, n_bytes);
+
+        // Clear test buffers and checker RAM
+        writeTestCSR(4, 1);
+        memset((void*)mem, 0, n_bytes);
+
+        // Check RAM is ready again once bit 4 of the state register is set.
+        while ((readTestCSR(7) & 0x10) == 0)
+        {
+            struct timespec ms;
+            ms.tv_sec = (hwIsSimulated() ? 1 : 0);
+            ms.tv_nsec = 100000;
+            nanosleep(&ms, NULL);
+        }
+
+        syncBufferState();
     }
 
     // Were buffers allocated in this method?
@@ -427,39 +453,49 @@ TEST_RANDOM::dbgRegDump(uint64_t r)
 
 
 void
-TEST_RANDOM::reallocTestBuffers()
+TEST_RANDOM::reallocTestBuffers(void *mem, uint64_t n_bytes)
 {
     if (! doBufferTests) return;
 
-    for (int i = 0; i < 10; i += 1)
+    ssize_t huge_page_size = 2048 * 1024;
+    ssize_t chunk_size = (n_bytes >= huge_page_size) ? huge_page_size : 4096;
+
+    while (n_bytes >= chunk_size)
     {
-        // Free existing buffers about 20% of the time
-        if (rand20())
+        // Replace existing mapping about 50% of the time
+        if (rand() % 100 < 50)
         {
-            testBuffers[i] = NULL;
+            bool use_huge = (chunk_size >= huge_page_size) && (rand() % 100 >= 20);
+            cout << "Remapping " << hex << mem << " - "
+                 << (void*)((char*)mem + chunk_size) << dec
+                 << " as " << (use_huge ? "2MB" : "4KB") << " pages"
+                 << endl;
+
+            munmap(mem, chunk_size);
+
+            // Replace either with a huge page or with 4KB pages
+            int flags = (MAP_PRIVATE | MAP_ANONYMOUS);
+            if (use_huge)
+            {
+                flags |= MAP_HUGETLB;
+            }
+
+            void *buf = mmap(mem, chunk_size, (PROT_READ | PROT_WRITE), flags, -1, 0);
+            if (buf == MAP_FAILED)
+            {
+                cerr << "Failed to mmap " << n_bytes << " byte buffer" << endl;
+                exit(1);
+            }
+            if (buf != mem)
+            {
+                cerr << "Failed to replace buffer at " << hex << mem
+                     << " (" << buf << ")"
+                     << dec << endl;
+                exit(1);
+            }
         }
 
-        // Allocate a new buffer if the slot is available about 20% of the time
-        if ((NULL == testBuffers[i]) && rand20())
-        {
-            // 4KB or 2MB pages
-            svc.forceSmallPageAlloc(rand20());
-
-            // Allocate up to 32MB
-            uint64_t alloc_bytes = rand() & 0x1ffffff;
-            testBuffers[i] = this->allocBuffer(alloc_bytes);
-            assert(NULL != testBuffers[i]);
-
-            // Back to big pages
-            svc.forceSmallPageAlloc(false);
-        }
+        mem = (void*)((char*)mem + chunk_size);
+        n_bytes -= chunk_size;
     }
-}
-
-
-bool
-TEST_RANDOM::rand20()
-{
-    // Return true about 20% of the time
-    return (rand() % 10 < 2);
 }

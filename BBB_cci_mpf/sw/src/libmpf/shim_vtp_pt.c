@@ -365,7 +365,7 @@ static fpga_result ptFreeTableNode(
         // Invalidate the address in any hardware tables (page table walker cache)
         if (do_inval)
         {
-            mpfVtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node);
+            vtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)node, true);
         }
 
         r = fpgaReleaseBuffer(pt->_mpf_handle->handle, wsid);
@@ -614,20 +614,33 @@ static bool releaseRange(
 {
     bool node_active = false;
 
+    // Address span of a node's region at current depth
+    uint64_t depth_addr_shift = 12 + 9 * (depth - 1);
+    uint64_t depth_addr_span = 1LL << depth_addr_shift;
+
     for (uint64_t idx = 0; idx < 512; idx++)
     {
         if (nodeEntryExists(node, idx))
         {
-            uintptr_t va = partial_va | (idx << (12 + 9 * (depth - 1)));
+            uintptr_t va = partial_va | (idx << depth_addr_shift);
+            uintptr_t va_next = va + depth_addr_span;
             uint64_t child_wsid = node->meta[idx].wsid;
 
             // Is the node within the address range being unpinned?
-            if ((min_va <= va) && (va < max_va))
+            if ((min_va < va_next) && (va < max_va))
             {
+                if (pt->_mpf_handle->dbg_mode)
+                {
+                    MPF_FPGA_MSG("depth %" PRId32 ": idx %" PRId64 ", 0x%016" PRIx64 " - 0x%016" PRIx64,
+                                 depth, idx, va, va_next);
+                }
+
                 // Yes, address is in range. Keep walking down the tree.
                 if (nodeEntryIsTerminal(node, idx))
                 {
+                    vtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)va, true);
                     fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
+                    nodeRemoveTranslatedAddr(node, idx);
 
                     if (pt->_mpf_handle->dbg_mode)
                     {
@@ -658,6 +671,7 @@ static bool releaseRange(
                         // Drop the page table node for the subtree since nothing
                         // below it is active.
                         ptFreeTableNode(pt, child_node, child_wsid, true);
+                        nodeEntryReset(node, idx);
                     }
                 }
             }
@@ -666,6 +680,9 @@ static bool releaseRange(
                 // Node is outside the range being unpinned. Part of the node
                 // remains active.
                 node_active = true;
+                // No point in testing other entries. We already know the node
+                // remains active.
+                if (va > max_va) break;
             }
         }
     }

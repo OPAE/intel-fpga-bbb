@@ -925,13 +925,11 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
     t_cci_mpf_shim_vtp_req_tag readIdx;
     logic [N_CTX_BITS-1 : 0] read_cTx_out;
-    logic cur_req_epoch;
-    logic read_epoch_out;
 
     cci_mpf_prim_lutram
       #(
         .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS(N_CTX_BITS + 1)
+        .N_DATA_BITS(N_CTX_BITS)
         )
       heap_ctx
        (
@@ -939,11 +937,11 @@ module cci_mpf_shim_vtp_chan_l2_lookup
         .reset,
 
         .raddr(readIdx),
-        .rdata({ read_epoch_out, read_cTx_out }),
+        .rdata(read_cTx_out),
 
         .waddr(allocIdx_q),
         .wen(cTxValid_q),
-        .wdata({ cur_req_epoch, cTx_q })
+        .wdata(cTx_q)
         );
 
     always_ff @(posedge clk)
@@ -954,11 +952,34 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
     // ====================================================================
     //
-    //  Send translation requests to VTP server
+    //  Track cache invalidations (from the host)
     //
     // ====================================================================
 
-    logic allow_fills;
+    // In order to avoid caching stale data we set a poison bit on
+    // L2 lookups that are in flight when an invalidation request arrives.
+    // Poisoned L2 responses are not stored in the L1 cache.
+    logic [CCI_MPF_SHIM_VTP_MAX_SVC_REQS-1 : 0] heap_entry_not_poisoned;
+
+    always_ff @(posedge clk)
+    begin
+        if (cTxValid_q)
+        begin
+            heap_entry_not_poisoned[allocIdx_q] <= 1'b1;
+        end
+
+        if (reset || csrs.vtp_in_inval_page_valid)
+        begin
+            heap_entry_not_poisoned <= CCI_MPF_SHIM_VTP_MAX_SVC_REQS'(0);
+        end
+    end
+
+
+    // ====================================================================
+    //
+    //  Send translation requests to VTP server
+    //
+    // ====================================================================
 
     // Request TLB lookup
     always_ff @(posedge clk)
@@ -967,8 +988,6 @@ module cci_mpf_shim_vtp_chan_l2_lookup
         vtp_svc.lookupReq.pageVA <= get_4kb_va_page_idx(cTx_q);
         vtp_svc.lookupReq.isSpeculative <= cTxReqIsSpeculative_q;
         vtp_svc.lookupReq.tag <= allocIdx_q;
-
-        vtp_svc.invalComplete <= allow_fills;
 
         if (reset)
         begin
@@ -1029,10 +1048,15 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     //
     // ====================================================================
 
+    // Responses are "poisoned" if there was a TLB entry invalidation
+    // during the lookup.
+    logic not_poisoned;
+
     // Read the full request from the heap
     always_ff @(posedge clk)
     begin
         readIdx <= tlb_lookup_rsp.tag;
+        not_poisoned <= heap_entry_not_poisoned[tlb_lookup_rsp.tag];
     end
 
     always_ff @(posedge clk)
@@ -1053,7 +1077,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // Set values for updating the local L1 cache.
     //
     logic en_insert;
-    assign en_insert = tlb_lookup_deq_q && allow_fills && ! tlb_lookup_rsp_q.error;
+    assign en_insert = tlb_lookup_deq_q && not_poisoned && ! tlb_lookup_rsp_q.error;
 
     always_ff @(posedge clk)
     begin
@@ -1106,37 +1130,6 @@ module cci_mpf_shim_vtp_chan_l2_lookup
             n_active <= n_active_next;
         end
     end
-
-
-    // ====================================================================
-    //
-    //  Track invalidation epoch. When software invalidates a translation
-    //  entry, this logic tracks the number of outstanding L2 requests
-    //  that were generated before the invalidation. Since L2 responses
-    //  may sit in FIFOs with stale translations we wait until all
-    //  pre-invalidation responses in order to avoid filling with state
-    //  translations.
-    //
-    // ====================================================================
-
-    logic epoch_allow_fills;
-    assign allow_fills = epoch_allow_fills && ! csrs.vtp_in_inval_page_valid;
-
-    cci_mpf_shim_vtp_chan_inval_epoch
-      #(
-        .DEBUG_MESSAGES(DEBUG_MESSAGES)
-        )
-      epoch_trk
-       (
-        .clk,
-        .reset,
-        .sendReq(cTxValid_q),
-        .reqEpoch(cur_req_epoch),
-        .recvRsp(tlb_lookup_deq_q),
-        .recvEpoch(read_epoch_out),
-        .newEpoch(csrs.vtp_in_inval_page_valid),
-        .allowFills(epoch_allow_fills)
-        );
 
 endmodule // cci_mpf_shim_vtp_chan_l2_lookup
 
@@ -1466,126 +1459,3 @@ module cci_mpf_shim_vtp_chan_l1_caches
     end
 
 endmodule // cci_mpf_shim_vtp_chan_l1_caches
-
-
-module cci_mpf_shim_vtp_chan_inval_epoch
-  #(
-    parameter DEBUG_MESSAGES = 0
-    )
-   (
-    input  logic clk,
-    input  logic reset,
-
-    input  logic sendReq,
-    output logic reqEpoch,
-
-    input  logic recvRsp,
-    input  logic recvEpoch,
-
-    input  logic newEpoch,
-    output logic allowFills
-    );
-
-    typedef logic [$clog2(CCI_MPF_SHIM_VTP_MAX_SVC_REQS+1)-1 : 0] t_req_cnt;
-
-    logic cur_epoch;
-
-    always_ff @(posedge clk)
-    begin
-        // Fills are allowed as long as the current epoch matches the request
-        // epoch.
-        allowFills <= (reqEpoch == cur_epoch) && ! newEpoch;
-    end
-
-    t_req_cnt active_reqs[2];
-    logic new_req_for_epoch[2];
-    logic new_rsp_for_epoch[2];
-
-    genvar i;
-    generate
-        for (i = 0; i <= 1; i = i + 1)
-        begin : cnt
-            // Sending a new outbound request in epoch "i"?
-            assign new_req_for_epoch[i] = sendReq && (reqEpoch == 1'(i));
-            // Receiving an inbound response for epoch "i"?
-            assign new_rsp_for_epoch[i] = recvRsp && (recvEpoch == 1'(i));
-
-            // Update the count of outstanding requests for epoch "i".
-            always_ff @(posedge clk)
-            begin
-                case ({ new_req_for_epoch[i], new_rsp_for_epoch[i] })
-                    2'b01: active_reqs[i] <= active_reqs[i] - t_req_cnt'(1);
-                    2'b10: active_reqs[i] <= active_reqs[i] + t_req_cnt'(1);
-                    default: active_reqs[i] <= active_reqs[i];
-                endcase
-
-                if (reset)
-                begin
-                    active_reqs[i] <= t_req_cnt'(0);
-                end
-            end
-        end
-    endgenerate
-
-    always_ff @(posedge clk)
-    begin
-        //
-        // Start a new epoch when newEpoch is set.
-        //
-        reqEpoch <= reqEpoch ^ newEpoch;
-
-        if (reset)
-        begin
-            reqEpoch <= 1'b0;
-        end
-    end
-
-    always_ff @(posedge clk)
-    begin
-        //
-        // The current epoch may transition to match the request epoch as long
-        // as no requests are outstanding for the current epoch. Most of the
-        // time, cur_epoch already matches reqEpoch, since epoch transitions are
-        // rare -- triggered by TLB invalidation requests.
-        //
-        if (active_reqs[cur_epoch] == t_req_cnt'(0))
-        begin
-            cur_epoch <= reqEpoch;
-        end
-
-        if (reset)
-        begin
-            cur_epoch <= 1'b0;
-        end
-    end
-
-
-    //
-    // Debugging
-    //
-    // synthesis translate_off
-    logic cur_epoch_q;
-    logic new_epoch_q;
-
-    always_ff @(posedge clk)
-    begin
-        cur_epoch_q <= cur_epoch;
-        new_epoch_q <= newEpoch;
-
-        if (DEBUG_MESSAGES && ! reset)
-        begin
-            if (new_epoch_q)
-            begin
-                $display("%m VTP: %0t New epoch %0d requested, %0d outstanding requests",
-                         $time, cur_epoch, active_reqs[cur_epoch]);
-            end
-
-            if (cur_epoch != cur_epoch_q)
-            begin
-                $display("%m VTP: %0t Switch to epoch %0d", $time, cur_epoch);
-            end
-        end
-    end
-    // synthesis translate_on
-
-endmodule // cci_mpf_shim_vtp_chan_inval_epoch

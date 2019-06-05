@@ -60,8 +60,6 @@ interface cci_mpf_csrs();
     // Input: invalidate the translation for one page
     t_cci_clAddr vtp_in_inval_page;
     logic        vtp_in_inval_page_valid;
-    // Output: translation invalidation is complete
-    logic        vtp_out_inval_page_complete_toggle;
 
     // Input: physical address of the software page translation service
     // request ring buffer.
@@ -154,7 +152,6 @@ interface cci_mpf_csrs();
         input  vtp_out_event_4kb_miss,
         input  vtp_out_event_2mb_hit,
         input  vtp_out_event_2mb_miss,
-        input  vtp_out_inval_page_complete_toggle,
         input  vtp_out_event_pt_walk_busy,
         input  vtp_out_event_failed_translation,
         input  vtp_out_pt_walk_last_vaddr,
@@ -187,8 +184,7 @@ interface cci_mpf_csrs();
         output vtp_out_event_4kb_hit,
         output vtp_out_event_4kb_miss,
         output vtp_out_event_2mb_hit,
-        output vtp_out_event_2mb_miss,
-        output vtp_out_inval_page_complete_toggle
+        output vtp_out_event_2mb_miss
         );
     modport vtp_events_pt_walk
        (

@@ -50,13 +50,6 @@ static const size_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
 //
 // ========================================================================
 
-static fpga_result vtpInvalHWVAMapping(
-    mpf_handle_t mpf_handle,
-    bool pt_locked,
-    mpf_vtp_pt_vaddr va
-);
-
-
 //
 // Turn the FPGA side on.
 //
@@ -366,7 +359,7 @@ fpga_result mpfVtpPinAndInsertPage(
     // Invalidate any old address translation in the FPGA. There may be failed
     // speculation entries in the FPGA cache that have to be removed now that
     // the page is valid.
-    r = vtpInvalHWVAMapping(_mpf_handle, pt_locked, va);
+    r = vtpInvalHWVAMapping(_mpf_handle, va, pt_locked);
     if (FPGA_OK != r) return r;
 
     // Get the physical address of the buffer
@@ -443,7 +436,6 @@ fpga_result mpfVtpInit(
     }
 
     _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
-    _mpf_handle->vtp.csr_inval_page_toggle = false;
 
     // Initialize the page table
     r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
@@ -473,8 +465,9 @@ fpga_result mpfVtpTerm(
     _mpf_handle_p _mpf_handle
 )
 {
-    fpga_result r;
+    fpga_result r, r_ret;
 
+    r_ret = FPGA_OK;
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("VTP terminating...");
 
     if (_mpf_handle->vtp.is_hw_vtp_available)
@@ -482,7 +475,7 @@ fpga_result mpfVtpTerm(
         // Turn off VTP in the FPGA, blocking all traffic.
         mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 0);
 
-        r = mpfVtpSrvTerm(_mpf_handle->vtp.srv);
+        r_ret = mpfVtpSrvTerm(_mpf_handle->vtp.srv);
         _mpf_handle->vtp.srv = NULL;
     }
     else if (_mpf_handle->vtp.srv)
@@ -491,10 +484,50 @@ fpga_result mpfVtpTerm(
         return FPGA_EXCEPTION;
     }
 
+    r = mpfVtpMonitorTerm(_mpf_handle->vtp.munmap_monitor);
+    _mpf_handle->vtp.munmap_monitor = NULL;
+    if (FPGA_OK == r_ret) r_ret = r;
+
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
+    if (FPGA_OK == r_ret) r_ret = r;
 
-    return r;
+    return r_ret;
+}
+
+
+fpga_result vtpInvalHWVAMapping(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pt_vaddr va,
+    bool pt_locked
+)
+{
+    fpga_result r;
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+
+    // Nothing to do if now HW VTP
+    if (! _mpf_handle->vtp.is_hw_vtp_available) return FPGA_OK;
+
+    if (! pt_locked) mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+
+    // Clear the FPGA-side in-use flag. If the flag gets set again
+    // we will know that the translation has been reloaded by the FPGA.
+    mpfVtpPtClearInUseFlag(_mpf_handle->vtp.pt, va);
+
+    // Tell the FPGA to shoot down cached translation of VA
+    r = mpfWriteCsr(mpf_handle,
+                    CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
+                    // Convert VA to a line index
+                    (uint64_t)va / CL(1));
+    if (FPGA_OK != r) return r;
+
+    if (_mpf_handle->dbg_mode)
+    {
+        MPF_FPGA_MSG("invalidating page VA %p", va);
+    }
+
+    if (! pt_locked) mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+    return FPGA_OK;
 }
 
 
@@ -708,6 +741,7 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
     mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
     uint32_t pt_flags;
 
+    mpfVtpMonitorWaitWhenBusy(_mpf_handle, true);
     mpfVtpPtLockMutex(pt);
 
     r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, ioaddr, page_size, &pt_flags);
@@ -815,53 +849,7 @@ fpga_result __MPF_API__ mpfVtpInvalHWTLB(
     r = mpfWriteCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, 2);
     if (FPGA_OK != r) return r;
 
-    // The invalidation protocol's toggle is reset when the TLB is reset
-    _mpf_handle->vtp.csr_inval_page_toggle = false;
-
     return vtpEnable(_mpf_handle);
-}
-
-
-static fpga_result vtpInvalHWVAMapping(
-    mpf_handle_t mpf_handle,
-    bool pt_locked,
-    mpf_vtp_pt_vaddr va
-)
-{
-    fpga_result r;
-    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
-
-    // Nothing to do if now HW VTP
-    if (! _mpf_handle->vtp.is_hw_vtp_available) return FPGA_OK;
-
-    // Previous request must be complete!
-    while (! mpfVtpInvalHWVAMappingComplete(_mpf_handle)) ;
-
-    if (! pt_locked) mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-
-    // Clear the FPGA-side in-use flag. If the flag gets set again
-    // we will know that the translation has been reloaded by the FPGA.
-    mpfVtpPtClearInUseFlag(_mpf_handle->vtp.pt, va);
-
-    // Tell the FPGA to shoot down cached translation of VA
-    r = mpfWriteCsr(mpf_handle,
-                    CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR,
-                    // Convert VA to a line index
-                    (uint64_t)va / CL(1));
-    if (FPGA_OK != r) return r;
-
-    // The FPGA will signal shootdown completion by inverting the CSR at
-    // CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR.
-    _mpf_handle->vtp.csr_inval_page_toggle = ! _mpf_handle->vtp.csr_inval_page_toggle;
-
-    if (_mpf_handle->dbg_mode)
-    {
-        MPF_FPGA_MSG("invalidating page VA %p, expecting toggle %d",
-                     va, _mpf_handle->vtp.csr_inval_page_toggle);
-    }
-
-    if (! pt_locked) mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-    return FPGA_OK;
 }
 
 
@@ -870,31 +858,7 @@ fpga_result __MPF_API__ mpfVtpInvalHWVAMapping(
     mpf_vtp_pt_vaddr va
 )
 {
-    return vtpInvalHWVAMapping(mpf_handle, false, va);
-}
-
-
-bool __MPF_API__ mpfVtpInvalHWVAMappingComplete(
-    mpf_handle_t mpf_handle
-)
-{
-    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
-
-    // Nothing to do if now HW VTP
-    if (! _mpf_handle->vtp.is_hw_vtp_available) return true;
-
-    if (_mpf_handle->vtp.csr_inval_page_toggle ==
-        mpfReadCsr(mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR, NULL))
-    {
-        if (_mpf_handle->dbg_mode)
-        {
-            MPF_FPGA_MSG("invalidating page complete, toggle=%d",
-                         _mpf_handle->vtp.csr_inval_page_toggle);
-        }
-        return true;
-    }
-
-    return false;
+    return vtpInvalHWVAMapping(mpf_handle, va, false);
 }
 
 
@@ -909,6 +873,23 @@ fpga_result __MPF_API__ mpfVtpSetMaxPhysPageSize(
 
     _mpf_handle->vtp.max_physical_page_size = max_psize;
     return FPGA_OK;
+}
+
+
+fpga_result __MPF_API__ mpfVtpSync(
+    mpf_handle_t mpf_handle,
+    bool wait_for_sync
+)
+{
+    fpga_result r = FPGA_OK;
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+
+    if (_mpf_handle->vtp.munmap_monitor)
+    {
+        r = mpfVtpMonitorWaitWhenBusy(_mpf_handle, wait_for_sync);
+    }
+
+    return r;
 }
 
 

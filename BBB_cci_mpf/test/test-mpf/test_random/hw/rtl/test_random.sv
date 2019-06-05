@@ -280,12 +280,19 @@ module test_afu
     logic rdline_mode_s;
     logic [1:0] wrline_req_type;
 
+    logic cmd_start_en;
+    logic [63:0] cmd_start;
+
+    logic reset_chk_ram;
 
     //
     // Consume configuration CSR writes
     //
     always_ff @(posedge clk)
     begin
+        cmd_start_en <= csrs.cpu_wr_csrs[0].en;
+        cmd_start <= csrs.cpu_wr_csrs[0].data;
+
         if (csrs.cpu_wr_csrs[1].en)
         begin
             dsm <= csrs.cpu_wr_csrs[1].data;
@@ -303,6 +310,9 @@ module test_afu
             memMask <= csrs.cpu_wr_csrs[3].data;
             if (! reset) $display("MEM MASK: 0x%x", csrs.cpu_wr_csrs[3].data);
         end
+
+        // Any write to CSR 4 resets the checker RAM.
+        reset_chk_ram <= csrs.cpu_wr_csrs[4].en;
     end
 
     //
@@ -317,7 +327,7 @@ module test_afu
         end
 
         // Execution cycle count update from the host?
-        if (csrs.cpu_wr_csrs[0].en)
+        if (cmd_start_en)
         begin
             { cycles_rem,
               cl_beats_random,
@@ -330,7 +340,7 @@ module test_afu
               enable_checker,
               enable_wro,
               enable_writes,
-              enable_reads } <= csrs.cpu_wr_csrs[0].data;
+              enable_reads } <= cmd_start;
         end
 
         if (reset)
@@ -356,7 +366,7 @@ module test_afu
 
     always_ff @(posedge clk)
     begin
-        start_new_run <= csrs.cpu_wr_csrs[0].en;
+        start_new_run <= cmd_start_en;
 
         case (state)
           STATE_IDLE:
@@ -916,7 +926,7 @@ module test_afu
     always_ff @(posedge clk)
     begin
         chk_rdy <= chk_ram_rdy && ! chk_fifo_full;
-        if (reset)
+        if (reset || reset_chk_ram)
         begin
             chk_rdy <= 1'b0;
         end
@@ -933,7 +943,7 @@ module test_afu
         )
       chk_ram
        (
-        .reset,
+        .reset(reset || reset_chk_ram),
         .rdy(chk_ram_rdy),
 
         // Update RAM with written data

@@ -254,6 +254,7 @@ module cci_mpf_svc_vtp_pt_sw
         pt_walk.rspIsSpeculative <= rsp_isSpeculative;
         pt_walk.rspTag <= rsp_tag;
         pt_walk.rspIsBigPage <= rsp_is_big_page;
+        pt_walk.rspIsCacheable <= 1'b1;
         pt_walk.rspNotPresent <= rsp_not_present && rsp_en;
     end
 

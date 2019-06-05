@@ -203,10 +203,6 @@ interface cci_mpf_shim_vtp_svc_if;
     logic lookupRspValid;
     t_cci_mpf_shim_vtp_lookup_rsp lookupRsp;
 
-    // Signal completion of the most recent TLB line invalidation
-    // request.
-    logic invalComplete;
-
     modport server
        (
         input  lookupEn,
@@ -214,9 +210,7 @@ interface cci_mpf_shim_vtp_svc_if;
         output lookupRdy,
 
         output lookupRspValid,
-        output lookupRsp,
-
-        input  invalComplete
+        output lookupRsp
         );
 
     modport client
@@ -226,9 +220,7 @@ interface cci_mpf_shim_vtp_svc_if;
         input  lookupRdy,
 
         input  lookupRspValid,
-        input  lookupRsp,
-
-        output invalComplete
+        input  lookupRsp
         );
 
 endinterface // cci_mpf_shim_vtp_svc_if
@@ -373,6 +365,8 @@ interface cci_mpf_shim_vtp_pt_walk_if;
     t_cci_mpf_shim_vtp_req_tag rspTag;
     // 2MB page? If 0 then it is a 4KB page.
     logic rspIsBigPage;
+    // Can the response be cached in the TLB?
+    logic rspIsCacheable;
     // Requested VA is not in the page table.  This is an error!
     logic rspNotPresent;
 
@@ -393,6 +387,7 @@ interface cci_mpf_shim_vtp_pt_walk_if;
         output rspIsSpeculative,
         output rspTag,
         output rspIsBigPage,
+        output rspIsCacheable,
         output rspNotPresent
         );
 
@@ -413,6 +408,7 @@ interface cci_mpf_shim_vtp_pt_walk_if;
         input  rspIsSpeculative,
         input  rspTag,
         input  rspIsBigPage,
+        input  rspIsCacheable,
         input  rspNotPresent
         );
 
