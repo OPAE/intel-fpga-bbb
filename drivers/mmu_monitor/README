@@ -1,0 +1,23 @@
+The mmu_monitor driver creates a device file: /dev/mmu_monitor. When opened, the
+driver registers a kernel MMU notifier. The notifier tracks changes to the MMU
+mapping for the process. The mmu_monitor driver forwards MMU updates as events
+to user space. These can be used to track changes to memory regions that are
+pinned for access by an FPGA. MPF's virtual to physical (VTP) module uses this
+driver when it is available.
+
+The mmu_monitor driver is a temporary solution, enabling a fully automatic
+MPF/VTP service on current hardware and kernels. Future systems will use built-in
+services, such as PCIe ATS (address translation service), to manage FPGA shared
+virtual memory.
+
+
+
+The Makefile uses the standard kernel build framework:
+
+  * "make" or "make modules" compiles the driver.
+
+  * "make install" installs the driver, typically in /lib/modules/<version>/extra.
+    It also creates /etc/modules-load.d/mmu_monitor.conf, which causes the driver
+    to be loaded at boot on machines running systemd.
+
+  * Load with: modprobe mmu_monitor
