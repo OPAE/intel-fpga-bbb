@@ -36,6 +36,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <errno.h>
 #include <time.h>
 
 #include <opae/mpf/mpf.h>
