@@ -37,6 +37,7 @@
 #ifndef __FPGA_MPF_SHIM_VTP_MONITOR_H__
 #define __FPGA_MPF_SHIM_VTP_MONITOR_H__
 
+#include <pthread.h>
 #include <opae/mpf/shim_vtp.h>
 
 
