@@ -10,29 +10,6 @@ package ccip_if_funcs_pkg;
 
     import ccip_if_pkg::*;
 
-    function automatic t_ccip_c0_ReqMemHdr ccip_c0_updMemReqHdrRsvd(
-        input t_ccip_c0_ReqMemHdr h
-        );
-
-        t_ccip_c0_ReqMemHdr h_out = h;
-        h_out.rsvd1 = 0;
-        h_out.rsvd0 = 0;
-
-        return h_out;
-    endfunction
-
-    function automatic t_ccip_c1_ReqMemHdr ccip_c1_updMemReqHdrRsvd(
-        input t_ccip_c1_ReqMemHdr h
-        );
-
-        t_ccip_c1_ReqMemHdr h_out = h;
-        h_out.rsvd2 = 0;
-        h_out.rsvd1 = 0;
-        h_out.rsvd0 = 0;
-
-        return h_out;
-    endfunction
-
     function automatic t_if_ccip_c0_Tx ccip_c0Tx_clearValids();
         t_if_ccip_c0_Tx r = 'x;
         r.valid = 1'b0;
