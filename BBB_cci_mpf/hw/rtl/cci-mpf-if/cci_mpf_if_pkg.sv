@@ -116,18 +116,6 @@ package cci_mpf_if_pkg;
     typedef t_if_ccip_c1_Rx t_if_cci_c1_Rx;
     typedef t_if_ccip_Rx t_if_cci_Rx;
 
-    function automatic t_cci_c0_ReqMemHdr cci_c0_updMemReqHdrRsvd(
-        input t_cci_c0_ReqMemHdr h
-        );
-        return ccip_c0_updMemReqHdrRsvd(h);
-    endfunction
-
-    function automatic t_cci_c1_ReqMemHdr cci_c1_updMemReqHdrRsvd(
-        input t_cci_c1_ReqMemHdr h
-        );
-        return ccip_c1_updMemReqHdrRsvd(h);
-    endfunction
-
     function automatic t_if_cci_c0_Tx cci_c0Tx_clearValids();
         return ccip_c0Tx_clearValids();
     endfunction
@@ -838,8 +826,6 @@ package cci_mpf_if_pkg;
         );
 
         t_cci_mpf_c0_ReqMemHdr h_out = h;
-        h_out.base.rsvd1 = 0;
-        h_out.base.rsvd0 = 0;
 
         // Force the physical channel on single channel systems
         if (MPF_PLATFORM_NUM_PHYSICAL_CHANNELS == 1)
@@ -876,8 +862,6 @@ package cci_mpf_if_pkg;
         );
 
         t_cci_mpf_c1_ReqMemHdr h_out = h;
-        h_out.base.rsvd1 = 0;
-        h_out.base.rsvd0 = 0;
 
         // Force the physical channel on single channel systems
         if (MPF_PLATFORM_NUM_PHYSICAL_CHANNELS == 1)

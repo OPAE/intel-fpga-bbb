@@ -31,7 +31,6 @@
 
 ../rtl/cci-if/ccis_if_pkg.sv
 ../rtl/cci-if/ccis_if_funcs_pkg.sv
-#../rtl/cci-if/ccip_if_pkg.sv
 ../rtl/cci-if/ccip_if_funcs_pkg.sv
 ../rtl/cci-mpf-if/cci_mpf_if_pkg.sv
 ../rtl/cci-if/cci_csr_if_pkg.sv
