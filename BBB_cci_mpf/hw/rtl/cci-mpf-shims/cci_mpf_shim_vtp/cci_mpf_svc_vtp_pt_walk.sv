@@ -574,6 +574,14 @@ module cci_mpf_svc_vtp_pt_walk
         if (! reset && DEBUG_MESSAGES)
         begin
             // synthesis translate_off
+            if (pt_walk.rspEn)
+            begin
+                $display("VTP PT WALK %0t: Response PA 0x%x, size %s",
+                         $time,
+                         {pt_walk_cur_page, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         (pt_walk.rspIsBigPage ? "2MB" : "4KB"));
+            end
+
             if (pt_walk.reqEn && (state == STATE_PT_WALK_IDLE))
             begin
                 $display("VTP PT WALK %0t: New req translate line 0x%x (VA 0x%x)",
@@ -636,14 +644,6 @@ module cci_mpf_svc_vtp_pt_walk
                          translate_va_idx_vec[1],
                          translate_va_idx_vec[0],
                          translate_depth);
-            end
-
-            if (pt_walk.rspEn)
-            begin
-                $display("VTP PT WALK %0t: Response PA 0x%x, size %s",
-                         $time,
-                         {pt_walk_cur_page, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         (pt_walk.rspIsBigPage ? "2MB" : "4KB"));
             end
             // synthesis translate_on
         end
@@ -784,8 +784,8 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
 
     logic tag_rdy;
-    logic insert_busy;
-    assign rdy = tag_rdy && ! insert_busy;
+    logic insert_pending;
+    assign rdy = tag_rdy && ! insert_pending;
 
 
     // ====================================================================
@@ -951,14 +951,20 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
     // Break a line into 64 bit words
     logic [PT_WORDS_PER_LINE-1 : 0][63 : 0] ins_line_words;
+    logic insert_busy;
 
     always_ff @(posedge clk)
     begin
+        // insert_pending is cleared one cycle after insert_busy because the
+        // tag and data RAMs have a one cycle write delay.
+        insert_pending <= insert_busy;
+
         if (insertEn && tag_rdy)
         begin
             // New line to insert.  The rdy bit guarantees no insert is
             // happening when insertEn is triggered.
             insert_busy <= 1'b1;
+            insert_pending <= 1'b1;
 
             ins_idx <= cacheIdx(insertPageIdxVec, insertWalkDepth);
             ins_tag <= cacheTag(insertPageIdxVec);
