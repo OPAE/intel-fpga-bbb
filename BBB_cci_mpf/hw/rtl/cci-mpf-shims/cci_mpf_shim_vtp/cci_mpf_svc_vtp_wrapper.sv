@@ -71,9 +71,34 @@ module cci_mpf_svc_vtp_wrapper
     cci_mpf_csrs.vtp_events_pt_walk pt_events
     );
 
+    genvar p;
     generate
         if (ENABLE_VTP)
         begin : v_to_p
+            //
+            // Deduplicate back-to-back requests for the same page coming
+            // from a single client.
+            //
+            cci_mpf_shim_vtp_svc_if vtp_svc_dedup[N_VTP_PORTS]();
+
+            for (p = 0; p < N_VTP_PORTS; p = p + 1)
+            begin : d
+                cci_mpf_svc_vtp_dedup
+                  #(
+                    .DEBUG_MESSAGES(DEBUG_MESSAGES)
+                    )
+                  dedup
+                   (
+                    .clk,
+                    .reset,
+                    .to_client(vtp_svc[p]),
+                    .to_server(vtp_svc_dedup[p])
+                    );
+            end
+
+            //
+            // Instantiate the shared VTP service.
+            //
             cci_mpf_shim_vtp_pt_walk_if pt_walk();
 
             cci_mpf_svc_vtp
@@ -85,7 +110,7 @@ module cci_mpf_svc_vtp_wrapper
                (
                 .clk,
                 .reset,
-                .vtp_svc,
+                .vtp_svc(vtp_svc_dedup),
                 .pt_walk,
                 .csrs,
                 .events(vtp_events)

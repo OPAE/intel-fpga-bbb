@@ -157,7 +157,7 @@ endfunction
 
 // Multiple translation requests may be outstanding and they may be
 // returned out of order.  A tag matches responses to requests.
-localparam CCI_MPF_SHIM_VTP_MAX_SVC_REQS = 16;
+localparam CCI_MPF_SHIM_VTP_MAX_SVC_REQS = 32;
 typedef logic [$clog2(CCI_MPF_SHIM_VTP_MAX_SVC_REQS)-1 : 0]
     t_cci_mpf_shim_vtp_req_tag;
 
@@ -188,6 +188,9 @@ typedef struct packed
 
     // Is translation a big page or just a 4KB page?
     logic isBigPage;
+
+    // Is the translation cacheable?
+    logic mayCache;
 }
 t_cci_mpf_shim_vtp_lookup_rsp;
 

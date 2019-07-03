@@ -88,7 +88,8 @@ module cci_mpf_shim_vtp
         .CTX_NUMBER(0),
         .N_CTX_BITS($bits(t_if_cci_mpf_c0_Tx)),
         .N_LOCAL_4KB_CACHE_ENTRIES(`VTP_N_C0_L1_4KB_CACHE_ENTRIES),
-        .N_LOCAL_2MB_CACHE_ENTRIES(`VTP_N_C0_L1_2MB_CACHE_ENTRIES)
+        .N_LOCAL_2MB_CACHE_ENTRIES(`VTP_N_C0_L1_2MB_CACHE_ENTRIES),
+        .DEBUG_MESSAGES(DEBUG_MESSAGES)
         )
       c0_vtp
        (
@@ -1077,7 +1078,9 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // Set values for updating the local L1 cache.
     //
     logic en_insert;
-    assign en_insert = tlb_lookup_deq_q && not_poisoned && ! tlb_lookup_rsp_q.error;
+    assign en_insert = tlb_lookup_deq_q && not_poisoned &&
+                       tlb_lookup_rsp_q.mayCache &&
+                       ! tlb_lookup_rsp_q.error;
 
     always_ff @(posedge clk)
     begin

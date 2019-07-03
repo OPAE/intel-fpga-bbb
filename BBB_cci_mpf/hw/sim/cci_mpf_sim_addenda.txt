@@ -81,6 +81,7 @@
 ../rtl/cci-mpf-shims/cci_mpf_shim_vc_map.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_shim_vtp.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_svc_vtp.sv
+../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_svc_vtp_dedup.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_svc_vtp_pt_sw.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_svc_vtp_pt_walk.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_vtp/cci_mpf_svc_vtp_tlb.sv

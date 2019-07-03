@@ -476,6 +476,7 @@ module cci_mpf_svc_vtp
             rsp_port_onehot[tlb_processed_port] <= tlb_lookup_rsp_valid && tlb_lookup_rsp.tlbHit;
             rsp_data.pagePA <= tlb_lookup_rsp.pagePA;
             rsp_data.isBigPage <= tlb_lookup_rsp.isBigPage;
+            rsp_data.mayCache <= 1'b1;
             rsp_data.tag <= tlb_processed_req.tag;
             rsp_data.error <= tlb_lookup_rsp.notPresent;
         end
@@ -773,6 +774,7 @@ module cci_mpf_svc_vtp_do_pt_walk
         pt_walk_rsp.error <= pt_walk.rspNotPresent;
         pt_walk_rsp.tag <= pt_walk.rspTag;
         pt_walk_rsp.isBigPage <= pt_walk.rspIsBigPage;
+        pt_walk_rsp.mayCache <= pt_walk.rspIsCacheable;
         pt_walk_rsp_port_idx <= t_cci_mpf_shim_vtp_port_idx'(pt_walk.rspMeta);
 
         if (reset)
