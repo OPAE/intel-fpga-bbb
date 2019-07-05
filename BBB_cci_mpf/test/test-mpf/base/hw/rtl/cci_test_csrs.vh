@@ -50,7 +50,7 @@ typedef logic [NUM_COUNTER_BITS - 1 : 0] t_cci_test_counter;
 // The CSR definitions here are generic.  The meanings of CSR locations
 // are determined by individual test applications.
 //
-localparam NUM_TEST_CSRS = 8;
+localparam NUM_TEST_CSRS = 16;
 
 interface test_csrs();
 

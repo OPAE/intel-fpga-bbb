@@ -105,7 +105,11 @@ class TEST_MEM_PERF : public CCI_TEST
     // Invoke runTest n times and return the average
     int runTestN(const t_test_config* config, t_test_stats* stats, int n);
 
-    bool initMem(bool enableWarmup = false, bool cached = false);
+    bool initMem(bool enableWarmup = false, bool cached = false,
+                 uint64_t rd_prefetchInterval = 0,
+                 uint64_t rd_prefetchDistance = 0,
+                 uint64_t wr_prefetchInterval = 0,
+                 uint64_t wr_prefetchDistance = 0);
 
     // Warm up both VTP and the first 2K lines in VL0 for a region
     void warmUp(void* buf, uint64_t n_bytes, bool cached);

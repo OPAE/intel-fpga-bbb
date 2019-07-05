@@ -124,7 +124,7 @@ module cci_mpf_shim_pwrite
 
     t_pwrite_mdata_state pw_state;
     assign pw_state =
-        fiu.c0Rx.hdr.mdata[$bits(t_cci_mpf_shim_tag) +: $bits(t_pwrite_mdata_state)];
+        fiu.c0Rx.hdr.mdata[$bits(t_cci_mpf_shim_mdata_tag) +: $bits(t_pwrite_mdata_state)];
 
     t_write_heap_idx pw_idx;
     assign pw_idx = pw_state.idx;
@@ -233,11 +233,11 @@ module cci_mpf_shim_pwrite
 
             // Tag the read so we find the response
             h.base.mdata = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX,
-                                                   CCI_MPF_SHIM_TAG_PWRITE);
+                                                   CCI_MPF_SHIM_TAG_PWRITE, 0);
             // Store the index in which the write metadata is saved
             s.idx = c1Tx_pwrite_idx;
             s.cl_len = c1Tx.hdr.base.cl_len;
-            h.base.mdata[$bits(t_cci_mpf_shim_tag) +: $bits(t_pwrite_mdata_state)] = s;
+            h.base.mdata[$bits(t_cci_mpf_shim_mdata_tag) +: $bits(t_pwrite_mdata_state)] = s;
 
             h.ext = c1Tx.hdr.ext;
 
@@ -285,7 +285,7 @@ module cci_mpf_shim_pwrite
     begin
         // Reserved bit must leave room below it for shim tag and the
         // heap index for storing the write request metadata.
-        assert ((RESERVED_MDATA_IDX >= ($bits(t_write_heap_idx) + $bits(t_cci_mpf_shim_tag))) &&
+        assert ((RESERVED_MDATA_IDX >= ($bits(t_write_heap_idx) + $bits(t_cci_mpf_shim_mdata_tag))) &&
                 (RESERVED_MDATA_IDX < CCI_MDATA_WIDTH)) else
             $fatal("cci_mpf_shim_pwrite.sv: Illegal RESERVED_MDATA_IDX value: %d", RESERVED_MDATA_IDX);
 
@@ -365,7 +365,7 @@ module cci_mpf_shim_pwrite
 
     t_pwrite_mdata_state c0Rx_qq_mdata_state;
     assign c0Rx_qq_mdata_state = 
-        c0Rx_qq.hdr.mdata[$bits(t_cci_mpf_shim_tag) +: $bits(t_pwrite_mdata_state)];
+        c0Rx_qq.hdr.mdata[$bits(t_cci_mpf_shim_mdata_tag) +: $bits(t_pwrite_mdata_state)];
 
     always_ff @(posedge clk)
     begin

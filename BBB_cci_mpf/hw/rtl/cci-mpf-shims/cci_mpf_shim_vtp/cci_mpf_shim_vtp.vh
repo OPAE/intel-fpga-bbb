@@ -441,10 +441,12 @@ interface cci_mpf_shim_vtp_pt_fim_if;
     //
     logic readEn;
     t_cci_clAddr readAddr;
+    cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value readReqTag;
     logic readRdy;
 
     logic readDataEn;
     t_cci_clData readData;
+    cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value readRspTag;
 
     //
     // Write messages to a page table service. Only the low 64 bits are
@@ -462,10 +464,12 @@ interface cci_mpf_shim_vtp_pt_fim_if;
        (
         output readEn,
         output readAddr,
+        output readReqTag,
         input  readRdy,
 
         input  readDataEn,
         input  readData,
+        input  readRspTag,
 
         output writeEn,
         output writeAddr,
@@ -478,10 +482,12 @@ interface cci_mpf_shim_vtp_pt_fim_if;
        (
         input  readEn,
         input  readAddr,
+        input  readReqTag,
         output readRdy,
 
         output readDataEn,
         output readData,
+        output readRspTag,
 
         input  writeEn,
         input  writeAddr,

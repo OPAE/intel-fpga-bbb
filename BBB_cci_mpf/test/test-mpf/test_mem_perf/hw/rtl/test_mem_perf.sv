@@ -173,6 +173,17 @@ module test_afu
     t_cci_clAddr rd_mem, wr_mem;
     t_cci_clAddr memMask;
 
+    logic rd_prefetch_en, wr_prefetch_en;
+    // Base is used in the prefetch address computation. Normal addresses
+    // are rd/wr_mem+offset. Prefetch addresses are rd/wr_prefetch_base+offset.
+    // The difference between rd_prefetch_base and rd_mem is the prefetch
+    // distance.
+    t_cci_clAddr rd_prefetch_base, wr_prefetch_base;
+    // Mask controls the frequency of prefetches. Typically only one bit is
+    // set. Bit 0 corresponds to once every 4KB and bit 3 to once every 32KB.
+    typedef logic [3:0] t_prefetch_mask;
+    t_prefetch_mask rd_prefetch_mask, wr_prefetch_mask;
+
     t_cci_mdata rd_mdata, rd_mdata_rsp;
     t_cci_mdata wr_mdata, wr_mdata_rsp;
 
@@ -275,12 +286,14 @@ module test_afu
         if (csrs.cpu_wr_csrs[2].en)
         begin
             rd_mem <= csrs.cpu_wr_csrs[2].data;
+            rd_prefetch_en <= 1'b0;
             $display("MEM RD: 0x%x", csrs.cpu_wr_csrs[2].data);
         end
 
         if (csrs.cpu_wr_csrs[3].en)
         begin
             wr_mem <= csrs.cpu_wr_csrs[3].data;
+            wr_prefetch_en <= 1'b0;
             $display("MEM WR: 0x%x", csrs.cpu_wr_csrs[3].data);
         end
 
@@ -306,6 +319,24 @@ module test_afu
             // Read credits in the low 32 bits, write in the high 32 bits
             rd_line_max_credits <= t_req_cnt'(csrs.cpu_wr_csrs[6].data);
             wr_line_max_credits <= csrs.cpu_wr_csrs[6].data[32 +: $bits(t_req_cnt)];
+        end
+
+        if (csrs.cpu_wr_csrs[7].en)
+        begin
+            rd_prefetch_base <= csrs.cpu_wr_csrs[7].data;
+            rd_prefetch_base[$bits(t_prefetch_mask)-1:0] <= 0;
+            rd_prefetch_mask <= t_prefetch_mask'(csrs.cpu_wr_csrs[7].data);
+            rd_prefetch_en <= 1'b1;
+            $display("MEM RD PREFETCH BASE: 0x%x", csrs.cpu_wr_csrs[7].data);
+        end
+
+        if (csrs.cpu_wr_csrs[8].en)
+        begin
+            wr_prefetch_base <= csrs.cpu_wr_csrs[8].data;
+            wr_prefetch_base[$bits(t_prefetch_mask)-1:0] <= 0;
+            wr_prefetch_mask <= t_prefetch_mask'(csrs.cpu_wr_csrs[8].data);
+            wr_prefetch_en <= 1'b1;
+            $display("MEM WR PREFETCH BASE: 0x%x", csrs.cpu_wr_csrs[8].data);
         end
 
         if (reset)
@@ -439,10 +470,18 @@ module test_afu
     //
     // ====================================================================
 
+    logic rd_need_prefetch, wr_need_prefetch;
+    logic need_prefetch;
+    assign need_prefetch = (rd_need_prefetch || wr_need_prefetch);
+
     logic do_read;
-    assign do_read = enable_reads && ! c0TxAlmFull;
+    assign do_read = enable_reads && ! c0TxAlmFull && ! need_prefetch;
+
+    logic do_prefetch;
+    assign do_prefetch = need_prefetch && ! c0TxAlmFull;
 
     t_cci_clAddr rd_offset, rd_offset_next;
+    t_cci_clAddr wr_offset, wr_offset_next;
 
     // Shift the base every time the pointer loops back to the head of the
     // buffer in order to hit every line in the region.  This makes the
@@ -473,6 +512,8 @@ module test_afu
             rd_offset <= rd_offset_next;
             rd_offset_next <= rd_offset_next + t_cci_clAddr'(stride);
             rd_mdata <= rd_mdata + t_cci_mdata'(1);
+            // Clear the high rd_mdata bit. It indicates prefetches.
+            rd_mdata[CCIP_MDATA_WIDTH-1] <= 1'b0;
 
             if (|(rd_offset_next & ~ memMask))
             begin
@@ -508,20 +549,38 @@ module test_afu
         rd_params.vc_sel = req_vc;
         rd_params.mapVAtoPhysChannel = 1'b1;
 
-        rd_hdr = cci_mpf_c0_genReqHdr(
-                     (rdline_mode_s ? eREQ_RDLINE_S : eREQ_RDLINE_I),
-                     rd_mem + rd_offset,
-                     rd_mdata,
-                     rd_params);
+        if (! need_prefetch)
+        begin
+            // Normal read
+            rd_hdr = cci_mpf_c0_genReqHdr(
+                         (rdline_mode_s ? eREQ_RDLINE_S : eREQ_RDLINE_I),
+                         rd_mem + rd_offset,
+                         rd_mdata,
+                         rd_params);
 
-        rd_hdr.base.cl_len = t_cci_clLen'(cl_beats);
+            rd_hdr.base.cl_len = t_cci_clLen'(cl_beats);
+        end
+        else
+        begin
+            // Prefetch read. rd_prefetch_base is set by software at a
+            // fixed offset relative to the rd_mem buffer, which gives
+            // software control over how far ahead prefetches are scheduled.
+            rd_hdr = cci_mpf_c0_genReqHdr(
+                         eREQ_RDLSPEC_I,
+                         rd_need_prefetch ? (rd_prefetch_base + rd_offset) :
+                                            (wr_prefetch_base + wr_offset),
+                         ~t_ccip_mdata'(0),
+                         rd_params);
+
+            rd_hdr.base.cl_len = t_cci_clLen'(1);
+        end
     end
 
     always_ff @(posedge clk)
     begin
         // Request a read when the state is STATE_RUN and the request
         // pipeline has space.
-        fiu.c0Tx <= cci_mpf_genC0TxReadReq(rd_hdr, do_read);
+        fiu.c0Tx <= cci_mpf_genC0TxReadReq(rd_hdr, do_read || do_prefetch);
 
         if (reset)
         begin
@@ -529,14 +588,47 @@ module test_afu
         end
     end
 
-    logic c0Rx_is_read_rsp;
-    logic c0Rx_is_read_eop;
+    // Schedule read prefetches
+    t_prefetch_mask rd_prefetch_prev;
+
+    // Watch a few bits starting at 4KB address boundary to decide when to emit
+    // a prefetch
+    t_prefetch_mask rd_prefetch_addr_bits;
+    assign rd_prefetch_addr_bits = fiu.c0Tx.hdr.base.address[6 +: $bits(t_prefetch_mask)] &
+                                   rd_prefetch_mask;
 
     always_ff @(posedge clk)
     begin
-        c0Rx_is_read_rsp <= cci_c0Rx_isReadRsp(fiu.c0Rx);
-        c0Rx_is_read_eop <= cci_c0Rx_isReadRsp(fiu.c0Rx) &&
-                            cci_mpf_c0Rx_isEOP(fiu.c0Rx);
+        // Is a normal read being generated?
+        if (fiu.c0Tx.valid && ! fiu.c0Tx.hdr.base.mdata[CCIP_MDATA_WIDTH-1])
+        begin
+            // Did the address bits in the prefetch region change?
+            rd_need_prefetch <= rd_prefetch_en &&
+                                (rd_need_prefetch ||
+                                 (rd_prefetch_prev != rd_prefetch_addr_bits));
+            rd_prefetch_prev <= rd_prefetch_addr_bits;
+        end
+
+        // Finished prefetch?
+        if (do_prefetch)
+        begin
+            rd_need_prefetch <= 1'b0;
+        end
+
+        if (reset)
+        begin
+            rd_need_prefetch <= 1'b0;
+            rd_prefetch_prev <= t_prefetch_mask'(0);
+        end
+    end
+
+    logic c0Rx_is_read_rsp;
+
+    always_ff @(posedge clk)
+    begin
+        // Count read responses but not prefetch responses (high mdata bit set)
+        c0Rx_is_read_rsp <= cci_c0Rx_isReadRsp(fiu.c0Rx) &&
+                            ! fiu.c0Rx.hdr.mdata[CCIP_MDATA_WIDTH-1];
 
         if (c0Rx_is_read_rsp)
         begin
@@ -580,8 +672,6 @@ module test_afu
     //   Writes
     //
     // ====================================================================
-
-    t_cci_clAddr wr_offset, wr_offset_next;
 
     // Shift the base every time the pointer loops back to the head of the
     // buffer in order to hit every line in the region.  This makes the
@@ -736,6 +826,42 @@ module test_afu
         begin
             fiu.c1Tx.valid <= 1'b0;
             wr_beat_num <= t_cci_clNum'(0);
+        end
+    end
+
+
+    // Schedule write prefetches
+    t_prefetch_mask wr_prefetch_prev;
+
+    // Watch a few bits starting at 4KB address boundary to decide when to emit
+    // a prefetch
+    t_prefetch_mask wr_prefetch_addr_bits;
+    assign wr_prefetch_addr_bits = fiu.c1Tx.hdr.base.address[6 +: $bits(t_prefetch_mask)] &
+                                   wr_prefetch_mask;
+
+    always_ff @(posedge clk)
+    begin
+        // Is a write being generated?
+        if (fiu.c1Tx.valid && fiu.c1Tx.hdr.base.sop)
+        begin
+            // Did the address bits in the prefetch region change?
+            wr_need_prefetch <= wr_prefetch_en &&
+                                (wr_need_prefetch ||
+                                 (wr_prefetch_prev != wr_prefetch_addr_bits));
+            wr_prefetch_prev <= wr_prefetch_addr_bits;
+        end
+
+        // Was a prefetch completed for the write pipeline? Prefetches are always
+        // reads.
+        if (do_prefetch && ! rd_need_prefetch)
+        begin
+            wr_need_prefetch <= 1'b0;
+        end
+
+        if (reset)
+        begin
+            wr_need_prefetch <= 1'b0;
+            wr_prefetch_prev <= t_prefetch_mask'(0);
         end
     end
 

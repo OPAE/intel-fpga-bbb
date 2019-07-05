@@ -41,7 +41,13 @@ const char* testAFUID()
 }
 
 bool
-TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
+TEST_MEM_PERF::initMem(
+    bool enableWarmup,
+    bool cached,
+    uint64_t rd_prefetchInterval,
+    uint64_t rd_prefetchDistance,
+    uint64_t wr_prefetchInterval,
+    uint64_t wr_prefetchDistance)
 {
     // Allocate memory for control
     dsm_buf_handle = this->allocBuffer(getpagesize());
@@ -55,6 +61,7 @@ TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
     
     // Low 16 bits holds the number of line address bits required
     buffer_bytes = CL(1) * (1LL << uint16_t(addr_info));
+//    buffer_bytes = 33554432;
     cout << "# Allocating two " << buffer_bytes / (1024 * 1024) << "MB test buffers..." << endl;
 
     // Allocate two buffers worth plus an extra 2MB page to allow for alignment
@@ -81,6 +88,30 @@ TEST_MEM_PERF::initMem(bool enableWarmup, bool cached)
 
     writeTestCSR(2, uint64_t(rd_mem) / CL(1));
     writeTestCSR(3, uint64_t(wr_mem) / CL(1));
+
+    if (rd_prefetchInterval != 0)
+    {
+        if (((rd_prefetchInterval - 1) & rd_prefetchInterval) || (rd_prefetchInterval > 8))
+        {
+            cerr << "Read prefetch interval must be 1, 2, 4 or 8 (4KB pages)" << endl;
+            exit(1);
+        }
+
+        writeTestCSR(7, rd_prefetchInterval |
+                        ((uint64_t(rd_mem) + (4096 * rd_prefetchDistance)) / CL(1)));
+    }
+
+    if (wr_prefetchInterval != 0)
+    {
+        if (((wr_prefetchInterval - 1) & wr_prefetchInterval) || (wr_prefetchInterval > 8))
+        {
+            cerr << "Read prefetch interval must be 1, 2, 4 or 8 (4KB pages)" << endl;
+            exit(1);
+        }
+
+        writeTestCSR(8, wr_prefetchInterval |
+                        ((uint64_t(wr_mem) + (4096 * wr_prefetchDistance)) / CL(1)));
+    }
 
     // Wait for the HW to be ready
     while ((readTestCSR(7) & 3) != 0)

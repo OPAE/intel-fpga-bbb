@@ -251,8 +251,9 @@ module cci_mpf_svc_vtp_pt_walk
     //
     t_cci_clData ptReadData_q;
     logic [63 : 0] ptReadData_qq;    // Line reduced to a word
-    logic ptReadDataEn_q;
-    logic ptReadDataEn_qq;
+    logic ptReadDataEn_q, ptReadDataEn_qq;
+
+    cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value ptReadDataTag_q, ptReadDataTag_qq;
 
     always_ff @(posedge clk)
     begin
@@ -268,9 +269,11 @@ module cci_mpf_svc_vtp_pt_walk
         end
 
         ptReadData_q <= pt_fim.readData;
-
         // pt_read_rsp_word is the word needed from ptReadData_q
         ptReadData_qq <= pt_read_rsp_word;
+
+        ptReadDataTag_q <= pt_fim.readRspTag;
+        ptReadDataTag_qq <= ptReadDataTag_qq;
     end
 
     //
@@ -537,6 +540,7 @@ module cci_mpf_svc_vtp_pt_walk
     // Enable a read request?
     assign pt_fim.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_fim.readRdy;
     assign pt_fim.writeEn = 1'b0;
+    assign pt_fim.readReqTag = 0;
 
     // Address of read request
     always_comb
@@ -617,17 +621,19 @@ module cci_mpf_svc_vtp_pt_walk
 
             if (pt_fim.readEn)
             begin
-                $display("VTP PT WALK %0t: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x)",
+                $display("VTP PT WALK %0t: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x), tag 0x%x",
                          $time,
                          pt_fim.readAddr, {pt_fim.readAddr, 6'b0},
                          ptPageLineIdx(translate_va_idx_vec),
-                         ptLineWordIdx(translate_va_idx_vec));
+                         ptLineWordIdx(translate_va_idx_vec),
+                         pt_fim.readReqTag);
             end
 
             if (ptReadDataEn_q)
             begin
-                $display("VTP PT WALK %0t: Line arrived 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
+                $display("VTP PT WALK %0t: Line (tag 0x%x) arrived 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
                          $time,
+                         ptReadDataTag_q,
                          pt_read_rsp_word_vec[7],
                          pt_read_rsp_word_vec[6],
                          pt_read_rsp_word_vec[5],

@@ -249,6 +249,7 @@ module cci_mpf_shim_edge_fiu
     logic pt_walk_read_req;
     logic pt_walk_emit_req;
     t_cci_clAddr pt_walk_read_addr;
+    t_cci_mpf_shim_mdata_value pt_walk_read_req_tag;
 
     assign pt_fim.readRdy = ! pt_walk_read_req;
 
@@ -272,6 +273,7 @@ module cci_mpf_shim_edge_fiu
         if (pt_fim.readEn)
         begin
             pt_walk_read_addr <= pt_fim.readAddr;
+            pt_walk_read_req_tag <= pt_fim.readReqTag;
         end
     end
 
@@ -283,7 +285,8 @@ module cci_mpf_shim_edge_fiu
     always_comb
     begin
         t_cci_mdata m;
-        m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX, CCI_MPF_SHIM_TAG_VTP);
+        m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX,
+                                    CCI_MPF_SHIM_TAG_VTP, pt_walk_read_req_tag);
 
         pt_walk_read_hdr = cci_mpf_c0_genReqHdr(eREQ_RDLINE_I,
                                                 pt_walk_read_addr,
@@ -319,6 +322,7 @@ module cci_mpf_shim_edge_fiu
 
         pt_fim.readDataEn = cci_c0Rx_isReadRsp(fiu.c0Rx) && is_pt_c0_rsp;
         pt_fim.readData = fiu.c0Rx.data;
+        pt_fim.readRspTag = cci_mpf_getShimMdataValue(fiu.c0Rx.hdr.mdata);
     end
 
     always_comb
@@ -389,7 +393,7 @@ module cci_mpf_shim_edge_fiu
     always_comb
     begin
         t_cci_mdata m;
-        m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX, CCI_MPF_SHIM_TAG_VTP);
+        m = cci_mpf_setShimMdataTag(RESERVED_MDATA_IDX, CCI_MPF_SHIM_TAG_VTP, 0);
 
         pt_c1_write_hdr = cci_mpf_c1_genReqHdr(eREQ_WRLINE_I,
                                                pt_c1_addr,
@@ -558,7 +562,7 @@ module cci_mpf_shim_edge_fiu
     //
     always_ff @(posedge clk)
     begin
-        assert ((RESERVED_MDATA_IDX >= $bits(t_cci_mpf_shim_tag)) &&
+        assert ((RESERVED_MDATA_IDX >= $bits(t_cci_mpf_shim_mdata_tag)) &&
                 (RESERVED_MDATA_IDX < CCI_MDATA_WIDTH)) else
             $fatal("cci_mpf_shim_edge_fiu.sv: Illegal RESERVED_MDATA_IDX value: %d", RESERVED_MDATA_IDX);
 

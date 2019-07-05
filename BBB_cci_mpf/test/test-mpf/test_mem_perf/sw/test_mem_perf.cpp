@@ -47,6 +47,10 @@ void testConfigOptions(po::options_description &desc)
         ("tc", po::value<int>()->default_value(10000000), "Test length (cycles)")
         ("ts", po::value<int>()->default_value(0), "Test length (seconds)")
         ("enable-warmup", po::value<bool>()->default_value(true), "Warm up VTP's TLB")
+        ("rd-prefetch-interval", po::value<int>()->default_value(0), "Read prefetch interval (number of 4KB pages): 0 (no prefetch), 1, 2, 4 or 8")
+        ("rd-prefetch-distance", po::value<int>()->default_value(8), "Read prefetch distance (number of 4KB pages)")
+        ("wr-prefetch-interval", po::value<int>()->default_value(0), "Write prefetch interval (number of 4KB pages): 0 (no prefetch), 1, 2, 4 or 8")
+        ("wr-prefetch-distance", po::value<int>()->default_value(8), "Write prefetch distance (number of 4KB pages)")
         ("test-mode", po::value<bool>()->default_value(false), "Generate simple memory patterns for testing address logic")
         ;
 }
@@ -66,7 +70,11 @@ CCI_TEST* allocTest(const po::variables_map& vm, SVC_WRAPPER& svc)
 int TEST_MEM_PERF::test()
 {
     assert(initMem(vm["enable-warmup"].as<bool>(),
-                   vm["wrline-m"].as<bool>()));
+                   vm["wrline-m"].as<bool>(),
+                   vm["rd-prefetch-interval"].as<int>(),
+                   vm["rd-prefetch-distance"].as<int>(),
+                   vm["wr-prefetch-interval"].as<int>(),
+                   vm["wr-prefetch-distance"].as<int>()));
 
     t_test_config config;
     memset(&config, 0, sizeof(config));
