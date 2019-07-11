@@ -61,7 +61,6 @@ TEST_MEM_PERF::initMem(
     
     // Low 16 bits holds the number of line address bits required
     buffer_bytes = CL(1) * (1LL << uint16_t(addr_info));
-//    buffer_bytes = 33554432;
     cout << "# Allocating two " << buffer_bytes / (1024 * 1024) << "MB test buffers..." << endl;
 
     // Allocate two buffers worth plus an extra 2MB page to allow for alignment
@@ -225,6 +224,7 @@ TEST_MEM_PERF::runTest(const t_test_config* config, t_test_stats* stats)
     {
         // Error!
         dbgRegDump(readTestCSR(7));
+        cerr << *stats << endl;
         return 1;
     }
 
@@ -344,10 +344,20 @@ TEST_MEM_PERF::testNumCyclesExecuted()
 void
 TEST_MEM_PERF::dbgRegDump(uint64_t r)
 {
+    uint64_t fiu_state = readCommonCSR(CSR_COMMON_FIU_STATE);
+    uint64_t fiu_active_c0_lines = readTestCSR(8);
+    uint64_t fiu_active_c1_lines = readTestCSR(9);
+
     cerr << "Test state:" << endl
-         << "  State:            " << ((r >> 8) & 255) << endl
-         << "  FIU C0 Alm Full:  " << (r & 1) << endl
-         << "  FIU C1 Alm Full:  " << ((r >> 1) & 1) << endl
-         << "  MPF C0 Not Empty: " << ((r >> 2) & 1) << endl
-         << "  MPF C1 Not Empty: " << ((r >> 3) & 1) << endl;
+         << "  State:                " << ((r >> 8) & 255) << endl
+         << "  AFU edge C0 Alm Full: " << (r & 1) << endl
+         << "  AFU edge C1 Alm Full: " << ((r >> 1) & 1) << endl
+         << "  MPF C0 Not Empty:     " << ((r >> 2) & 1) << endl
+         << "  MPF C1 Not Empty:     " << ((r >> 3) & 1) << endl
+         << "  FIU C0 Alm Full:      " << (fiu_state & 1) << endl
+         << "  FIU C1 Alm Full:      " << ((fiu_state >> 1) & 1) << endl
+         << "  FIU error:            " << ((fiu_state >> 2) & 1) << endl
+         << "  FIU C0 Active Lines:  " << fiu_active_c0_lines << endl
+         << "  FIU C1 Active Lines:  " << fiu_active_c1_lines << endl
+        ;
 }

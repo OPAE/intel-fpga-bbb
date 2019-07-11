@@ -245,6 +245,10 @@ module test_afu
 
         // Various state
         csrs.cpu_rd_csrs[7].data = csr_state;
+
+        // Active lines at FIU
+        csrs.cpu_rd_csrs[8].data = 64'(c0ActiveLines);
+        csrs.cpu_rd_csrs[9].data = 64'(c1ActiveLines);
     end
 
     //
