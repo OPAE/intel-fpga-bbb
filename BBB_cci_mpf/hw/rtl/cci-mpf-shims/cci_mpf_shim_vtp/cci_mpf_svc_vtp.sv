@@ -90,10 +90,18 @@ module cci_mpf_svc_vtp
     generate
         for (p = 0; p < N_VTP_PORTS; p = p + 1)
         begin : inp
+            // Construct the FIFO so that the incoming lookup request
+            // can be registered, governed by lookupRdy. Using almostFull
+            // and a threshold of 2 leaves a slot available for the
+            // incoming registered request.
+            logic almost_full;
+            assign vtp_svc[p].lookupRdy = ! almost_full;
+
             cci_mpf_prim_fifo_lutram
               #(
                 .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req)),
-                .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS)
+                .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+                .THRESHOLD(2)
                 )
               in_fifo
                (
@@ -102,12 +110,12 @@ module cci_mpf_svc_vtp
 
                 .enq_data(vtp_svc[p].lookupReq),
                 .enq_en(vtp_svc[p].lookupEn),
-                .notFull(vtp_svc[p].lookupRdy),
+                .notFull(),
+                .almostFull(almost_full),
 
                 .first(new_req[p]),
                 .deq_en(new_req_sel[p]),
-                .notEmpty(new_req_rdy[p]),
-                .almostFull()
+                .notEmpty(new_req_rdy[p])
                 );
 
             always_ff @(posedge clk)

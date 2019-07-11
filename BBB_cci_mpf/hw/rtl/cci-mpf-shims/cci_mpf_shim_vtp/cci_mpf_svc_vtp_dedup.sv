@@ -203,10 +203,10 @@ module cci_mpf_svc_vtp_dedup
 
     //
     // Forward non-duplicate requests to the server.
-    always_comb
+    always_ff @(posedge clk)
     begin
-        to_server.lookupEn = next_req_deq_en && ! next_req_is_dup;
-        to_server.lookupReq = next_req;
+        to_server.lookupEn <= next_req_deq_en && ! next_req_is_dup;
+        to_server.lookupReq <= next_req;
     end
 
 
