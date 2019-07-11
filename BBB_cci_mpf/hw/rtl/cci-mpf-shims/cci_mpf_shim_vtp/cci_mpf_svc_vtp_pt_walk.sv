@@ -32,6 +32,8 @@
 `include "cci_mpf_if.vh"
 `include "cci_mpf_csrs.vh"
 
+`include "cci_mpf_config.vh"
+
 `include "cci_mpf_shim_vtp.vh"
 `include "cci_mpf_prim_hash.vh"
 
@@ -178,6 +180,32 @@ module cci_mpf_svc_vtp_pt_walk
 
     // ====================================================================
     //
+    //   FIM page table read interface.
+    //
+    // ====================================================================
+
+    // A sub-module manages access to the page table read interface.
+    // It includes a simple prefetch engine that reduces latency on
+    // serial accesses to 4KB pages.
+
+    cci_mpf_shim_vtp_pt_fim_if pt_walk_reader();
+
+    cci_mpf_svc_vtp_pt_walk_reader
+      #(
+        .DEBUG_MESSAGES(DEBUG_MESSAGES)
+        )
+      rd_with_prefetch
+       (
+        .clk,
+        .reset,
+        .pt_walk_reader,
+        .pt_fim,
+        .csrs
+        );
+
+
+    // ====================================================================
+    //
     //   Page walker state machine.
     //
     // ====================================================================
@@ -264,15 +292,15 @@ module cci_mpf_svc_vtp_pt_walk
         end
         else
         begin
-            ptReadDataEn_q <= pt_fim.readDataEn;
+            ptReadDataEn_q <= pt_walk_reader.readDataEn;
             ptReadDataEn_qq <= ptReadDataEn_q;
         end
 
-        ptReadData_q <= pt_fim.readData;
+        ptReadData_q <= pt_walk_reader.readData;
         // pt_read_rsp_word is the word needed from ptReadData_q
         ptReadData_qq <= pt_read_rsp_word;
 
-        ptReadDataTag_q <= pt_fim.readRspTag;
+        ptReadDataTag_q <= pt_walk_reader.readRspTag;
         ptReadDataTag_qq <= ptReadDataTag_qq;
     end
 
@@ -418,7 +446,7 @@ module cci_mpf_svc_vtp_pt_walk
           STATE_PT_WALK_READ_REQ:
             begin
                 // Wait until a PT read request can fire
-                if (pt_fim.readEn)
+                if (pt_walk_reader.readEn)
                 begin
                     state <= STATE_PT_WALK_READ_WAIT_RSP;
                 end
@@ -538,22 +566,22 @@ module cci_mpf_svc_vtp_pt_walk
     // ====================================================================
 
     // Enable a read request?
-    assign pt_fim.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_fim.readRdy;
-    assign pt_fim.writeEn = 1'b0;
-    assign pt_fim.readReqTag = 0;
+    assign pt_walk_reader.readEn = (state == STATE_PT_WALK_READ_REQ) && pt_walk_reader.readRdy;
+    assign pt_walk_reader.writeEn = 1'b0;
+    assign pt_walk_reader.readReqTag = 'x;  // Not used here
 
     // Address of read request
     always_comb
     begin
-        pt_fim.readAddr = t_cci_clAddr'(0);
+        pt_walk_reader.readAddr = t_cci_clAddr'(0);
 
         // Current page in table
-        pt_fim.readAddr[CCI_PT_4KB_PAGE_OFFSET_BITS +: CCI_PT_4KB_PA_PAGE_INDEX_BITS] =
+        pt_walk_reader.readAddr[CCI_PT_4KB_PAGE_OFFSET_BITS +: CCI_PT_4KB_PA_PAGE_INDEX_BITS] =
             pt_walk_cur_page;
 
         // Select the proper line in this level of the table, based on the
         // portion of the VA corresponding to the level.
-        pt_fim.readAddr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] = ptPageLineIdx(translate_va_idx_vec);
+        pt_walk_reader.readAddr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] = ptPageLineIdx(translate_va_idx_vec);
     end
 
 
@@ -569,7 +597,7 @@ module cci_mpf_svc_vtp_pt_walk
     always_comb
     begin
         pt_read_rsp_word_vec = ptReadData_q;
-        pt_read_rsp_word = pt_read_rsp_word_vec[ptLineWordIdx(translate_va_idx_vec)];
+        pt_read_rsp_word = pt_read_rsp_word_vec[ptLineWordIdx(translate_va_idx_vec) +: 2];
     end
 
 
@@ -619,14 +647,13 @@ module cci_mpf_svc_vtp_pt_walk
                          ptReadCacheStatus.error);
             end
 
-            if (pt_fim.readEn)
+            if (pt_walk_reader.readEn)
             begin
-                $display("VTP PT WALK %0t: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x), tag 0x%x",
+                $display("VTP PT WALK %0t: PTE read addr 0x%x (PA 0x%x) (line 0x%x, word 0x%x)",
                          $time,
-                         pt_fim.readAddr, {pt_fim.readAddr, 6'b0},
+                         pt_walk_reader.readAddr, {pt_walk_reader.readAddr, 6'b0},
                          ptPageLineIdx(translate_va_idx_vec),
-                         ptLineWordIdx(translate_va_idx_vec),
-                         pt_fim.readReqTag);
+                         ptLineWordIdx(translate_va_idx_vec));
             end
 
             if (ptReadDataEn_q)
@@ -1010,3 +1037,490 @@ module cci_mpf_svc_vtp_pt_walk_cache
     assign ins_data_status = cci_mpf_ptWalkWordToStatus(ins_line_words[0]);
 
 endmodule // cci_mpf_svc_vtp_pt_walk_cache
+
+
+module cci_mpf_svc_vtp_pt_walk_reader
+  #(
+    parameter DEBUG_MESSAGES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Command interface from PT walker
+    cci_mpf_shim_vtp_pt_fim_if.to_fim pt_walk_reader,
+
+    // FIM interface for host I/O
+    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
+
+    // CSRs
+    cci_mpf_csrs.vtp csrs
+    );
+
+    //
+    // Register incoming requests.
+    //
+    logic new_read_en;
+    t_cci_clAddr new_read_addr;
+    logic new_read_pref_hit;
+
+    always_ff @(posedge clk)
+    begin
+        // If there is an existing read request it is processed as long as
+        // the FIM isn't busy.
+        if (pt_fim.readRdy || new_read_pref_hit)
+        begin
+            new_read_en <= 1'b0;
+        end
+
+        if (pt_walk_reader.readEn)
+        begin
+            new_read_en <= 1'b1;
+            new_read_addr <= pt_walk_reader.readAddr;
+        end
+
+        if (reset)
+        begin
+            new_read_en <= 1'b0;
+        end
+    end
+
+
+    logic prefetch_addr_valid;
+    t_cci_clAddr prefetch_addr;
+
+    // PT walker does no writes to host memory
+    assign pt_fim.writeEn = 1'b0;
+
+    // New requests allowed as long as the slot is available and no
+    // prefetch may be scheduled.
+    assign pt_walk_reader.readRdy = ! prefetch_addr_valid && ! new_read_en;
+
+
+    // pt_walk_reader.readData as a vector of 64 bit page table entries
+    logic [(CCI_CLDATA_WIDTH / 64)-1 : 0][63 : 0] pt_walk_read_data_word_vec;
+    assign pt_walk_read_data_word_vec = pt_walk_reader.readData;
+
+
+    // ====================================================================
+    //
+    //  Record possible prefetch addresses in lines following read
+    //  requests.
+    //
+    // ====================================================================
+
+    // Construct a type that is the index of lines within a single page in the
+    // page table. For 4KB pages and 64 byte lines, the line index is 6 bits.
+    localparam PT_WORDS_PER_LINE = CCI_CLDATA_WIDTH / 64;
+    localparam PT_LINE_WORD_IDX_WIDTH = $clog2(PT_WORDS_PER_LINE);
+    localparam PT_PAGE_LINE_IDX_WIDTH = CCI_MPF_PT_PAGE_IDX_WIDTH - PT_LINE_WORD_IDX_WIDTH;
+    typedef logic [PT_PAGE_LINE_IDX_WIDTH-1 : 0] t_pt_page_line_idx;
+
+    always_ff @(posedge clk)
+    begin
+        if (new_read_en)
+        begin
+            // The address following a new readAddr may be prefetched as
+            // long as the line is on the same page as the readAddr. As
+            // long as the line index portion of the address on the page
+            // isn't all 1's it will work.
+            prefetch_addr_valid <= ~(&(t_pt_page_line_idx'(new_read_addr)));
+
+            // No need to worry about overflow out of the line index, so build
+            // a smaller adder.
+            prefetch_addr <= new_read_addr;
+            prefetch_addr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] <=
+                t_pt_page_line_idx'(new_read_addr) + t_pt_page_line_idx'(1);
+        end
+
+        // Clear the address on the cycle when a read is returned to the
+        // walker. During this cycle the prefetch engine below will decide whether
+        // to emit a prefetch. Also clear it any cycle that an invalidation
+        // is raised.
+        if (pt_walk_reader.readDataEn ||
+            csrs.vtp_in_mode.inval_translation_cache ||
+            csrs.vtp_in_inval_page_valid)
+        begin
+            prefetch_addr_valid <= 1'b0;
+        end
+
+        if (reset)
+        begin
+            prefetch_addr_valid <= 1'b0;
+        end
+    end
+
+
+    // ====================================================================
+    //
+    //  Data structure and accessor functions for tagging page table
+    //  reads and prefetch requests.
+    //
+    // ====================================================================
+
+    // Number of slots for holding prefetched entries. On most systems
+    // this is configurable (by overriding the default set in cci_mpf_config.vh.
+    // On Broadwell integrated parts, only 4 buckets are defined in
+    // order to aid timing closure.
+    localparam NUM_PREFETCH_BUCKETS =
+        (MPF_PLATFORM != "INTG_BDX") ? `VTP_N_PT_WALK_PREFETCH_BUCKETS : 4;
+
+    typedef logic [$clog2(NUM_PREFETCH_BUCKETS)-1 : 0] t_pref_idx;
+    typedef logic [NUM_PREFETCH_BUCKETS-1 : 0] t_pref_vec;
+
+    typedef enum logic [1:0] {
+        RD_TYPE_PT_NORMAL,
+        RD_TYPE_PT_PREF,
+        RD_TYPE_PAGE_PREF
+    }
+    t_rd_type;
+
+    // This struct is passed in readReqTag and returned in readRspTag.
+    typedef struct packed
+    {
+        t_rd_type rd_type;
+        t_pref_idx bucket_idx;
+    }
+    t_pt_read_mdata;
+
+    // Request info to metadata tag
+    function automatic cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value setPtReadMdata(
+        t_rd_type rd_type,
+        t_pref_idx bucket_idx
+        );
+
+        t_pt_read_mdata m;
+        m.rd_type = rd_type;
+        m.bucket_idx = bucket_idx;
+
+        return cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value'(m);
+    endfunction
+
+    function automatic t_rd_type getPtReadMdataType(
+        cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value v
+        );
+
+        t_pt_read_mdata m = t_pt_read_mdata'(v);
+        return m.rd_type;
+    endfunction
+
+    function automatic t_pref_idx getPtReadMdataIdx(
+        cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value v
+        );
+
+        t_pt_read_mdata m = t_pt_read_mdata'(v);
+        return m.bucket_idx;
+    endfunction
+
+
+    // ====================================================================
+    //
+    //  Prefetch engine and state
+    //
+    // ====================================================================
+
+    // Bucket state
+    struct
+    {
+        t_pref_vec valid;             // Bucket has valid data
+        t_pref_vec busy;              // Waiting for read response
+        t_pref_vec not_poison;        // Invalidated while waiting for read?
+        t_cci_clAddr tag[NUM_PREFETCH_BUCKETS];
+    }
+    pref_state;
+
+    // Prefetch responses have tag bit 2 set and the bucket index
+    // in bits [1:0].
+    logic pref_resp_valid;
+    t_pref_idx pref_resp_idx;
+    assign pref_resp_valid = (pt_fim.readDataEn &&
+                              (getPtReadMdataType(pt_fim.readRspTag) == RD_TYPE_PT_PREF));
+    assign pref_resp_idx = getPtReadMdataIdx(pt_fim.readRspTag);
+
+    //
+    // Prefetch read data container
+    //
+    t_pref_idx pref_rd_idx;
+    t_cci_clData pref_rd_data;
+
+    cci_mpf_prim_lutram
+      #(
+        .N_ENTRIES(NUM_PREFETCH_BUCKETS),
+        .N_DATA_BITS(CCI_CLDATA_WIDTH)
+        )
+      pref_data
+       (
+        .clk,
+        .reset,
+
+        .raddr(pref_rd_idx),
+        .rdata(pref_rd_data),
+
+        .waddr(pref_resp_idx),
+        .wen(pref_resp_valid),
+        .wdata(pt_fim.readData)
+        );
+
+
+    // Pick a bucket to use for the next prefetch
+    logic bucket_available;
+    t_pref_idx next_pref_idx;
+    logic do_prefetch;
+
+    // Picking is an arbitration problem. This arbiter always returns the
+    // choice in grantIdx, even when enable is false. Setting enable updates
+    // the round-robin history.
+    t_pref_idx next_pref_arb_idx;
+    cci_mpf_prim_arb_rr
+      #(
+        .NUM_CLIENTS(NUM_PREFETCH_BUCKETS)
+        )
+      pick_rr
+       (
+        .clk,
+        .reset,
+
+        .ena(do_prefetch),
+        .request(~pref_state.busy),
+
+        .grant(),
+        .grantIdx(next_pref_arb_idx)
+        );
+
+    // Register the arbitration result for timing. The complication from
+    // the register is that there is a vulnerable cycle when busy has been
+    // set but net yet visible from the arbiter. The solution here is
+    // simple: don't allow back-to-back prefetches.
+    always_ff @(posedge clk)
+    begin
+        // Prefetch is possible as long as some bucket isn't busy
+        bucket_available <= ~(&(pref_state.busy)) && ! do_prefetch;
+        next_pref_idx <= next_pref_arb_idx;
+    end
+
+
+    // Would prefetch be legal?
+    logic could_prefetch;
+    assign could_prefetch = bucket_available && prefetch_addr_valid &&
+                            pt_walk_reader.readDataEn &&
+                            pt_fim.readRdy;
+
+    // Is prefetching a good idea? It's likely a waste of time on sparse data,
+    // so only prefetch if both the first and last entries are valid, terminal
+    // entries.
+    t_cci_mpf_pt_walk_status ws0, ws7;
+    assign ws0 = cci_mpf_ptWalkWordToStatus(pt_walk_read_data_word_vec[0]);
+    assign ws7 = cci_mpf_ptWalkWordToStatus(pt_walk_read_data_word_vec[7]);
+
+    assign do_prefetch = could_prefetch &&
+                         ws0.terminal && ! ws0.error &&
+                         ws7.terminal && ! ws7.error;
+
+    always_ff @(posedge clk)
+    begin
+        for (int i = 0; i < NUM_PREFETCH_BUCKETS; i = i + 1)
+        begin
+            if (do_prefetch && (next_pref_idx == t_pref_idx'(i)))
+            begin
+                // Prefetch read generated this cycle. Initialize the
+                // bucket's state, indicating read data is pending.
+                pref_state.valid[i] <= 1'b0;
+                pref_state.busy[i] <= 1'b1;
+                pref_state.not_poison[i] <= 1'b1;
+                pref_state.tag[i] <= prefetch_addr;
+            end
+            else if (pref_resp_valid && (pref_resp_idx == t_pref_idx'(i)))
+            begin
+                // Read data arrived. The value is now valid unless it
+                // has been poisoned by a page invalidation during the
+                // read.
+                pref_state.valid[i] <= pref_state.not_poison[i];
+                pref_state.busy[i] <= 1'b0;
+            end
+        end
+
+        // Poison all outstanding requests on invalidation
+        if (csrs.vtp_in_mode.inval_translation_cache ||
+            csrs.vtp_in_inval_page_valid)
+        begin
+            pref_state.valid <= t_pref_vec'(0);
+            pref_state.not_poison <= t_pref_vec'(0);
+        end
+
+        if (reset)
+        begin
+            pref_state.valid <= t_pref_vec'(0);
+            pref_state.busy <= t_pref_vec'(0);
+            pref_state.not_poison <= t_pref_vec'(0);
+        end
+    end
+
+    //
+    // Compare the incoming address to prefetched buckets.
+    //
+    logic new_read_pref_match;
+    t_pref_idx new_read_pref_hit_idx;
+
+    // These intermediate values are combination during the cycle
+    // pt_walk_reader.readEn is asserted.
+    t_pref_vec read_addr_hit_vec;
+    t_pref_idx read_addr_hit_idx;
+
+    // Generate a bit vector of readAddr comparisons to prefetch buckets
+    always_comb
+    begin
+        for (int i = 0; i < NUM_PREFETCH_BUCKETS; i = i + 1)
+        begin
+            read_addr_hit_vec[i] = (pt_walk_reader.readAddr === pref_state.tag[i]);
+        end
+    end
+
+    // Pick a bucket index from the readAddr comparison vector
+    always_comb
+    begin
+        read_addr_hit_idx = t_pref_idx'(0);
+
+        for (int i = 1; i < NUM_PREFETCH_BUCKETS; i = i + 1)
+        begin
+            if (read_addr_hit_vec[i])
+            begin
+                read_addr_hit_idx = t_pref_idx'(i);
+            end
+        end
+    end
+
+    // Register the pt_walk_reader.readAddr to bucket tag comparison
+    always_ff @(posedge clk)
+    begin
+        if (! new_read_en)
+        begin
+            new_read_pref_match <= (|(read_addr_hit_vec));
+            new_read_pref_hit_idx <= read_addr_hit_idx;
+        end
+    end
+
+    // Service a new request with a prefetch?
+    assign pref_rd_idx = new_read_pref_hit_idx;
+    assign new_read_pref_hit = new_read_en && new_read_pref_match &&
+                               pref_state.valid[new_read_pref_hit_idx];
+
+
+    // ====================================================================
+    //
+    //  Send either a normal read or prefetch to the FIM.
+    //
+    // ====================================================================
+
+    always_ff @(posedge clk)
+    begin
+        pt_fim.readEn <= (new_read_en && pt_fim.readRdy && !new_read_pref_hit) ||
+                         do_prefetch;
+
+        if (! do_prefetch)
+        begin
+            // Normal read request
+            pt_fim.readAddr <= new_read_addr;
+            pt_fim.readReqTag <= setPtReadMdata(RD_TYPE_PT_NORMAL, 0);
+        end
+        else
+        begin
+            // Prefetch
+            pt_fim.readAddr <= prefetch_addr;
+            pt_fim.readReqTag <= setPtReadMdata(RD_TYPE_PT_PREF, next_pref_idx);
+        end
+    end
+
+
+    // ====================================================================
+    //
+    //  Respond either from the prefetch buffer or the FIM
+    //
+    // ====================================================================
+
+    always_ff @(posedge clk)
+    begin
+        pt_walk_reader.readDataEn <= (pt_fim.readDataEn &&
+                                      (getPtReadMdataType(pt_fim.readRspTag) == RD_TYPE_PT_NORMAL)) ||
+                                     new_read_pref_hit;
+        pt_walk_reader.readData <= (new_read_pref_hit ? pref_rd_data : pt_fim.readData);
+
+        // Set the source of the response in the readRspTag. This is unlikely
+        // to be useful to the client, though it is valuable for debugging.
+        pt_walk_reader.readRspTag <=
+            setPtReadMdata((new_read_pref_hit ? RD_TYPE_PT_PREF : RD_TYPE_PT_NORMAL),
+                           new_read_pref_hit_idx);
+    end
+
+
+    // ====================================================================
+    //
+    //  Debug
+    //
+    // ====================================================================
+
+    always_ff @(posedge clk)
+    begin
+        if (! reset && DEBUG_MESSAGES)
+        begin
+            // synthesis translate_off
+            if (pt_fim.readEn && (getPtReadMdataType(pt_fim.readReqTag) == RD_TYPE_PT_NORMAL))
+            begin
+                $display("VTP PT WALK RD %0t: PTE normal read addr 0x%x (PA 0x%x)",
+                         $time,
+                         pt_fim.readAddr, {pt_fim.readAddr, 6'b0});
+            end
+
+            if (pt_fim.readEn && (getPtReadMdataType(pt_fim.readReqTag) == RD_TYPE_PT_PREF))
+            begin
+                $display("VTP PT WALK RD %0t: PTE prefetch read addr 0x%x (PA 0x%x), bucket %0d",
+                         $time,
+                         pt_fim.readAddr, {pt_fim.readAddr, 6'b0},
+                         getPtReadMdataIdx(pt_fim.readReqTag));
+            end
+
+            if (could_prefetch && ! do_prefetch)
+            begin
+                $display("VTP PT WALK RD %0t: Skipped sparse prefetch",
+                         $time);
+            end
+
+            if (pt_walk_reader.readDataEn && (getPtReadMdataType(pt_walk_reader.readRspTag) == RD_TYPE_PT_NORMAL))
+            begin
+                $display("VTP PT WALK RD %0t: PTE normal response 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
+                         $time,
+                         pt_walk_read_data_word_vec[7],
+                         pt_walk_read_data_word_vec[6],
+                         pt_walk_read_data_word_vec[5],
+                         pt_walk_read_data_word_vec[4],
+                         pt_walk_read_data_word_vec[3],
+                         pt_walk_read_data_word_vec[2],
+                         pt_walk_read_data_word_vec[1],
+                         pt_walk_read_data_word_vec[0]);
+            end
+
+            if (pt_walk_reader.readDataEn && (getPtReadMdataType(pt_walk_reader.readRspTag) == RD_TYPE_PT_PREF))
+            begin
+                $display("VTP PT WALK RD %0t: PTE prefetch hit (bucket %0d) 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x",
+                         $time,
+                         getPtReadMdataIdx(pt_walk_reader.readRspTag),
+                         pt_walk_read_data_word_vec[7],
+                         pt_walk_read_data_word_vec[6],
+                         pt_walk_read_data_word_vec[5],
+                         pt_walk_read_data_word_vec[4],
+                         pt_walk_read_data_word_vec[3],
+                         pt_walk_read_data_word_vec[2],
+                         pt_walk_read_data_word_vec[1],
+                         pt_walk_read_data_word_vec[0]);
+            end
+
+            if (pref_resp_valid)
+            begin
+                $display("VTP PT WALK RD %0t: PTE prefetch resp arrived, bucket %0d",
+                         $time,
+                         pref_resp_idx);
+            end
+            // synthesis translate_on
+        end
+    end
+
+endmodule // cci_mpf_svc_vtp_pt_walk_reader

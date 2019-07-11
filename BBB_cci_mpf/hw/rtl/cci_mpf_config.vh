@@ -63,6 +63,15 @@
   `define  VTP_N_TLB_2MB_WAYS 4
 `endif
 
+`ifndef VTP_N_PT_WALK_PREFETCH_BUCKETS
+  // Number of prefetch slots in the hardware page table walker. These are
+  // most valuable when streaming from groups of 4KB pages when the pages
+  // are not already in the VTP L2 TLB. This may happen either because a
+  // buffer is accessed only once or because the L2 TLB capacity is
+  // exceeded.
+  `define  VTP_N_PT_WALK_PREFETCH_BUCKETS 8
+`endif
+
 
 // ========================================================================
 //
