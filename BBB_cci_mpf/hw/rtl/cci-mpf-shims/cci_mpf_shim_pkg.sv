@@ -46,7 +46,7 @@ package cci_mpf_shim_pkg;
 
     // A sub-field of mdata remains available to shims to manage multiple
     // outstanding requests.
-    typedef logic [3:0] t_cci_mpf_shim_mdata_value;
+    typedef logic [4:0] t_cci_mpf_shim_mdata_value;
 
     function automatic t_cci_mdata cci_mpf_setShimMdataTag(int reservedIdx,
                                                            t_cci_mpf_shim_mdata_tag tag,

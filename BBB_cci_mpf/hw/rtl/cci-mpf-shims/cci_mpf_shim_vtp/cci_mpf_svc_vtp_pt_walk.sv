@@ -1039,6 +1039,12 @@ module cci_mpf_svc_vtp_pt_walk_cache
 endmodule // cci_mpf_svc_vtp_pt_walk_cache
 
 
+//
+// Forward page table read requests to the FIM. In addition to reads demanded
+// by the page table walker this module also generates prefetches of nearby
+// lines in the page table since the latency of reading page table entries
+// of 4KB pages is sometimes a problem.
+//
 module cci_mpf_svc_vtp_pt_walk_reader
   #(
     parameter DEBUG_MESSAGES = 0
@@ -1057,6 +1063,11 @@ module cci_mpf_svc_vtp_pt_walk_reader
     cci_mpf_csrs.vtp csrs
     );
 
+    // Don't allow back-to-back requests to the FIM. The readRdy flag
+    // isn't updated properly because of register delay.
+    logic pt_fim_rdy;
+    assign pt_fim_rdy = pt_fim.readRdy && ! pt_fim.readEn;
+
     //
     // Register incoming requests.
     //
@@ -1068,7 +1079,7 @@ module cci_mpf_svc_vtp_pt_walk_reader
     begin
         // If there is an existing read request it is processed as long as
         // the FIM isn't busy.
-        if (pt_fim.readRdy || new_read_pref_hit)
+        if (pt_fim_rdy || new_read_pref_hit)
         begin
             new_read_en <= 1'b0;
         end
@@ -1086,15 +1097,15 @@ module cci_mpf_svc_vtp_pt_walk_reader
     end
 
 
-    logic prefetch_addr_valid;
-    t_cci_clAddr prefetch_addr;
+    logic pt_prefetch_addr_valid;
+    t_cci_clAddr pt_prefetch_addr;
 
     // PT walker does no writes to host memory
     assign pt_fim.writeEn = 1'b0;
 
     // New requests allowed as long as the slot is available and no
     // prefetch may be scheduled.
-    assign pt_walk_reader.readRdy = ! prefetch_addr_valid && ! new_read_en;
+    assign pt_walk_reader.readRdy = ! pt_prefetch_addr_valid && ! new_read_en;
 
 
     // pt_walk_reader.readData as a vector of 64 bit page table entries
@@ -1124,12 +1135,12 @@ module cci_mpf_svc_vtp_pt_walk_reader
             // long as the line is on the same page as the readAddr. As
             // long as the line index portion of the address on the page
             // isn't all 1's it will work.
-            prefetch_addr_valid <= ~(&(t_pt_page_line_idx'(new_read_addr)));
+            pt_prefetch_addr_valid <= ~(&(t_pt_page_line_idx'(new_read_addr)));
 
             // No need to worry about overflow out of the line index, so build
             // a smaller adder.
-            prefetch_addr <= new_read_addr;
-            prefetch_addr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] <=
+            pt_prefetch_addr <= new_read_addr;
+            pt_prefetch_addr[PT_PAGE_LINE_IDX_WIDTH-1 : 0] <=
                 t_pt_page_line_idx'(new_read_addr) + t_pt_page_line_idx'(1);
         end
 
@@ -1141,12 +1152,12 @@ module cci_mpf_svc_vtp_pt_walk_reader
             csrs.vtp_in_mode.inval_translation_cache ||
             csrs.vtp_in_inval_page_valid)
         begin
-            prefetch_addr_valid <= 1'b0;
+            pt_prefetch_addr_valid <= 1'b0;
         end
 
         if (reset)
         begin
-            prefetch_addr_valid <= 1'b0;
+            pt_prefetch_addr_valid <= 1'b0;
         end
     end
 
@@ -1168,10 +1179,9 @@ module cci_mpf_svc_vtp_pt_walk_reader
     typedef logic [$clog2(NUM_PREFETCH_BUCKETS)-1 : 0] t_pref_idx;
     typedef logic [NUM_PREFETCH_BUCKETS-1 : 0] t_pref_vec;
 
-    typedef enum logic [1:0] {
+    typedef enum logic [0:0] {
         RD_TYPE_PT_NORMAL,
-        RD_TYPE_PT_PREF,
-        RD_TYPE_PAGE_PREF
+        RD_TYPE_PT_PREF
     }
     t_rd_type;
 
@@ -1225,6 +1235,7 @@ module cci_mpf_svc_vtp_pt_walk_reader
         t_pref_vec valid;             // Bucket has valid data
         t_pref_vec busy;              // Waiting for read response
         t_pref_vec not_poison;        // Invalidated while waiting for read?
+
         t_cci_clAddr tag[NUM_PREFETCH_BUCKETS];
     }
     pref_state;
@@ -1265,7 +1276,7 @@ module cci_mpf_svc_vtp_pt_walk_reader
     // Pick a bucket to use for the next prefetch
     logic bucket_available;
     t_pref_idx next_pref_idx;
-    logic do_prefetch;
+    logic do_pt_prefetch;
 
     // Picking is an arbitration problem. This arbiter always returns the
     // choice in grantIdx, even when enable is false. Setting enable updates
@@ -1280,7 +1291,7 @@ module cci_mpf_svc_vtp_pt_walk_reader
         .clk,
         .reset,
 
-        .ena(do_prefetch),
+        .ena(do_pt_prefetch),
         .request(~pref_state.busy),
 
         .grant(),
@@ -1294,16 +1305,17 @@ module cci_mpf_svc_vtp_pt_walk_reader
     always_ff @(posedge clk)
     begin
         // Prefetch is possible as long as some bucket isn't busy
-        bucket_available <= ~(&(pref_state.busy)) && ! do_prefetch;
+        bucket_available <= ~(&(pref_state.busy)) && ! do_pt_prefetch;
         next_pref_idx <= next_pref_arb_idx;
     end
 
 
     // Would prefetch be legal?
     logic could_prefetch;
-    assign could_prefetch = bucket_available && prefetch_addr_valid &&
+    assign could_prefetch = bucket_available && pt_prefetch_addr_valid &&
                             pt_walk_reader.readDataEn &&
-                            pt_fim.readRdy;
+                            ! new_read_en &&
+                            pt_fim_rdy;
 
     // Is prefetching a good idea? It's likely a waste of time on sparse data,
     // so only prefetch if both the first and last entries are valid, terminal
@@ -1312,22 +1324,22 @@ module cci_mpf_svc_vtp_pt_walk_reader
     assign ws0 = cci_mpf_ptWalkWordToStatus(pt_walk_read_data_word_vec[0]);
     assign ws7 = cci_mpf_ptWalkWordToStatus(pt_walk_read_data_word_vec[7]);
 
-    assign do_prefetch = could_prefetch &&
-                         ws0.terminal && ! ws0.error &&
-                         ws7.terminal && ! ws7.error;
+    assign do_pt_prefetch = could_prefetch &&
+                            ws0.terminal && ! ws0.error &&
+                            ws7.terminal && ! ws7.error;
 
     always_ff @(posedge clk)
     begin
         for (int i = 0; i < NUM_PREFETCH_BUCKETS; i = i + 1)
         begin
-            if (do_prefetch && (next_pref_idx == t_pref_idx'(i)))
+            if (do_pt_prefetch && (next_pref_idx == t_pref_idx'(i)))
             begin
                 // Prefetch read generated this cycle. Initialize the
                 // bucket's state, indicating read data is pending.
                 pref_state.valid[i] <= 1'b0;
                 pref_state.busy[i] <= 1'b1;
                 pref_state.not_poison[i] <= 1'b1;
-                pref_state.tag[i] <= prefetch_addr;
+                pref_state.tag[i] <= pt_prefetch_addr;
             end
             else if (pref_resp_valid && (pref_resp_idx == t_pref_idx'(i)))
             begin
@@ -1413,20 +1425,20 @@ module cci_mpf_svc_vtp_pt_walk_reader
 
     always_ff @(posedge clk)
     begin
-        pt_fim.readEn <= (new_read_en && pt_fim.readRdy && !new_read_pref_hit) ||
-                         do_prefetch;
+        pt_fim.readEn <= (new_read_en && pt_fim_rdy && !new_read_pref_hit) ||
+                         do_pt_prefetch;
 
-        if (! do_prefetch)
+        if (do_pt_prefetch)
+        begin
+            // Page table line prefetch
+            pt_fim.readAddr <= pt_prefetch_addr;
+            pt_fim.readReqTag <= setPtReadMdata(RD_TYPE_PT_PREF, next_pref_idx);
+        end
+        else
         begin
             // Normal read request
             pt_fim.readAddr <= new_read_addr;
             pt_fim.readReqTag <= setPtReadMdata(RD_TYPE_PT_NORMAL, 0);
-        end
-        else
-        begin
-            // Prefetch
-            pt_fim.readAddr <= prefetch_addr;
-            pt_fim.readReqTag <= setPtReadMdata(RD_TYPE_PT_PREF, next_pref_idx);
         end
     end
 
@@ -1478,7 +1490,7 @@ module cci_mpf_svc_vtp_pt_walk_reader
                          getPtReadMdataIdx(pt_fim.readReqTag));
             end
 
-            if (could_prefetch && ! do_prefetch)
+            if (could_prefetch && ! do_pt_prefetch)
             begin
                 $display("VTP PT WALK RD %0t: Skipped sparse prefetch",
                          $time);
