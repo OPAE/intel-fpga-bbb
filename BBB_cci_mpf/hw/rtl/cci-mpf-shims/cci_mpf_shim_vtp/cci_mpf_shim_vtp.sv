@@ -1009,7 +1009,10 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     cci_mpf_prim_fifo_lutram
       #(
         .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_rsp)),
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS)
+        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+        .REGISTER_OUTPUT(1),
+        // Bypass to save a cycle on c0 (reads), don't bother for writes.
+        .BYPASS_TO_REGISTER((CTX_NUMBER == 0) ? 1 : 0)
         )
       tlb_fifo_out
        (
