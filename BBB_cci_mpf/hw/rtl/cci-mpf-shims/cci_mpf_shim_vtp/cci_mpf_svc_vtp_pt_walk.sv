@@ -219,6 +219,7 @@ module cci_mpf_svc_vtp_pt_walk
         STATE_PT_WALK_READ_REQ,
         STATE_PT_WALK_READ_WAIT_RSP,
         STATE_PT_WALK_READ_RSP,
+        STATE_PT_WALK_WAIT_CACHE_RDY,
         STATE_PT_WALK_DONE,
         STATE_PT_WALK_ERROR,
         STATE_PT_WALK_SPEC_ERROR,
@@ -485,7 +486,7 @@ module cci_mpf_svc_vtp_pt_walk
                 else
                 begin
                     // Continue the walk
-                    state <= STATE_PT_WALK_READ_REQ;
+                    state <= STATE_PT_WALK_WAIT_CACHE_RDY;
                     translate_depth <= translate_depth + t_cci_mpf_pt_walk_depth'(1);
                 end
 
@@ -504,6 +505,15 @@ module cci_mpf_svc_vtp_pt_walk
                     translate_va_lower_idx_vec[i + 1] <= translate_va_lower_idx_vec[i];
                 end
                 translate_va_idx_vec[0] <= translate_va_lower_idx_vec[CCI_MPF_PT_MAX_DEPTH-1];
+            end
+
+          STATE_PT_WALK_WAIT_CACHE_RDY:
+            begin
+                // Wait for the current cache insert to complete
+                if (ptReadCacheRdy)
+                begin
+                    state <= STATE_PT_WALK_READ_REQ;
+                end
             end
 
           STATE_PT_WALK_DONE:
@@ -771,7 +781,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
     // Number of cache entries.  Each entry has one tag and
     // PT_WORDS_PER_LINE words.
-    localparam PT_CACHE_ENTRIES = 128;
+    localparam PT_CACHE_ENTRIES = 256;
     typedef logic [$clog2(PT_CACHE_ENTRIES)-1 : 0] t_pt_cache_idx;
 
     //
@@ -786,8 +796,9 @@ module cci_mpf_svc_vtp_pt_walk_cache
     typedef logic [PT_LINE_WORD_IDX_WIDTH-1 : 0] t_pt_line_word_idx;
 
     // t_cci_mpf_pt_page_idx_vec without the low t_pt_line_word_idx bits
-    typedef logic [$bits(t_cci_mpf_pt_page_idx_vec) - PT_LINE_WORD_IDX_WIDTH - 1 : 0]
-        t_pt_entry_tag;
+    typedef logic [$bits(t_cci_mpf_pt_walk_depth) +
+                   $bits(t_cci_mpf_pt_page_idx_vec) -
+                   PT_LINE_WORD_IDX_WIDTH - 1 : 0] t_pt_entry_tag;
 
     //
     // Cache tag from index vector.  The vector represents the offsets within
@@ -795,24 +806,44 @@ module cci_mpf_svc_vtp_pt_walk_cache
     // table entry.  The tag represents a full line so it ignores the low
     // word index bits.
     //
-    function automatic t_pt_entry_tag cacheTag(t_cci_mpf_pt_page_idx_vec idxVec);
+    function automatic t_pt_entry_tag cacheTag(t_cci_mpf_pt_page_idx_vec idxVec,
+                                               t_cci_mpf_pt_walk_depth depth);
         // Ignore the low (word index) bits of the page index vector
         t_pt_entry_tag tag;
         t_pt_line_word_idx w_idx;
-        {tag, w_idx} = idxVec;
+        {tag, w_idx} = {depth, idxVec};
 
         return tag;
     endfunction
 
     //
     // Compute the cache index given a page index vector and the depth
-    // in the page table walk.  Each depth gets its own region in the
-    // address space.
+    // in the page table walk. Regions in the cache are partitioned by
+    // depth.
     //
     function automatic t_pt_cache_idx cacheIdx(t_cci_mpf_pt_page_idx_vec idxVec,
                                                t_cci_mpf_pt_walk_depth depth);
-        // Hash the tag and include the depth
-        return t_pt_cache_idx'({ hash32(32'(cacheTag(idxVec))), depth });
+        // Hash the tag
+        t_pt_cache_idx idx = hash32(32'(cacheTag(idxVec, depth)));
+
+        // Partition the index space
+        if (depth <= t_cci_mpf_pt_walk_depth'(1))
+        begin
+            // The top couple of layers in the page table are accessed
+            // infrequently. Combine them in 25% of the index space.
+            idx[1:0] = 2'b00;
+        end
+        else if (depth == t_cci_mpf_pt_walk_depth'(2))
+        begin
+            idx[1:0] = 2'b10;
+        end
+        else
+        begin
+            // Half the space goes to the lowest level in the hierarchy.
+            idx[0] = 1'b1;
+        end
+
+        return idx;
     endfunction
 
 
@@ -963,7 +994,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
             rspHit <= lookup_qq && lookup_hit;
         end
 
-        lookup_tgt_tag_q <= cacheTag(reqPageIdxVec);
+        lookup_tgt_tag_q <= cacheTag(reqPageIdxVec, reqWalkDepth);
         lookup_tgt_tag_qq <= lookup_tgt_tag_q;
 
         rspPageAddr <= rsp_page_addr;
@@ -1000,7 +1031,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
             insert_pending <= 1'b1;
 
             ins_idx <= cacheIdx(insertPageIdxVec, insertWalkDepth);
-            ins_tag <= cacheTag(insertPageIdxVec);
+            ins_tag <= cacheTag(insertPageIdxVec, insertWalkDepth);
             ins_line_words <= insertData;
         end
         else if (insert_busy)
