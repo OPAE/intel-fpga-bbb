@@ -1104,13 +1104,18 @@ module cci_mpf_svc_vtp_pt_walk_reader
     //
     logic new_read_en;
     t_cci_clAddr new_read_addr;
+
+    // New read already prefetched?
     logic new_read_pref_hit;
+
+    // New read prefetch response pending?
+    logic new_read_pref_wait;
 
     always_ff @(posedge clk)
     begin
         // If there is an existing read request it is processed as long as
         // the FIM isn't busy.
-        if (pt_fim_rdy || new_read_pref_hit)
+        if ((pt_fim_rdy && ! new_read_pref_wait) || new_read_pref_hit)
         begin
             new_read_en <= 1'b0;
         end
@@ -1447,6 +1452,10 @@ module cci_mpf_svc_vtp_pt_walk_reader
     assign new_read_pref_hit = new_read_en && new_read_pref_match &&
                                pref_state.valid[new_read_pref_hit_idx];
 
+    // Wait for a pending prefetch response?
+    assign new_read_pref_wait = new_read_pref_match &&
+                                pref_state.busy[new_read_pref_hit_idx];
+
 
     // ====================================================================
     //
@@ -1456,7 +1465,8 @@ module cci_mpf_svc_vtp_pt_walk_reader
 
     always_ff @(posedge clk)
     begin
-        pt_fim.readEn <= (new_read_en && pt_fim_rdy && !new_read_pref_hit) ||
+        pt_fim.readEn <= (new_read_en && pt_fim_rdy &&
+                          !new_read_pref_wait && !new_read_pref_hit) ||
                          do_pt_prefetch;
 
         if (do_pt_prefetch)
@@ -1501,11 +1511,18 @@ module cci_mpf_svc_vtp_pt_walk_reader
     //
     // ====================================================================
 
+    // synthesis translate_off
+    logic waiting_for_prefetch;
+
     always_ff @(posedge clk)
     begin
+        if (! new_read_en || ! new_read_pref_wait)
+        begin
+            waiting_for_prefetch <= 1'b0;
+        end
+
         if (! reset && DEBUG_MESSAGES)
         begin
-            // synthesis translate_off
             if (pt_fim.readEn && (getPtReadMdataType(pt_fim.readReqTag) == RD_TYPE_PT_NORMAL))
             begin
                 $display("VTP PT WALK RD %0t: PTE normal read addr 0x%x (PA 0x%x)",
@@ -1519,6 +1536,15 @@ module cci_mpf_svc_vtp_pt_walk_reader
                          $time,
                          pt_fim.readAddr, {pt_fim.readAddr, 6'b0},
                          getPtReadMdataIdx(pt_fim.readReqTag));
+            end
+
+            if (new_read_en && new_read_pref_wait && ! waiting_for_prefetch)
+            begin
+                $display("VTP PT WALK RD %0t: Waiting for prefetch read response, bucket %0d",
+                         $time,
+                         new_read_pref_hit_idx);
+
+                waiting_for_prefetch <= 1'b1;
             end
 
             if (could_prefetch && ! do_pt_prefetch)
@@ -1562,8 +1588,8 @@ module cci_mpf_svc_vtp_pt_walk_reader
                          $time,
                          pref_resp_idx);
             end
-            // synthesis translate_on
         end
     end
+    // synthesis translate_on
 
 endmodule // cci_mpf_svc_vtp_pt_walk_reader
