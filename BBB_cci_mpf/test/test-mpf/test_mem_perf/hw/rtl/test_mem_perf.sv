@@ -552,6 +552,8 @@ module test_afu
         rd_params = cci_mpf_defaultReqHdrParams();
         rd_params.vc_sel = req_vc;
         rd_params.mapVAtoPhysChannel = 1'b1;
+        // Enable WRO, only used when the write/read order module is instantiated
+        rd_params.checkLoadStoreOrder = 1'b1;
 
         if (! need_prefetch)
         begin
@@ -740,6 +742,8 @@ module test_afu
         wr_params = cci_mpf_defaultReqHdrParams();
         wr_params.vc_sel = req_vc;
         wr_params.mapVAtoPhysChannel = 1'b1;
+        // Enable WRO, only used when the write/read order module is instantiated
+        wr_params.checkLoadStoreOrder = 1'b1;
 
         wr_hdr = cci_mpf_c1_genReqHdr((wrline_mode_m ? eREQ_WRLINE_M : eREQ_WRLINE_I),
                                       wr_mem + wr_offset,

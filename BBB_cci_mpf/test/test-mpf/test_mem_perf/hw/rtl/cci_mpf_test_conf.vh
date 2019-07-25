@@ -46,3 +46,7 @@
 
 // Enable flow control management in cci_test_afu
 `define CCI_TEST_FLOW_CONTROL
+
+// These may be defined for testing:
+//`define MPF_CONF_SORT_READ_RESPONSES 1
+//`define MPF_CONF_ENFORCE_WR_ORDER 1
