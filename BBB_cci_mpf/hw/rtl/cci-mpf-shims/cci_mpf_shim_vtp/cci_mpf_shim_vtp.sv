@@ -139,7 +139,7 @@ module cci_mpf_shim_vtp
                                     vtp4kbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
             end
 
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
             // If the read request is speculative and the FIU doesn't support
             // speculation (e.g. no IOMMU) then make the request non-speculative.
             // At this point it has already passed VTP and a valid translation
@@ -178,7 +178,7 @@ module cci_mpf_shim_vtp
         c0_error_hdr_in = cci_mpf_c0Rx_updEOP(c0_error_hdr_in, c0_error_last_cl);
 
         // Signal the translation error
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
         c0_error_hdr_in.error = 1'b1;
 `endif
     end

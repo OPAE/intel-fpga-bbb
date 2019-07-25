@@ -29,7 +29,7 @@
         case (req)
             eREQ_RDLINE_S: return "RdLine_S  ";
             eREQ_RDLINE_I: return "RdLine_I  ";
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
             eREQ_RDLSPEC_S: return "RdLSpec_S ";
             eREQ_RDLSPEC_I: return "RdLSpec_I ";
 `endif
@@ -160,7 +160,7 @@
                             (cci_mpf_c0Rx_isEOP(c0Rx) ? "E" :
                                (c0Rx.hdr.cl_num == 0) ? "S" : "x"),
                             print_c0_resptype(c0Rx.hdr.resp_type),
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
                             (c0Rx.hdr.error ? "ERROR " : ""),
 `else
                             "",

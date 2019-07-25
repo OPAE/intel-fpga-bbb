@@ -70,7 +70,7 @@ package ccip_if_funcs_pkg;
         );
         // Speculative translation error? This field was added
         // later, so we must test whether it is supported.
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
         return r.hdr.error;
 `else
         return 1'b0;

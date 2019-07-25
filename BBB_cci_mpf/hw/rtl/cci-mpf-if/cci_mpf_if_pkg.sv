@@ -681,7 +681,7 @@ package cci_mpf_if_pkg;
 
         return ((r.hdr.base.req_type == eREQ_RDLINE_I) ||
                 (r.hdr.base.req_type == eREQ_RDLINE_S)
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
                 ||
                 (r.hdr.base.req_type == eREQ_RDLSPEC_I) ||
                 (r.hdr.base.req_type == eREQ_RDLSPEC_S)
@@ -702,7 +702,7 @@ package cci_mpf_if_pkg;
         input t_if_cci_mpf_c0_Tx r
         );
 
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
         return ((r.hdr.base.req_type == eREQ_RDLSPEC_I) ||
                 (r.hdr.base.req_type == eREQ_RDLSPEC_S));
 `else

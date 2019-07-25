@@ -520,7 +520,7 @@ module cci_mpf_shim_edge_afu_wr_data
                            afu.c0Tx.hdr.base.cl_len, afu.c0Tx.hdr.base.address);
             end
 
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
             // When a speculative read request arrives confirm that something can consume it.
             // Either VTP must be enabled or the platform must support speculative reads.
             if (cci_mpf_c0TxIsSpecReadReq(afu.c0Tx))

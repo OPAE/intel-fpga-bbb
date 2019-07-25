@@ -251,7 +251,7 @@ module cci_mpf_shim_rsp_order
                 rd_rob_rsp_idx = t_req_idx'(fiu.c0Rx.hdr.mdata) +
                                  t_req_idx'(fiu.c0Rx.hdr.cl_num);
                 rd_rob_rsp_cl_num = fiu.c0Rx.hdr.cl_num;
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
                 rd_rob_rsp_error = fiu.c0Rx.hdr.error;
 `else
                 rd_rob_rsp_error = 1'b0;
@@ -480,7 +480,7 @@ module cci_mpf_shim_rsp_order
         begin
             afu.c0Rx.hdr = cci_c0_genRspHdr(eRSP_RDLINE, rd_rob_mdata);
             afu.c0Rx.hdr.cl_num = rd_rob_cl_num;
-`ifdef CCIP_RDLSPEC_AVAIL
+`ifdef CCIP_ENCODING_HAS_RDLSPEC
             afu.c0Rx.hdr.error = rd_rob_error;
 `endif
             afu.c0Rx = cci_mpf_c0Rx_updEOP(afu.c0Rx, rd_rob_eop);
