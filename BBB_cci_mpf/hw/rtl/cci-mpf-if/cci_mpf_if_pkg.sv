@@ -780,6 +780,50 @@ package cci_mpf_if_pkg;
     endfunction
 
 
+    function automatic logic cci_mpf_c1TxIsByteRange(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+        return (r.hdr.base.mode == eMOD_BYTE);
+`else
+        return 1'b0;
+`endif
+    endfunction
+
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+    function automatic t_ccip_clByteIdx cci_mpf_c1TxByteRangeStart(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return r.hdr.base.byte_start;
+    endfunction
+
+    function automatic t_ccip_clByteIdx cci_mpf_c1TxByteRangeLen(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return r.hdr.base.byte_len;
+    endfunction
+`else
+    //
+    // Dummy functions for old CCI-P with no byte range encoding.
+    //
+    function automatic int cci_mpf_c1TxByteRangeStart(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return 0;
+    endfunction
+
+    function automatic int cci_mpf_c1TxByteRangeLen(
+        input t_if_cci_mpf_c1_Tx r
+        );
+
+        return 0;
+    endfunction
+`endif
+
     // Generate an MPF C0 TX read request given a header
     function automatic t_if_cci_mpf_c0_Tx cci_mpf_genC0TxReadReq(
         input t_cci_mpf_c0_ReqMemHdr h,

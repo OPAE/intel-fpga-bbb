@@ -284,8 +284,19 @@ int main(int argc, char *argv[])
         mpfPwriteGetStats(svc.mpf->c_type(), &pwrite_stats);
 
         cout << "#" << endl
-             << "#   PWRITE partial writes:    " << pwrite_stats.numPartialWrites
+             << "#   PWRITE emulated partial writes:   " << pwrite_stats.numPartialWrites
              << endl;
+    }
+
+    if (t->fiuSupportsByteRangeWr())
+    {
+        uint64_t n_partial_writes = t->readCommonCSR(CCI_TEST::CSR_COMMON_WR_PARTIAL_LINES);
+        if (n_partial_writes)
+        {
+            cout << "#" << endl
+                 << "#   FIU partial (byte range) writes:  " << n_partial_writes
+                 << endl;
+        }
     }
 
     delete t;

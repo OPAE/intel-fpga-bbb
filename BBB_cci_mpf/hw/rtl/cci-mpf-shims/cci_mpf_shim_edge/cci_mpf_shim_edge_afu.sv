@@ -50,6 +50,7 @@ module cci_mpf_shim_edge_afu
 
     // Enable partial write emulation?
     parameter ENABLE_PARTIAL_WRITES = 0,
+    parameter string PARTIAL_WRITE_MODE = "BYTE_MASK",
 
     // Buffer the AFU to FIU request flow?
     parameter BUFFER_REQUESTS = 0,
@@ -116,7 +117,8 @@ module cci_mpf_shim_edge_afu
         .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
         .ENABLE_VTP(ENABLE_VTP),
         .ENFORCE_WR_ORDER(ENFORCE_WR_ORDER),
-        .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES)
+        .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES),
+        .PARTIAL_WRITE_MODE(PARTIAL_WRITE_MODE)
         )
       afu_edge
        (
@@ -210,7 +212,8 @@ module cci_mpf_shim_edge_afu_wr_data
     parameter ENFORCE_WR_ORDER = 0,
 
     // Enable partial write emulation?
-    parameter ENABLE_PARTIAL_WRITES = 0
+    parameter ENABLE_PARTIAL_WRITES = 0,
+    parameter string PARTIAL_WRITE_MODE = "BYTE_MASK"
     )
    (
     input  logic clk,
@@ -262,8 +265,8 @@ module cci_mpf_shim_edge_afu_wr_data
 
     logic wr_heap_alloc;
     logic wr_heap_not_full;
-    t_write_heap_idx wr_heap_enq_idx;
-    t_cci_clNum wr_heap_enq_clNum;
+    t_write_heap_idx wr_heap_enq_idx, wr_heap_enq_idx_q;
+    t_cci_clNum wr_heap_enq_clNum, wr_heap_enq_clNum_q;
 
     cci_mpf_prim_heap_ctrl
       #(
@@ -289,6 +292,12 @@ module cci_mpf_shim_edge_afu_wr_data
         .free(fiu_edge.free),
         .freeIdx(fiu_edge.freeidx)
         );
+
+    always_ff @(posedge clk)
+    begin
+        wr_heap_enq_idx_q <= wr_heap_enq_idx;
+        wr_heap_enq_clNum_q <= wr_heap_enq_clNum;
+    end
 
 
     //
@@ -323,23 +332,66 @@ module cci_mpf_shim_edge_afu_wr_data
         end
     end
 
+
+    // ====================================================================
     //
     // Forward partial write requests to the partial write emulator.
     //
+    // ====================================================================
+
+    t_if_cci_mpf_c1_Tx afu_c1Tx_q;
     always_ff @(posedge clk)
     begin
-        pwrite.wen <= cci_mpf_c1TxIsWriteReq(afu.c1Tx);
-        pwrite.widx <= wr_heap_enq_idx;
-        pwrite.wclnum <= wr_heap_enq_clNum;
-
-        pwrite.wpartial <= afu.c1Tx.hdr.pwrite;
-        if (! afu.c1Tx.hdr.pwrite.isPartialWrite)
+        afu_c1Tx_q <= afu.c1Tx;
+        if (reset)
         begin
-            // Turn off the mask if this isn't a partial write.  Multi-beat
-            // requests may have isPartialWrite set on any beat, so this
-            // mask ultimately may be used even when isPartialWrite is
-            // false for the current beat.
-            pwrite.wpartial.mask <= ~ (t_cci_mpf_clDataByteMask'(0));
+            afu_c1Tx_q.valid <= 1'b0;
+        end
+    end
+
+    //
+    // The partial write emulator uses a mask to select bytes within a line.
+    // Construct the mask here when in CCI-P byte range mode.
+    //
+
+    //
+    // Generate a mask selecting all bytes in a line above and including start_idx.
+    //
+    t_cci_mpf_clDataByteMask pwmask_from_range;
+
+    cci_mpf_shim_edge_afu_pwmask
+     gen_pwmask
+       (
+        .clk,
+        .reset,
+        .c1Tx(afu.c1Tx),
+        .pwmask(pwmask_from_range)
+        );
+
+    always_ff @(posedge clk)
+    begin
+        pwrite.wen <= cci_mpf_c1TxIsWriteReq(afu_c1Tx_q);
+        pwrite.widx <= wr_heap_enq_idx_q;
+        pwrite.wclnum <= wr_heap_enq_clNum_q;
+
+        if (ENABLE_PARTIAL_WRITES && ((PARTIAL_WRITE_MODE) != "BYTE_MASK"))
+        begin
+            // Partial write was specified as a byte range using CCI-P native
+            // encoding. Save the corresponding bit mask generated here.
+            pwrite.wpartial.isPartialWrite <= 1'b0;
+            pwrite.wpartial.mask <= pwmask_from_range;
+        end
+        else
+        begin
+            pwrite.wpartial <= afu_c1Tx_q.hdr.pwrite;
+            if (! afu_c1Tx_q.hdr.pwrite.isPartialWrite)
+            begin
+                // Turn off the mask if this isn't a partial write. Multi-beat
+                // requests may have isPartialWrite set on any beat, so this
+                // mask ultimately may be used even when isPartialWrite is
+                // false for the current beat.
+                pwrite.wpartial.mask <= ~ (t_cci_mpf_clDataByteMask'(0));
+            end
         end
 
         if (reset)
@@ -446,9 +498,10 @@ module cci_mpf_shim_edge_afu_wr_data
                 c1tx_sop_hdr.pwrite.isPartialWrite;
         end
 
-        if (ENABLE_PARTIAL_WRITES == 0)
+        if ((ENABLE_PARTIAL_WRITES == 0) || ((PARTIAL_WRITE_MODE) != "BYTE_MASK"))
         begin
             afu_canon_c1Tx.hdr.pwrite.isPartialWrite = 1'b0;
+            afu_canon_c1Tx.hdr.pwrite.mask = t_cci_mpf_clDataByteMask'(0);
         end
     end
 
@@ -542,6 +595,10 @@ module cci_mpf_shim_edge_afu_wr_data
                 begin
                     assert ((afu.c1Tx.hdr.base.address[1:0] & afu_canon_c1Tx.hdr.base.cl_len) == 2'b0) else
                         $fatal(2, "cci_mpf_shim_edge_connect: Multi-beat write address must be naturally aligned");
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+                    assert ((afu.c1Tx.hdr.base.mode == eMOD_CL) || (afu.c1Tx.hdr.base.cl_len == eCL_LEN_1)) else
+                        $fatal(2, "cci_mpf_shim_edge_connect: Byte range not allowed on multi-beat write");
+`endif
                 end
                 else
                 begin
@@ -555,3 +612,80 @@ module cci_mpf_shim_edge_afu_wr_data
     end
 
 endmodule // cci_mpf_shim_edge_afu_wr_data
+
+
+//
+// Generate a partial write mask from a byte range.
+//
+module cci_mpf_shim_edge_afu_pwmask
+   (
+    input  logic clk,
+    input  logic reset,
+    input  t_if_cci_mpf_c1_Tx c1Tx,
+
+    // pwmask_from_range is generated one cycle after the input c1Tx
+    output t_cci_mpf_clDataByteMask pwmask
+    );
+
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+
+    function automatic t_cci_mpf_clDataByteMask decodeMaskStart(t_ccip_clByteIdx start_idx);
+        t_cci_mpf_clDataByteMask masks[CCIP_CLDATA_BYTE_WIDTH];
+
+        // Build a lookup table, with 1's in all bits idx and higher.
+        masks[0] = ~t_cci_mpf_clDataByteMask'(0);
+        for (int i = 1; i < CCIP_CLDATA_BYTE_WIDTH; i = i + 1)
+        begin
+            // Shift in another 0
+            masks[i] = masks[i-1] << 1;
+        end
+
+        return masks[start_idx];
+    endfunction
+
+    //
+    // Generate a mask selecting all bytes in a line below end_idx. The range does not
+    // include end_idx, which avoids having to subtract 1 when computing end_idx
+    // from the sum of the start index and length.
+    //
+    function automatic t_cci_mpf_clDataByteMask decodeMaskEnd(t_ccip_clByteIdx end_idx);
+        t_cci_mpf_clDataByteMask masks[CCIP_CLDATA_BYTE_WIDTH];
+
+        // Build a lookup table, with 0's in all bits above idx. The table is rotated
+        // by 1 since the mask does not include the bit at end_idx.
+        masks[1] = 1;
+        for (int i = 2; i < CCIP_CLDATA_BYTE_WIDTH; i = i + 1)
+        begin
+            // Shift in another 1
+            masks[i] = (masks[i-1] << 1) | 1'b1;
+        end
+        masks[0] = ~t_cci_mpf_clDataByteMask'(0);
+
+        return masks[end_idx];
+    endfunction
+
+    //
+    // Generate the mask unconditionally. Whether or not the write is actually a partial
+    // line is computed elsewhere.
+    //
+    t_ccip_clByteIdx start_idx;
+    t_ccip_clByteIdx end_idx;
+
+    always_ff @(posedge clk)
+    begin
+        start_idx <= cci_mpf_c1TxByteRangeStart(c1Tx);
+
+        // decodeMaskEnd() is coded to avoid having to subtract 1 when computing end_idx
+        end_idx <= cci_mpf_c1TxByteRangeStart(c1Tx) + cci_mpf_c1TxByteRangeLen(c1Tx);
+    end
+
+    assign pwmask = decodeMaskStart(start_idx) & decodeMaskEnd(end_idx);
+
+`else
+
+    // No native CCI-P encoding defined.
+    assign pwmask = t_cci_mpf_clDataByteMask'(0);
+
+`endif
+
+endmodule // cci_mpf_shim_edge_afu_pwmask

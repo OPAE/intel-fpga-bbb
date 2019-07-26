@@ -267,14 +267,31 @@ module ccip_std_afu
         //
         .ENFORCE_WR_ORDER(`MPF_CONF_ENFORCE_WR_ORDER),
 
-        // Enable partial write emulation.  CCI has no support for masked
-        // writes that merge new data with existing data in a line.  MPF
-        // adds byte-level masks to the write request header and emulates
-        // partial writes as a read-modify-write operation.  When coupled
-        // with ENFORCE_WR_ORDER, partial writes are free of races on the
-        // FPGA side.  There are no guarantees of atomicity and there is
-        // no protection against races with CPU-generates writes.
+        // Enable partial write emulation.  The original CCI-P standard
+        // had no support for partial writes.  MPF can emulate partial
+        // writes using read-modify-write.  The original MPF encoding
+        // was a byte-level mask, one bit per byte.  CCI-P has since
+        // added an encoding for partial writes, but the encoding supports
+        // only a contiguous range of bytes -- a limitation imposed by
+        // PCIe.  MPF supports either encoding, depending on the setting
+        // of PARTIAL_WRITE_MODE below.
+        //
+        // NOTE: When PARTIAL_WRITE_MODE is set to BYTE_RANGE and the
+        // platform supports CCI-P with byte ranges, partial write emulation
+        // in MPF is automatically disabled even when ENABLE_PARTIAL_WRITES
+        // is set.  This behavior allows an AFU to set ENABLE_PARTIAL_WRITES
+        // and MPF will automatically either emulate the behavior or pass
+        // the request to the FIU, as appropriate.
+        //
+        // In emulation mode, when coupled with ENFORCE_WR_ORDER, partial
+        // writes are free of races on the FPGA side.  Due to the read-modify-
+        // write in the emulation, there are no guarantees of atomicity and
+        // there is no protection against races with CPU-generates writes.
         .ENABLE_PARTIAL_WRITES(`MPF_CONF_ENABLE_PARTIAL_WRITES),
+        // CCI-P added partial write encoding.  Use "BYTE_MASK" for the
+        // original MPF mask -- one bit per byte.  Use "BYTE_RANGE" for the
+        // CCI-P native encoding using byte_start/byte_len.
+        .PARTIAL_WRITE_MODE(`MPF_CONF_PARTIAL_WRITE_MODE),
 
         // Experimental:  Merge nearby reads from the same address?  Some
         // applications generate reads to the same line within a few cycles

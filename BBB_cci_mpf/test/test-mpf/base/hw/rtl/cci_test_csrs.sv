@@ -128,6 +128,9 @@ module cci_test_csrs
     t_cci_test_counter ctr_rd_almFull;
     t_cci_test_counter ctr_wr_almFull;
 
+    // Count partial writes (writes with a byte range)
+    t_cci_test_counter ctr_wr_partial;
+
     // CCI-P error raised at any time
     logic error_raised;
 
@@ -239,7 +242,12 @@ module cci_test_csrs
           // FIU state
           15: c2Tx.data <= { pwr_events_ap2,    // [63:48]
                              pwr_events_ap1,    // [47:32]
-                             29'(0),
+                             28'(0),
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+                             1'(ccip_cfg_pkg::BYTE_EN_SUPPORTED), // [3]
+`else
+                             1'b0,              // [3]
+`endif
                              error_raised,      // [2]
                              fiu.c1TxAlmFull,   // [1]
                              fiu.c0TxAlmFull }; // [0]
@@ -247,6 +255,9 @@ module cci_test_csrs
           // Almost full counters
           16: c2Tx.data <= ctr_rd_almFull;
           17: c2Tx.data <= ctr_wr_almFull;
+
+          // Number of partial writes
+          18: c2Tx.data <= ctr_wr_partial;
 
           // Test CSRs start at 32
           [32 : (32 + NUM_TEST_CSRS - 1)]:
@@ -356,6 +367,11 @@ module cci_test_csrs
         c1TxAlmFull <= fiu.c1TxAlmFull;
         ctr_wr_almFull <= ctr_wr_almFull + t_cci_test_counter'(c1TxAlmFull);
 
+        if (cci_mpf_c1TxIsWriteReq(fiu.c1Tx) && cci_mpf_c1TxIsByteRange(fiu.c1Tx))
+        begin
+            ctr_wr_partial <= ctr_wr_partial + t_cci_test_counter'(1);
+        end
+
         if (reset)
         begin
             ctr_rd_cache_hits <= t_cci_test_counter'(0);
@@ -366,6 +382,7 @@ module cci_test_csrs
             ctr_chan_vh1 <= t_cci_test_counter'(0);
             ctr_rd_almFull <= t_cci_test_counter'(0);
             ctr_wr_almFull <= t_cci_test_counter'(0);
+            ctr_wr_partial <= t_cci_test_counter'(0);
 
             rd_is_vl0_q <= 1'b0;
             wr_cnt_vl0_q <= 3'b0;

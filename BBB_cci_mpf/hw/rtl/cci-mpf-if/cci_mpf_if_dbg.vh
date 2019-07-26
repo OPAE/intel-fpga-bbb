@@ -130,9 +130,21 @@
                             c1Tx.hdr.base.address,
                             c1Tx.data);
 
+                    if (c1Tx.hdr.pwrite.isPartialWrite || cci_mpf_c1TxIsByteRange(c1Tx))
+                    begin
+                        $fwrite(cci_mpf_if_log_fd, " PW");
+                    end
+
+                    if (cci_mpf_c1TxIsByteRange(c1Tx))
+                    begin
+                        $fwrite(cci_mpf_if_log_fd, " [start %0d, len %0d]",
+                                cci_mpf_c1TxByteRangeStart(c1Tx),
+                                cci_mpf_c1TxByteRangeLen(c1Tx));
+                    end
+
                     if (c1Tx.hdr.pwrite.isPartialWrite)
                     begin
-                        $fwrite(cci_mpf_if_log_fd, " PW [%x]",
+                        $fwrite(cci_mpf_if_log_fd, " [%x]",
                                 c1Tx.hdr.pwrite.mask);
                     end
 

@@ -28,6 +28,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+`include "cci_mpf_test_conf_default.vh"
 `include "cci_mpf_if.vh"
 `include "cci_test_csrs.vh"
 
@@ -48,6 +49,8 @@ module test_afu
     input  logic c0NotEmpty,
     input  logic c1NotEmpty
     );
+
+    localparam string PARTIAL_WRITE_MODE = `MPF_CONF_PARTIAL_WRITE_MODE;
 
     logic reset = 1'b1;
     always @(posedge clk)
@@ -717,8 +720,16 @@ module test_afu
         end
     end
 
+
+    //
     // Random partial write control
-    t_cci_mpf_c1_PartialWriteHdr pwh;
+    //
+    t_cci_mpf_c1_PartialWriteHdr pwh, pwh_q;
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+    t_ccip_mem_access_mode pw_mode;
+    t_ccip_clByteIdx pw_byte_start, pw_byte_len;
+`endif
+
     test_gen_pwrite_hdr
       gen_pwrite_hdr
        (
@@ -726,8 +737,20 @@ module test_afu
         .reset,
         .enable_partial_writes,
         .enable_partial_writes_all,
+        .write_is_single_line(wr_beats == t_cci_clNum'(0)),
+
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+        .pw_mode,
+        .pw_byte_start,
+        .pw_byte_len,
+`endif
         .pwh
         );
+
+    always_ff @(posedge clk)
+    begin
+        pwh_q <= pwh;
+    end
 
 
     //
@@ -748,7 +771,15 @@ module test_afu
         wr_hdr.base.address[0 +: $bits(t_cci_clNum)] =
             wr_hdr.base.address[0 +: $bits(t_cci_clNum)] | wr_beat_num;
 
-        wr_hdr.pwrite = pwh;
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+        wr_hdr.base.mode = pw_mode;
+        wr_hdr.base.byte_start = pw_byte_start;
+        wr_hdr.base.byte_len = pw_byte_len;
+`endif
+        if (PARTIAL_WRITE_MODE == "BYTE_MASK")
+        begin
+            wr_hdr.pwrite = pwh;
+        end
     end
 
     //
@@ -822,6 +853,9 @@ module test_afu
                 fiu.c1Tx.hdr.base.address <= dsm;
                 fiu.c1Tx.hdr.base.sop <= 1'b1;
                 fiu.c1Tx.hdr.base.cl_len <= eCL_LEN_1;
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+                fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+`endif
                 fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
                 fiu.c1Tx.data[63:0] <= t_cci_clData'(1);
             end
@@ -834,6 +868,9 @@ module test_afu
                 fiu.c1Tx.hdr.base.address <= dsm;
                 fiu.c1Tx.hdr.base.sop <= 1'b1;
                 fiu.c1Tx.hdr.base.cl_len <= eCL_LEN_1;
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+                fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+`endif
                 fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
                 fiu.c1Tx.data[63:0] <= t_cci_clData'(2);
             end
@@ -897,23 +934,25 @@ module test_afu
     // ====================================================================
 
     // Map one line to a tag
-    typedef logic [31:0] t_mem_tag;
+    typedef logic [47:0] t_mem_tag;
     typedef logic [($bits(t_mem_tag) / 8) - 1 : 0] t_mem_tag_mask;
 
     // Pick some bytes that will be compared.  The rest will be thrown away.
     // Entire bytes are chosen so we can test byte-masked writes.
     function automatic t_mem_tag lineToTag(t_cci_clData v);
-        return { v[(8 * 59) +: 8], v[(8 * 35) +: 8], 
-                 v[(8 * 13) +: 8], v[(8 * 0) +: 8] };
+        return { v[(8 * 63) +: 8], v[(8 * 62) +: 8], v[(8 * 35) +: 8], 
+                 v[(8 * 13) +: 8], v[(8 * 1) +: 8], v[(8 * 0) +: 8] };
     endfunction
 
     // Generate the write mask.  Partial writes don't update all bytes.
     // The tag's mask bits must correspond to the bytes checked in lineToTag().
     function automatic t_mem_tag_mask lineToTagMask(t_cci_mpf_c1_PartialWriteHdr h);
         t_mem_tag_mask m;
-        m[3] = h.mask[59] || ! h.isPartialWrite;
-        m[2] = h.mask[35] || ! h.isPartialWrite;
-        m[1] = h.mask[13] || ! h.isPartialWrite;
+        m[5] = h.mask[63] || ! h.isPartialWrite;
+        m[4] = h.mask[62] || ! h.isPartialWrite;
+        m[3] = h.mask[35] || ! h.isPartialWrite;
+        m[2] = h.mask[13] || ! h.isPartialWrite;
+        m[1] = h.mask[1]  || ! h.isPartialWrite;
         m[0] = h.mask[0]  || ! h.isPartialWrite;
         return m;
     endfunction
@@ -950,7 +989,7 @@ module test_afu
         .clk0(clk),
         .addr0(wr_addr_chk_idx_q),
         .wen0(chk_wr_valid_q),
-        .byteena0(lineToTagMask(fiu.c1Tx.hdr.pwrite)),
+        .byteena0(lineToTagMask(pwh_q)),
         .wdata0(lineToTag(fiu.c1Tx.data)),
         .rdata0(),
 
@@ -1141,31 +1180,19 @@ module test_gen_pwrite_hdr
     input  logic reset,
     input  logic enable_partial_writes,
     input  logic enable_partial_writes_all,
+    // Is current write, generated this cycle, a single line write?
+    input  logic write_is_single_line,
 
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+    output t_ccip_mem_access_mode pw_mode,
+    output t_ccip_clByteIdx pw_byte_start,
+    output t_ccip_clByteIdx pw_byte_len,
+`endif
     output t_cci_mpf_c1_PartialWriteHdr pwh
     );
 
-    //
-    // Random partial write mask
-    //
-    logic [($bits(t_cci_mpf_clDataByteMask) / 32)-1 : 0][31:0] pw_rand_mask;
-    genvar r;
-    generate
-        for (r = 0; r < $bits(t_cci_mpf_clDataByteMask) / 32; r = r + 1)
-        begin : pwm
-            cci_mpf_prim_lfsr32
-              #(
-                .INITIAL_VALUE(32'(r+1001))
-                )
-              pwm_lfsr
-               (
-                .clk,
-                .reset,
-                .en(1'b1),
-                .value(pw_rand_mask[r])
-                );
-        end
-    endgenerate
+    localparam string PARTIAL_WRITE_MODE = `MPF_CONF_PARTIAL_WRITE_MODE;
+    localparam PWRITE_USE_BYTE_RANGE = (PARTIAL_WRITE_MODE == "BYTE_RANGE");
 
     // Decide whether write is full or partial using an LFSR
     logic [11:0] pw_lfsr;
@@ -1182,16 +1209,204 @@ module test_gen_pwrite_hdr
         .value(pw_lfsr)
         );
 
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
     //
-    // Generate the header
+    // Generate a mask selecting all bytes in a line above and including start_idx.
     //
-    always_ff @(posedge clk)
-    begin
-        pwh.mask <= pw_rand_mask;
+    function automatic t_cci_mpf_clDataByteMask decodeMaskStart(t_ccip_clByteIdx start_idx);
+        t_cci_mpf_clDataByteMask masks[CCIP_CLDATA_BYTE_WIDTH];
 
-        // Most writes are not partial
-        pwh.isPartialWrite <= ((6'(pw_lfsr) == 6'(0)) && enable_partial_writes) ||
-                              enable_partial_writes_all;
-    end
+        // Build a lookup table, with 1's in all bits idx and higher.
+        masks[0] = ~t_cci_mpf_clDataByteMask'(0);
+        for (int i = 1; i < CCIP_CLDATA_BYTE_WIDTH; i = i + 1)
+        begin
+            // Shift in another 0
+            masks[i] = masks[i-1] << 1;
+        end
+
+        return masks[start_idx];
+    endfunction
+
+    //
+    // Generate a mask selecting all bytes in a line below and including end_idx.
+    //
+    function automatic t_cci_mpf_clDataByteMask decodeMaskEnd(t_ccip_clByteIdx end_idx);
+        t_cci_mpf_clDataByteMask masks[CCIP_CLDATA_BYTE_WIDTH];
+
+        // Build a lookup table, with 0's in all bits above idx.
+        masks[0] = 1;
+        for (int i = 1; i < CCIP_CLDATA_BYTE_WIDTH; i = i + 1)
+        begin
+            // Shift in another 1
+            masks[i] = (masks[i-1] << 1) | 1'b1;
+        end
+
+        return masks[end_idx];
+    endfunction
+`endif
+
+    genvar r;
+    generate
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+        if (PWRITE_USE_BYTE_RANGE)
+        begin : br
+            //
+            // Use byte ranges (the CCI-P native encoding).
+            //
+
+            //
+            // The random byte range generator produces a stream of random ranges,
+            // some of which are used and some are dropped. This makes it easy
+            // to pipeline the generator without dealing with back-pressure.
+            //
+            logic [31:0] rand_value;
+
+            cci_mpf_prim_lfsr32
+              #(
+                .INITIAL_VALUE(32'(1001))
+                )
+              pwm_lfsr
+               (
+                .clk,
+                .reset,
+                .en(1'b1),
+                .value(rand_value)
+                );
+
+            // Sort the random start/end positions given the rand_value.
+            t_ccip_clByteIdx rand_idx[2];
+            assign {rand_idx[1], rand_idx[0]} = rand_value;
+
+            t_ccip_clByteIdx rand_start, rand_end;
+
+            always_ff @(posedge clk)
+            begin
+                if (rand_idx[0] < rand_idx[1])
+                begin
+                    rand_start <= rand_idx[0];
+                    rand_end <= rand_idx[1];
+                end
+                else
+                begin
+                    rand_start <= rand_idx[1];
+                    rand_end <= rand_idx[0];
+                end
+            end
+
+            //
+            // Now we can turn the rand_idx range and turn it into a start
+            // and length. The vector entries are pipeline stages.
+            //
+            t_ccip_clByteIdx byte_start[2], byte_len[2];
+
+            // byte_end is used for making a bit mask for the same range, used
+            // by the test verification logic.
+            t_ccip_clByteIdx byte_end;
+
+            always_ff @(posedge clk)
+            begin
+                byte_start[0] <= rand_start;
+
+                if ((rand_start == t_ccip_clByteIdx'(0)) &&
+                    (rand_end == ~t_ccip_clByteIdx'(0)))
+                begin
+                    // Can't encode writing the whole line. Pick a different
+                    // length.
+                    byte_len[0] <= ~t_ccip_clByteIdx'(0);
+                    byte_end <= ~t_ccip_clByteIdx'(0) - t_ccip_clByteIdx'(1);
+                end
+                else
+                begin
+                    byte_len[0] <= rand_end - rand_start + t_ccip_clByteIdx'(1);
+                    byte_end <= rand_end;
+                end
+            end
+
+            t_cci_mpf_clDataByteMask byte_mask;
+
+            always_ff @(posedge clk)
+            begin
+                byte_start[1] <= byte_start[0];
+                byte_len[1] <= byte_len[0];
+
+                byte_mask <= decodeMaskStart(byte_start[0]) & decodeMaskEnd(byte_end);
+            end
+
+            //
+            // Generate outbound state. We still encode the bit mask and set
+            // isPartialWrite, but that is only for the benefit of the comparison
+            // logic in this test. MPF will force isPartialWrite off when in
+            // BYTE_RANGE mode as requests arrive. It will only honor the CCI-P
+            // byte range encoding.
+            //
+            always_comb
+            begin
+                if (write_is_single_line &&
+                    (enable_partial_writes_all ||
+                     ((6'(pw_lfsr) == 6'(0)) && enable_partial_writes)))
+                begin
+                    pw_mode = eMOD_BYTE;
+                    pwh.isPartialWrite = 1'b1;
+                end
+                else
+                begin
+                    pw_mode = eMOD_CL;
+                    pwh.isPartialWrite = 1'b0;
+                end
+
+                pw_byte_start = byte_start[1];
+                pw_byte_len = byte_len[1];
+
+                pwh.mask = byte_mask;
+            end
+        end
+        else
+`endif
+        begin : mask
+            //
+            // Use MPF-only mode: random partial write mask. This mode is always
+            // emulated in MPF as read-modify-write.
+            //
+            logic [($bits(t_cci_mpf_clDataByteMask) / 32)-1 : 0][31:0] pw_rand_mask;
+            for (r = 0; r < $bits(t_cci_mpf_clDataByteMask) / 32; r = r + 1)
+            begin : pwm
+                cci_mpf_prim_lfsr32
+                  #(
+                    .INITIAL_VALUE(32'(r+1001))
+                    )
+                  pwm_lfsr
+                   (
+                    .clk,
+                    .reset,
+                    .en(1'b1),
+                    .value(pw_rand_mask[r])
+                    );
+            end
+
+            //
+            // Generate the header
+            //
+            always_ff @(posedge clk)
+            begin
+                pwh.mask <= pw_rand_mask;
+
+                // Most writes are not partial
+                pwh.isPartialWrite <= ((6'(pw_lfsr) == 6'(0)) && enable_partial_writes) ||
+                                      enable_partial_writes_all;
+            end
+
+            //
+            // Tie off CCI-P byte-range signals
+            //
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+            always_comb
+            begin
+                pw_mode = eMOD_CL;
+                pw_byte_start = t_ccip_clByteIdx'(0);
+                pw_byte_len = t_ccip_clByteIdx'(0);
+            end
+`endif
+        end
+    endgenerate
 
 endmodule // test_gen_pwrite_hdr

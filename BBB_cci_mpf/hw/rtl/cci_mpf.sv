@@ -116,14 +116,31 @@ module cci_mpf
     // merely counts write responses instead of checking Mdata.
     parameter PRESERVE_WRITE_MDATA = 0,
 
-    // Enable partial write emulation.  CCI has no support for masked
-    // writes that merge new data with existing data in a line.  MPF
-    // adds byte-level masks to the write request header and emulates
-    // partial writes as a read-modify-write operation.  When coupled
-    // with ENFORCE_WR_ORDER, partial writes are free of races on the
-    // FPGA side.  There are no guarantees of atomicity and there is
-    // no protection against races with CPU-generates writes.
+    // Enable partial write emulation.  The original CCI-P standard
+    // had no support for partial writes.  MPF can emulate partial
+    // writes using read-modify-write.  The original MPF encoding
+    // was a byte-level mask, one bit per byte.  CCI-P has since
+    // added an encoding for partial writes, but the encoding supports
+    // only a contiguous range of bytes -- a limitation imposed by
+    // PCIe.  MPF supports either encoding, depending on the setting
+    // of PARTIAL_WRITE_MODE below.
+    //
+    // NOTE: When PARTIAL_WRITE_MODE is set to BYTE_RANGE and the
+    // platform supports CCI-P with byte ranges, partial write emulation
+    // in MPF is automatically disabled even when ENABLE_PARTIAL_WRITES
+    // is set.  This behavior allows an AFU to set ENABLE_PARTIAL_WRITES
+    // and MPF will automatically either emulate the behavior or pass
+    // the request to the FIU, as appropriate.
+    //
+    // In emulation mode, when coupled with ENFORCE_WR_ORDER, partial
+    // writes are free of races on the FPGA side.  Due to the read-modify-
+    // write in the emulation, there are no guarantees of atomicity and
+    // there is no protection against races with CPU-generates writes.
     parameter ENABLE_PARTIAL_WRITES = 0,
+    // CCI-P added partial write encoding.  Use "BYTE_MASK" for the
+    // original MPF mask -- one bit per byte.  Use "BYTE_RANGE" for the
+    // CCI-P native encoding using byte_start/byte_len.
+    parameter string PARTIAL_WRITE_MODE = "BYTE_MASK",
 
     // Experimental:  Merge nearby reads from the same address?  Some
     // applications generate reads to the same line within a few cycles
@@ -166,6 +183,20 @@ module cci_mpf
     localparam MAX_ACTIVE_REQS = 512;
 `else
     localparam MAX_ACTIVE_REQS = 1024;
+`endif
+
+    // Is a native CCI-P encoding available for writing a byte range?
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+    // Yes. If MPF is configured to use byte ranges (not the original MPF
+    // bit-mask encoding) and the platform supports it then there is no
+    // need for partial write emulation.
+    localparam MPF_ENABLE_PWRITE_EMUL = ENABLE_PARTIAL_WRITES &&
+                                        ((PARTIAL_WRITE_MODE != "BYTE_RANGE") ||
+                                         ! ccip_cfg_pkg::BYTE_EN_SUPPORTED);
+`else
+    // There is no native encoding of byte ranges available. Only emulation
+    // is an option.
+    localparam MPF_ENABLE_PWRITE_EMUL = ENABLE_PARTIAL_WRITES;
 `endif
 
     // Reserved bits in the mdata field, used by various modules.
@@ -262,7 +293,7 @@ module cci_mpf
 
     cci_mpf_shim_edge_fiu
       #(
-        .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES),
+        .ENABLE_PARTIAL_WRITES(MPF_ENABLE_PWRITE_EMUL),
         .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
 
         // VTP needs to generate loads internally in order to walk the
@@ -302,7 +333,7 @@ module cci_mpf
         .MPF_ENABLE_VC_MAP(MPF_ENABLE_VC_MAP),
         .MPF_ENABLE_LATENCY_QOS(ENABLE_LATENCY_QOS),
         .MPF_ENABLE_WRO(ENFORCE_WR_ORDER),
-        .MPF_ENABLE_PWRITE(ENABLE_PARTIAL_WRITES)
+        .MPF_ENABLE_PWRITE(MPF_ENABLE_PWRITE_EMUL)
         )
       csr
        (
@@ -370,7 +401,8 @@ module cci_mpf
         .SORT_READ_RESPONSES(SORT_READ_RESPONSES),
         .PRESERVE_WRITE_MDATA(PRESERVE_WRITE_MDATA),
         .MERGE_DUPLICATE_READS(MERGE_DUPLICATE_READS),
-        .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES),
+        .ENABLE_PARTIAL_WRITES(MPF_ENABLE_PWRITE_EMUL),
+        .PARTIAL_WRITE_MODE(PARTIAL_WRITE_MODE),
         .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
         .RESERVED_MDATA_IDX(RESERVED_MDATA_IDX)
         )

@@ -70,6 +70,7 @@ module cci_mpf_pipe_std
     parameter SORT_READ_RESPONSES = 1,
     parameter PRESERVE_WRITE_MDATA = 0,
     parameter ENABLE_PARTIAL_WRITES = 0,
+    parameter string PARTIAL_WRITE_MODE = "BYTE_MASK",
     parameter MERGE_DUPLICATE_READS = 0,
 
     parameter N_WRITE_HEAP_ENTRIES = 0,
@@ -151,6 +152,7 @@ module cci_mpf_pipe_std
         begin : pwm
             cci_mpf_shim_pwrite
               #(
+                .PARTIAL_WRITE_MODE(PARTIAL_WRITE_MODE),
                 .N_WRITE_HEAP_ENTRIES(N_WRITE_HEAP_ENTRIES),
                 .RESERVED_MDATA_IDX(RESERVED_MDATA_IDX)
                 )
@@ -181,7 +183,7 @@ module cci_mpf_pipe_std
 
     // ====================================================================
     //
-    //  Partial write emulation
+    //  Read deduplication
     //
     // ====================================================================
 
@@ -388,6 +390,7 @@ module cci_mpf_pipe_std
         .ENABLE_VTP(ENABLE_VTP),
         .ENFORCE_WR_ORDER(ENFORCE_WR_ORDER),
         .ENABLE_PARTIAL_WRITES(ENABLE_PARTIAL_WRITES),
+        .PARTIAL_WRITE_MODE(PARTIAL_WRITE_MODE),
         .REGISTER_RESPONSES(1),
         // Add buffering and flow control if no other MPF module with
         // internal flow control is in use.

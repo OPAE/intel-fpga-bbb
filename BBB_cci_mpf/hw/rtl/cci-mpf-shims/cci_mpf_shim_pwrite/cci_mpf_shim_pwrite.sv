@@ -41,6 +41,10 @@
 
 module cci_mpf_shim_pwrite
   #(
+    // Either BYTE_MASK (legacy MPF mode) or BYTE_RANGE (native CCI-P)
+    // encoding.
+    parameter string PARTIAL_WRITE_MODE = "BYTE_MASK",
+
     parameter N_WRITE_HEAP_ENTRIES = 0,
 
     // mdata bit for tagging MPF-generated requests
@@ -73,6 +77,22 @@ module cci_mpf_shim_pwrite
 
     localparam DEBUG = 0;
 
+    initial
+    begin
+        if ((PARTIAL_WRITE_MODE != "BYTE_MASK") &&
+            (PARTIAL_WRITE_MODE != "BYTE_RANGE"))
+        begin
+            $fatal(2, "%m Illegal PARTIAL_WRITE_MODE: %s", PARTIAL_WRITE_MODE);
+        end
+
+`ifndef CCIP_ENCODING_HAS_BYTE_WR
+        if (PARTIAL_WRITE_MODE == "BYTE_RANGE")
+        begin
+            $fatal(2, "%m BYTE_RANGE PARTIAL_WRITE_MODE requires updated CCI-P data structures!");
+        end
+`endif
+    end
+
 
     // ====================================================================
     //
@@ -90,7 +110,8 @@ module cci_mpf_shim_pwrite
     logic c1Tx_is_pwrite;
     logic c1Tx_is_pwrite_q;
     assign c1Tx_is_pwrite = cci_mpf_c1TxIsWriteReq(c1Tx) &&
-                            c1Tx.hdr.pwrite.isPartialWrite;
+                            (c1Tx.hdr.pwrite.isPartialWrite ||
+                             cci_mpf_c1TxIsByteRange(c1Tx));
 
     always_ff @(posedge clk)
     begin
@@ -534,6 +555,9 @@ module cci_mpf_shim_pwrite
 
         // Partial write has been handled
         fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
+`ifdef CCIP_ENCODING_HAS_BYTE_WR
+        fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+`endif
 
         if (reset)
         begin

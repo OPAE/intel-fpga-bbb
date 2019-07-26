@@ -118,7 +118,8 @@ class CCI_TEST
         CSR_COMMON_VH1_LINES = 14,
         CSR_COMMON_FIU_STATE = 15,
         CSR_COMMON_RD_ALMOST_FULL_CYCLES = 16,
-        CSR_COMMON_WR_ALMOST_FULL_CYCLES = 17
+        CSR_COMMON_WR_ALMOST_FULL_CYCLES = 17,
+        CSR_COMMON_WR_PARTIAL_LINES = 18,
     }
     t_csr_common;
 
@@ -140,6 +141,12 @@ class CCI_TEST
           default:
             return "VA";
         }
+    }
+
+    bool fiuSupportsByteRangeWr(void)
+    {
+        uint64_t c = readCommonCSR(CSR_COMMON_FIU_STATE);
+        return (c & 8) != 0;
     }
 
     uint64_t getAFUMHz(bool uclk_freq_required = true)
