@@ -933,37 +933,56 @@ module test_afu
     //
     // ====================================================================
 
-    // Map one line to a tag
-    typedef logic [47:0] t_mem_tag;
-    typedef logic [($bits(t_mem_tag) / 8) - 1 : 0] t_mem_tag_mask;
+    // Map one line to a tag. We will use one tag bit per data byte.
+    typedef logic [(CCI_CLDATA_WIDTH / 8) - 1 : 0] t_mem_tag;
+    // With one bit per byte in t_mem_tag, the mask of tag data is
+    // the same size.
+    typedef logic [(CCI_CLDATA_WIDTH / 8) - 1 : 0] t_mem_tag_mask;
 
-    // Pick some bytes that will be compared.  The rest will be thrown away.
-    // Entire bytes are chosen so we can test byte-masked writes.
+    // The mapping function from a line of data to tags is a simple XOR
+    // in each byte. We could do something smarter, but the point is to
+    // detect errors. Do enough reads and writes and this will eventually
+    // be good enough.
     function automatic t_mem_tag lineToTag(t_cci_clData v);
-        return { v[(8 * 63) +: 8], v[(8 * 62) +: 8], v[(8 * 35) +: 8], 
-                 v[(8 * 13) +: 8], v[(8 * 1) +: 8], v[(8 * 0) +: 8] };
+        t_mem_tag tag;
+
+        for (int i = 0; i < $bits(t_mem_tag); i = i + 1)
+        begin
+            // XOR each byte into tag bits
+            tag[i] = (^(v[(8 * i) +: 8]));
+        end
+
+        return tag;
     endfunction
 
     // Generate the write mask.  Partial writes don't update all bytes.
     // The tag's mask bits must correspond to the bytes checked in lineToTag().
     function automatic t_mem_tag_mask lineToTagMask(t_cci_mpf_c1_PartialWriteHdr h);
         t_mem_tag_mask m;
-        m[5] = h.mask[63] || ! h.isPartialWrite;
-        m[4] = h.mask[62] || ! h.isPartialWrite;
-        m[3] = h.mask[35] || ! h.isPartialWrite;
-        m[2] = h.mask[13] || ! h.isPartialWrite;
-        m[1] = h.mask[1]  || ! h.isPartialWrite;
-        m[0] = h.mask[0]  || ! h.isPartialWrite;
+
+        for (int i = 0; i < $bits(t_mem_tag_mask); i = i + 1)
+        begin
+            m[i] = h.mask[i]  || ! h.isPartialWrite;
+        end
+
         return m;
     endfunction
 
     //
     // Block RAM holding tags representing memory state
     //
+    t_mem_tag wr_chk_data;
+    assign wr_chk_data = lineToTag(fiu.c1Tx.data);
+    t_mem_tag_mask wr_chk_mask;
+    assign wr_chk_mask = lineToTagMask(pwh_q);
+
     t_mem_tag rd_chk_data;
+    t_mem_tag chk_ram_rdy_all;
 
     always_ff @(posedge clk)
     begin
+        chk_ram_rdy <= (&(chk_ram_rdy_all));
+
         chk_rdy <= chk_ram_rdy && ! chk_fifo_full;
         if (reset || reset_chk_ram)
         begin
@@ -971,36 +990,35 @@ module test_afu
         end
     end
 
-    cci_mpf_prim_ram_dualport_byteena_init
-      #(
-        .N_ENTRIES(1 << N_CHECKED_ADDR_BITS),
-        .N_DATA_BITS($bits(t_mem_tag)),
-        .N_OUTPUT_REG_STAGES(2),
-        .OPERATION_MODE("DUAL_PORT"),
-        .PORT1_CLOCK("CLOCK0"),
-        .READ_DURING_WRITE_MODE_MIXED_PORTS("OLD_DATA")
-        )
-      chk_ram
-       (
-        .reset(reset || reset_chk_ram),
-        .rdy(chk_ram_rdy),
+    genvar b;
+    generate
+        for (b = 0; b < $bits(t_mem_tag); b = b + 1)
+        begin : tb
+            cci_mpf_prim_ram_simple_init
+              #(
+                .N_ENTRIES(1 << N_CHECKED_ADDR_BITS),
+                .N_DATA_BITS(1),
+                .N_OUTPUT_REG_STAGES(2),
+                .REGISTER_WRITES(1),
+                .BYPASS_REGISTERED_WRITES(1)
+                )
+              chk_ram
+               (
+                .clk(clk),
+                .reset(reset || reset_chk_ram),
+                .rdy(chk_ram_rdy_all[b]),
 
-        // Update RAM with written data
-        .clk0(clk),
-        .addr0(wr_addr_chk_idx_q),
-        .wen0(chk_wr_valid_q),
-        .byteena0(lineToTagMask(pwh_q)),
-        .wdata0(lineToTag(fiu.c1Tx.data)),
-        .rdata0(),
+                // Update RAM with written data
+                .waddr(wr_addr_chk_idx_q),
+                .wen(chk_wr_valid_q && wr_chk_mask[b]),
+                .wdata(wr_chk_data[b]),
 
-        // Reads match CCI read requests
-        .clk1(clk),
-        .addr1(rd_addr_chk_idx_q),
-        .wen1(1'b0),
-        .byteena1(),
-        .wdata1(),
-        .rdata1(rd_chk_data)
-        );
+                // Reads match CCI read requests
+                .raddr(rd_addr_chk_idx_q),
+                .rdata(rd_chk_data[b])
+                );
+        end
+    endgenerate
 
     // Forward block RAM reads to a FIFO.  The block RAM reads will be matched
     // with CCI read responses.
