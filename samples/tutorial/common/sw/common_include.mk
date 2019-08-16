@@ -44,6 +44,7 @@ CFLAGS +=-Wformat -Wformat-security
 
 ifeq (,$(DESTDIR))
 ifneq (,$(prefix))
+CFLAGS   += -I$(prefix)/include
 CPPFLAGS += -I$(prefix)/include
 LDFLAGS  += -L$(prefix)/lib -Wl,-rpath-link -Wl,$(prefix)/lib -Wl,-rpath -Wl,$(prefix)/lib \
             -L$(prefix)/lib64 -Wl,-rpath-link -Wl,$(prefix)/lib64 -Wl,-rpath -Wl,$(prefix)/lib64
@@ -52,6 +53,7 @@ else
 ifeq (,$(prefix))
 prefix = /usr/local
 endif
+CFLAGS   += -I$(DESTDIR)$(prefix)/include
 CPPFLAGS += -I$(DESTDIR)$(prefix)/include
 LDFLAGS  += -L$(DESTDIR)$(prefix)/lib -Wl,-rpath-link -Wl,$(prefix)/lib -Wl,-rpath -Wl,$(DESTDIR)$(prefix)/lib \
             -L$(DESTDIR)$(prefix)/lib64 -Wl,-rpath-link -Wl,$(prefix)/lib64 -Wl,-rpath -Wl,$(DESTDIR)$(prefix)/lib64
