@@ -855,6 +855,8 @@ module test_afu
                 fiu.c1Tx.hdr.base.cl_len <= eCL_LEN_1;
 `ifdef CCIP_ENCODING_HAS_BYTE_WR
                 fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+                fiu.c1Tx.hdr.base.byte_start <= t_ccip_clByteIdx'(0);
+                fiu.c1Tx.hdr.base.byte_len <= t_ccip_clByteIdx'(0);
 `endif
                 fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
                 fiu.c1Tx.data[63:0] <= t_cci_clData'(1);
@@ -870,6 +872,8 @@ module test_afu
                 fiu.c1Tx.hdr.base.cl_len <= eCL_LEN_1;
 `ifdef CCIP_ENCODING_HAS_BYTE_WR
                 fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+                fiu.c1Tx.hdr.base.byte_start <= t_ccip_clByteIdx'(0);
+                fiu.c1Tx.hdr.base.byte_len <= t_ccip_clByteIdx'(0);
 `endif
                 fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
                 fiu.c1Tx.data[63:0] <= t_cci_clData'(2);
@@ -1364,16 +1368,17 @@ module test_gen_pwrite_hdr
                      ((6'(pw_lfsr) == 6'(0)) && enable_partial_writes)))
                 begin
                     pw_mode = eMOD_BYTE;
+                    pw_byte_start = byte_start[1];
+                    pw_byte_len = byte_len[1];
                     pwh.isPartialWrite = 1'b1;
                 end
                 else
                 begin
                     pw_mode = eMOD_CL;
+                    pw_byte_start = t_ccip_clByteIdx'(0);
+                    pw_byte_len = t_ccip_clByteIdx'(0);
                     pwh.isPartialWrite = 1'b0;
                 end
-
-                pw_byte_start = byte_start[1];
-                pw_byte_len = byte_len[1];
 
                 pwh.mask = byte_mask;
             end

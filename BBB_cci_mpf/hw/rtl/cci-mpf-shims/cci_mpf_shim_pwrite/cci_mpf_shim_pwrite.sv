@@ -557,6 +557,8 @@ module cci_mpf_shim_pwrite
         fiu.c1Tx.hdr.pwrite.isPartialWrite <= 1'b0;
 `ifdef CCIP_ENCODING_HAS_BYTE_WR
         fiu.c1Tx.hdr.base.mode <= eMOD_CL;
+        fiu.c1Tx.hdr.base.byte_start <= t_ccip_clByteIdx'(0);
+        fiu.c1Tx.hdr.base.byte_len <= t_ccip_clByteIdx'(0);
 `endif
 
         if (reset)

@@ -556,6 +556,7 @@ module cci_mpf_shim_edge_afu_wr_data
         .nextBeatNum(wr_heap_enq_clNum)
         );
 
+    //synthesis translate_off
     t_cci_clLen afu_wr_prev_cl_len;
 
     always_ff @(posedge clk)
@@ -598,6 +599,9 @@ module cci_mpf_shim_edge_afu_wr_data
 `ifdef CCIP_ENCODING_HAS_BYTE_WR
                     assert ((afu.c1Tx.hdr.base.mode == eMOD_CL) || (afu.c1Tx.hdr.base.cl_len == eCL_LEN_1)) else
                         $fatal(2, "cci_mpf_shim_edge_connect: Byte range not allowed on multi-beat write");
+                    assert ((afu.c1Tx.hdr.base.mode == eMOD_BYTE) ||
+                            ((afu.c1Tx.hdr.base.byte_start == 0) && (afu.c1Tx.hdr.base.byte_len == 0))) else
+                        $fatal(2, "cci_mpf_shim_edge_connect: byte_start and byte_len must be 0 when write mode isn't eMOD_BYTE");
 `endif
                 end
                 else
@@ -610,6 +614,7 @@ module cci_mpf_shim_edge_afu_wr_data
             end
         end
     end
+    //synthesis translate_on
 
 endmodule // cci_mpf_shim_edge_afu_wr_data
 
