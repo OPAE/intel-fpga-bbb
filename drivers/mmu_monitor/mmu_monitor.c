@@ -7,6 +7,19 @@
  * Authors:
  *   Wu Hao <hao.wu@intel.com>
  *   Michael Adler <Michael.Adler@intel.com
+ *
+ * This driver provides services that may be used by a user space process
+ * connected to an accelerator. The driver code assumes that memory accessible
+ * to the accelerator is pinned and mapped for I/O by some mechanism outside
+ * the monitor.
+ *
+ * The monitor:
+ *  - Provides an ioctl for probing a virtual address, returning the page size
+ *    and read/write access of the region. This is equivalent to reading
+ *    /proc/self/smaps, but faster.
+ *  - Provides a service for tracking MMU changes that invalidate page mappings.
+ *    User code may use this service to detect pages that are unmapped and
+ *    should no longer be accessed by the accelerator.
  */
 
 #include <linux/version.h>
@@ -15,6 +28,7 @@
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/mmu_notifier.h>
+#include <linux/hugetlb.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
@@ -47,6 +61,9 @@ struct mmu_monitor {
 	struct list_head evt_list;
 	int evt_cnt;
 	int start_evt_cnt;
+
+	/* Filter notifier events when the page is still mapped. */
+	bool filter_still_mapped;
 };
 
 #define QUEUE_MAX_EVT 100
@@ -67,6 +84,7 @@ static int mmu_monitor_queue_event(struct mmu_monitor *mon, unsigned long start,
 				   unsigned long end)
 {
 	struct mon_event *evt;
+	struct device *dev = mon_miscdev.this_device;
 
 	if (mon->evt_cnt > QUEUE_MAX_EVT)
 		return -EBUSY;
@@ -81,6 +99,10 @@ static int mmu_monitor_queue_event(struct mmu_monitor *mon, unsigned long start,
 
 	list_add_tail(&evt->node, &mon->evt_list);
 	mon->evt_cnt++;
+
+	dev_dbg(dev, "%s: pid %d, start %lx, end %lx\n", __func__,
+		task_pid_nr(current), start, end);
+
 	return 0;
 }
 
@@ -95,7 +117,6 @@ static struct mon_event *mmu_monitor_fetch_event(struct mmu_monitor *mon)
 	evt = list_first_entry(&mon->evt_list, struct mon_event, node);
 
 	list_del(&evt->node);
-
 	mon->evt_cnt--;
 
 	return evt;
@@ -133,7 +154,7 @@ static void mmu_invalidate_range_start(struct mmu_notifier *mn,
 	/*
 	 * In range_start we just track the number of ranges that are
 	 * in the invalidation flow. An application may poll the driver
-	 * with MMU_MON_GET_INFO to detecting pending invalidations.
+	 * with MMU_MON_GET_STATE to detecting pending invalidations.
 	 */
 	mutex_lock(&mon_list_lock);
 	cnt = ++(mon->start_evt_cnt);
@@ -154,10 +175,11 @@ static int user_vaddr_is_mapped(struct mm_struct *mm, u64 vaddr)
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-	pte_t *pte;
+	pte_t *ptep;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
 	p4d_t *p4d;
 #endif
+	int ret;
 
 	if (!mm)
 		return 0;
@@ -170,6 +192,10 @@ static int user_vaddr_is_mapped(struct mm_struct *mm, u64 vaddr)
 	p4d = p4d_offset(pgd, vaddr);
 	if (!p4d_present(*p4d))
 		return 0;
+#if CONFIG_HUGETLB_PAGE
+	if (p4d_large(*p4d))
+		return 4;
+#endif
 
 	pud = pud_offset(p4d, vaddr);
 #else
@@ -190,11 +216,11 @@ static int user_vaddr_is_mapped(struct mm_struct *mm, u64 vaddr)
 		return 2;
 #endif
 
-	pte = pte_offset_map(pmd, vaddr);
-	if (!pte_present(*pte))
-		return 0;
+	ptep = pte_offset_map(pmd, vaddr);
+	ret = (!pte_present(*ptep) ? 0 : 1);
+	pte_unmap(ptep);
 
-	return 1;
+	return ret;
 }
 
 static void mmu_invalidate_range_end(struct mmu_notifier *mn,
@@ -203,37 +229,53 @@ static void mmu_invalidate_range_end(struct mmu_notifier *mn,
 {
 	struct mmu_monitor *mon = notifier_to_monitor(mn);
 	struct device *dev = mon_miscdev.this_device;
-	int addr_still_mapped;
+
+	dev_dbg(dev, "%s: pid %d, start %lx, end %lx\n", __func__,
+		task_pid_nr(current), start, end);
 
 	/*
-	 * Some invalidation is local to a particular thread but the
-	 * address stays mapped. We filter those out by walking the page
-	 * table to see whether a mapping remains. When a mapping remains,
-	 * the notification is dropped.
-	 *
-	 * The pages being monitored are pinned for DMA access, so we
-	 * can assume that the physical translation is unchanged.
-	 *
-	 * We only check the mapping at start, under the assumption that
-	 * the notification is for the same operation on the whole range.
-	 */
-	addr_still_mapped = user_vaddr_is_mapped(mm, start);
-
-	/*
-	 * check if any eventfd register for monitoring first, then notify
-	 * userspace via eventfd if queue event successfully.
+	 * Notify userspace via eventfd if any clients are registered.
 	 */
 	mutex_lock(&mon_list_lock);
 	mon->start_evt_cnt--;
-	if (mon->trigger && !addr_still_mapped) {
-		if (!mmu_monitor_queue_event(mon, start, end))
-			eventfd_signal(mon->trigger, 1);
+	if (mon->trigger) {
+		if (!mon->filter_still_mapped) {
+			/* Unfiltered mode - emit range as it came from the notifier. */
+			if (!mmu_monitor_queue_event(mon, start, end))
+				eventfd_signal(mon->trigger, 1);
+		}
+		else {
+			/* Filtered mode - emit ranges only when there is no
+			 * associated vma. This may emit multiple ranges. */
+			while (start < end) {
+				struct vm_area_struct *vma;
+				unsigned long vma_start;
+
+				/* Get the first mapped region after start address */
+				vma = find_vma(mm, start);
+				if (vma)
+					vma_start = vma->vm_start;
+				else
+					vma_start = end;
+
+				/* If the start address isn't in the vma then it is unmapped
+				 * and should be added to the event list. */
+				if (start < vma_start) {
+					unsigned long range_end = end;
+					if (vma_start < end)
+						range_end = vma_start;
+
+					if (!mmu_monitor_queue_event(mon, start, range_end))
+						eventfd_signal(mon->trigger, 1);
+				}
+
+				if (!vma)
+					break;
+				start = vma->vm_end;
+			}
+		}
 	}
 	mutex_unlock(&mon_list_lock);
-
-	dev_dbg(dev, "%s: pid %d, start %lx, end %lx, level %d%s\n", __func__,
-		task_pid_nr(current), start, end, addr_still_mapped,
-		(addr_still_mapped ? " STILL MAPPED" : ""));
 }
 
 static const struct mmu_notifier_ops mon_mn_ops = {
@@ -254,6 +296,7 @@ static struct mmu_monitor *register_mmu_monitor(struct mm_struct *mm)
 	INIT_LIST_HEAD(&mon->evt_list);
 	mon->evt_cnt = 0;
 	mon->start_evt_cnt = 0;
+	mon->filter_still_mapped = false;
 	mon->mm = mm;
 	mon->notifier.ops = &mon_mn_ops;
 
@@ -318,7 +361,7 @@ static int mmu_monitor_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static long mmu_monitor_set_evtfd(struct mmu_monitor *mon, int evtfd)
+static long mmu_monitor_set_evtfd(struct mmu_monitor *mon, int evtfd, u32 flags)
 {
 	struct eventfd_ctx *trigger;
 
@@ -335,6 +378,7 @@ static long mmu_monitor_set_evtfd(struct mmu_monitor *mon, int evtfd)
 		return PTR_ERR(trigger);
 
 	mon->trigger = trigger;
+	mon->filter_still_mapped = ((flags & MMU_MON_FILTER_MAPPED) != 0);
 	return 0;
 }
 
@@ -342,6 +386,7 @@ static long mmu_monitor_ioctl_set_evtfd(struct mmu_monitor *mon, void *arg)
 {
 	struct mmu_monitor_evtfd evtfd;
 	unsigned long minsz;
+	u32 flag_mask = MMU_MON_FILTER_MAPPED;
 	long ret;
 
 	minsz = offsetofend(struct mmu_monitor_evtfd, evtfd);
@@ -349,11 +394,11 @@ static long mmu_monitor_ioctl_set_evtfd(struct mmu_monitor *mon, void *arg)
 	if (copy_from_user(&evtfd, (void __user *)arg, minsz))
 		return -EFAULT;
 
-	if (evtfd.argsz < minsz || evtfd.flags)
+	if (evtfd.argsz < minsz || (evtfd.flags & ~flag_mask))
 		return -EINVAL;
 
 	mutex_lock(&mon_list_lock);
-	ret = mmu_monitor_set_evtfd(mon, evtfd.evtfd);
+	ret = mmu_monitor_set_evtfd(mon, evtfd.evtfd, evtfd.flags);
 	mutex_unlock(&mon_list_lock);
 	return ret;
 }
@@ -398,56 +443,99 @@ static long mmu_monitor_ioctl_get_event(struct mmu_monitor *mon, void *arg)
 	return 0;
 }
 
-static long mmu_monitor_ioctl_get_info(struct mmu_monitor *mon, void *arg)
+static long mmu_monitor_ioctl_get_state(struct mmu_monitor *mon, void *arg)
 {
-	struct mmu_monitor_info info;
+	struct mmu_monitor_state state;
 	unsigned long minsz;
 	struct device *dev = mon_miscdev.this_device;
 
-	minsz = offsetofend(struct mmu_monitor_info, evtcnt);
+	minsz = offsetofend(struct mmu_monitor_state, evtcnt);
 
-	if (copy_from_user(&info, (void __user *)arg, minsz))
+	if (copy_from_user(&state, (void __user *)arg, minsz))
 		return -EFAULT;
 
-	if (info.argsz < minsz || info.flags)
+	if (state.argsz < minsz || state.flags)
 		return -EINVAL;
 
 	mutex_lock(&mon_list_lock);
-	info.evtcnt = mon->evt_cnt + mon->start_evt_cnt;
+	state.evtcnt = mon->evt_cnt + mon->start_evt_cnt;
 	dev_dbg(dev, "%s: pid %d, evt %d, start_evt %d\n", __func__,
 		task_pid_nr(current), mon->evt_cnt, mon->start_evt_cnt);
 	mutex_unlock(&mon_list_lock);
 
-	if (copy_to_user(arg, &info, minsz))
+	if (copy_to_user(arg, &state, minsz))
 		return -EFAULT;
 
 	return 0;
 }
 
-static long mmu_monitor_ioctl_map_info(struct mm_struct *mm, void *arg)
+/*
+ * Return information about vaddr by probing the vm_area_struct.
+ */
+static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
+				    u32 *page_shift, unsigned long *vm_flags)
 {
-	struct mmu_monitor_map_info map_info;
+	struct vm_area_struct *vma;
+
+	*page_shift = 0;
+	*vm_flags = 0;
+
+	/* Lock the mm */
+	down_read(&mm->mmap_sem);
+
+	/* Is there a mapping at vaddr? */
+	vma = find_vma(mm, vaddr);
+	if (!vma || (vaddr < vma->vm_start)) {
+		up_read(&mm->mmap_sem);
+		return -ENOMEM; /* no mapping */
+	}
+
+	/* Is the mapping a huge page? */
+	if (is_vm_hugetlb_page(vma)) {
+		struct hstate *h = hstate_vma(vma);
+		*page_shift = huge_page_shift(h);
+	}
+	else
+		*page_shift = PAGE_SHIFT;
+
+	*vm_flags = vma->vm_flags;
+
+	up_read(&mm->mmap_sem);
+	return 0;
+}
+
+static long mmu_monitor_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
+{
+	long ret;
+	struct mmu_monitor_page_vma_info vma_info;
 	unsigned long minsz;
 	struct device *dev = mon_miscdev.this_device;
+	unsigned long vm_flags;
 
-	minsz = offsetofend(struct mmu_monitor_map_info, page_level);
+	minsz = offsetofend(struct mmu_monitor_page_vma_info, page_shift);
 
-	if (copy_from_user(&map_info, (void __user *)arg, minsz))
+	if (copy_from_user(&vma_info, (void __user *)arg, minsz))
 		return -EFAULT;
 
-	if (map_info.argsz < minsz || map_info.flags)
+	if (vma_info.argsz < minsz || vma_info.flags)
 		return -EINVAL;
 
-	map_info.page_level = 0;
-	map_info.page_level = user_vaddr_is_mapped(mm, (u64)map_info.vaddr);
+	ret = get_vaddr_page_vma_info(mm, (u64)vma_info.vaddr, &vma_info.page_shift, &vm_flags);
+	vma_info.flags = 0;
+	if (vm_flags & VM_READ)
+		vma_info.flags |= MMU_MON_PAGE_READ;
+	if (vm_flags & VM_WRITE)
+		vma_info.flags |= MMU_MON_PAGE_WRITE;
 
-	dev_dbg(dev, "%s: pid %d, vaddr %p, level %d\n", __func__,
-		task_pid_nr(current), map_info.vaddr, map_info.page_level);
+	dev_dbg(dev, "%s: pid %d, vaddr %p, shift %d, read %d, write %d\n", __func__,
+		task_pid_nr(current), vma_info.vaddr, vma_info.page_shift,
+		(vma_info.flags & MMU_MON_PAGE_READ) != 0,
+		(vma_info.flags & MMU_MON_PAGE_WRITE) != 0);
 
-	if (copy_to_user(arg, &map_info, minsz))
+	if (copy_to_user(arg, &vma_info, minsz))
 		return -EFAULT;
 
-	return 0;
+	return ret;
 }
 
 static long mmu_monitor_ioctl(struct file *file, unsigned int cmd,
@@ -462,21 +550,24 @@ static long mmu_monitor_ioctl(struct file *file, unsigned int cmd,
 	}
 
 	switch (cmd) {
+	case MMU_MON_GET_API_VERSION:
+		ret = MMU_MON_API_VERSION;
+		break;
 	case MMU_MON_SET_EVTFD:
 		ret = mmu_monitor_ioctl_set_evtfd(mon, (void *)arg);
 		break;
-	case MMU_MON_GET_INFO:
-		ret = mmu_monitor_ioctl_get_info(mon, (void *)arg);
+	case MMU_MON_GET_STATE:
+		ret = mmu_monitor_ioctl_get_state(mon, (void *)arg);
 		break;
 	case MMU_MON_GET_EVENT:
 		ret = mmu_monitor_ioctl_get_event(mon, (void *)arg);
 		break;
-	case MMU_MON_MAP_INFO:
-		ret = mmu_monitor_ioctl_map_info(current->mm, (void *)arg);
+	case MMU_MON_PAGE_VMA_INFO:
+		ret = mmu_monitor_ioctl_page_vma_info(current->mm, (void *)arg);
 		break;
 	default:
 		dev_dbg(dev, "%x cmd not handled", cmd);
-		ret = -ENOTTY;
+		ret = -EINVAL;
 	}
 
 	return ret;

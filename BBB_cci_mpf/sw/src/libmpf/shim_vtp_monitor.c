@@ -128,7 +128,14 @@ static fpga_result mpfVtpMonitorInit(
     mon->_mpf_handle = _mpf_handle;
 
     int fd = open("/dev/mmu_monitor", O_RDONLY);
-    if (-1 == fd)
+
+    int mon_version = -1;
+    if (-1 != fd)
+    {
+        mon_version = ioctl(fd, MMU_MON_GET_API_VERSION);
+    }
+
+    if ((-1 == fd) || (mon_version < 2))
     {
         // Ignore the error?
         if (getenv("MPF_NO_MMU_MONITOR_WARNING"))
@@ -136,8 +143,15 @@ static fpga_result mpfVtpMonitorInit(
             return FPGA_OK;
         }
 
-        MPF_FPGA_MSG_FH(stderr, "Failed to open munmap monitor device /dev/mmu_monitor");
-        fprintf(stderr, "        -- %s\n", strerror(errno));
+        if (-1 == fd)
+        {
+            MPF_FPGA_MSG_FH(stderr, "Failed to open munmap monitor device /dev/mmu_monitor");
+            fprintf(stderr, "        -- %s\n", strerror(errno));
+        }
+        else
+        {
+            MPF_FPGA_MSG_FH(stderr, "Device /dev/mmu_monitor API is too old.\n");
+        }
         fprintf(stderr,
                 "\n"
                 "  *** See /drivers/mmu_monitor in the intel-fpga-bbb repository ***\n"
@@ -158,7 +172,7 @@ static fpga_result mpfVtpMonitorInit(
     int evt_fd;
     struct mmu_monitor_evtfd mon_evtfd;
     evt_fd = eventfd(0, 0);
-    mon_evtfd.flags = 0;
+    mon_evtfd.flags = MMU_MON_FILTER_MAPPED;
     mon_evtfd.argsz = sizeof(struct mmu_monitor_evtfd);
     mon_evtfd.evtfd = evt_fd;
     if (ioctl(fd, MMU_MON_SET_EVTFD, &mon_evtfd))
@@ -198,6 +212,7 @@ fpga_result mpfVtpMonitorWaitWhenBusy(
 )
 {
     mpf_vtp_monitor* mon = _mpf_handle->vtp.munmap_monitor;
+    mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
     fpga_result r;
 
     if (NULL == mon)
@@ -219,16 +234,20 @@ fpga_result mpfVtpMonitorWaitWhenBusy(
         return FPGA_OK;
     }
 
-    struct mmu_monitor_info mon_info;
+    struct mmu_monitor_state mon_state;
     do
     {
-        mon_info.flags = 0;
-        mon_info.argsz = sizeof(struct mmu_monitor_info);
-        ioctl(mon->mon_fd, MMU_MON_GET_INFO, &mon_info);
-    }
-    while (mon_info.evtcnt || ! wait_for_sync);
+        mon_state.flags = 0;
+        mon_state.argsz = sizeof(struct mmu_monitor_state);
 
-    return (0 == mon_info.evtcnt) ? FPGA_OK : FPGA_BUSY;
+        // Must hold the pt lock in case monitor events are being processed
+        mpfVtpPtLockMutex(pt);
+        ioctl(mon->mon_fd, MMU_MON_GET_STATE, &mon_state);
+        mpfVtpPtUnlockMutex(pt);
+    }
+    while (mon_state.evtcnt || ! wait_for_sync);
+
+    return (0 == mon_state.evtcnt) ? FPGA_OK : FPGA_BUSY;
 }
 
 

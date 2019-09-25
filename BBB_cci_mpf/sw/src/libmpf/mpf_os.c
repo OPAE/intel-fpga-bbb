@@ -36,15 +36,25 @@
 #include <Windows.h>
 #endif
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
+
+#ifndef _WIN32
+#include "mmu_monitor.h"
+#endif
 
 #include <safe_string/safe_string.h>
 
@@ -296,6 +306,56 @@ fpga_result mpfOsUnmapMemory(
 
 #define MAPS_BUF_SZ 4096
 
+//
+// The /dev/mmu_monitor device driver is mainly used by VTP to track pages that
+// are unmapped. The driver also provides a service that walks the memory table.
+// It is much faster than parsing /proc/self/smaps.
+//
+// Return:
+//   - FPGA_OK if the translation was successful
+//   - FPGA_EXCEPTION if the service is unavailable
+//   - FPGA_NOT_FOUND if the address is not mapped
+//
+static fpga_result getPageSizeFromMonDev(
+    void* vaddr,
+    mpf_vtp_page_size* page_size
+)
+{
+    static int mfd = 0;
+
+    if (mfd == -1) return FPGA_EXCEPTION;
+
+    // First time called?
+    if (mfd == 0)
+    {
+        mfd = open("/dev/mmu_monitor", O_RDONLY);
+        if (mfd == -1) return FPGA_EXCEPTION;
+
+        // Ignore old versions of the driver
+        if (ioctl(mfd, MMU_MON_GET_API_VERSION) < 2)
+        {
+            close(mfd);
+            mfd = -1;
+            return FPGA_EXCEPTION;
+        }
+    }
+
+    struct mmu_monitor_page_vma_info info;
+    int ret;
+    info.flags = 0;
+    info.argsz = sizeof(info);
+    info.vaddr = vaddr;
+    ret = ioctl(mfd, MMU_MON_PAGE_VMA_INFO, &info);
+    if (ret)
+    {
+        return (errno == ENOMEM) ? FPGA_NOT_FOUND : FPGA_EXCEPTION;
+    }
+
+    *page_size = (info.page_shift < 21) ? MPF_VTP_PAGE_4KB : MPF_VTP_PAGE_2MB;
+    return FPGA_OK;
+}
+
+
 fpga_result mpfOsGetPageSize(
     void* vaddr,
     mpf_vtp_page_size* page_size
@@ -305,6 +365,16 @@ fpga_result mpfOsGetPageSize(
 
 #ifndef _WIN32
     // Linux
+
+    // First try the faster MMU monitor service
+    fpga_result r;
+    r = getPageSizeFromMonDev(vaddr, page_size);
+    if ((r == FPGA_OK) || (r == FPGA_NOT_FOUND))
+    {
+        return r;
+    }
+
+    // No MMU monitor service. Use the slower /proc/self/smaps.
 
     // This routine is derived from libhugetlbfs, written by
     // David Gibson & Adam Litke, IBM Corporation.
