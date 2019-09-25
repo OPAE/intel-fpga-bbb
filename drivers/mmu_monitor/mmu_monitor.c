@@ -164,65 +164,6 @@ static void mmu_invalidate_range_start(struct mmu_notifier *mn,
 		task_pid_nr(current), start, end, cnt);
 }
 
-/*
- * Walk the page table to determine whether the user virtual address
- * is mapped. Returns 0 when not present. Returns the level in the table
- * when a mapping is found. Level 1 is the leaf (smallest pages) and
- * levels above that are huge pages.
- */
-static int user_vaddr_is_mapped(struct mm_struct *mm, u64 vaddr)
-{
-	pgd_t *pgd;
-	pud_t *pud;
-	pmd_t *pmd;
-	pte_t *ptep;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
-	p4d_t *p4d;
-#endif
-	int ret;
-
-	if (!mm)
-		return 0;
-
-	pgd = pgd_offset(mm, vaddr);
-	if (!pgd_present(*pgd))
-		return 0;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
-	p4d = p4d_offset(pgd, vaddr);
-	if (!p4d_present(*p4d))
-		return 0;
-#if CONFIG_HUGETLB_PAGE
-	if (p4d_large(*p4d))
-		return 4;
-#endif
-
-	pud = pud_offset(p4d, vaddr);
-#else
-	pud = pud_offset(pgd, vaddr);
-#endif
-	if (!pud_present(*pud))
-		return 0;
-#if CONFIG_HUGETLB_PAGE
-	if (pud_large(*pud))
-		return 3;
-#endif
-
-	pmd = pmd_offset(pud, vaddr);
-	if (!pmd_present(*pmd))
-		return 0;
-#if CONFIG_HUGETLB_PAGE
-	if (pmd_large(*pmd))
-		return 2;
-#endif
-
-	ptep = pte_offset_map(pmd, vaddr);
-	ret = (!pte_present(*ptep) ? 0 : 1);
-	pte_unmap(ptep);
-
-	return ret;
-}
-
 static void mmu_invalidate_range_end(struct mmu_notifier *mn,
 				       struct mm_struct *mm,
 				       unsigned long start, unsigned long end)
