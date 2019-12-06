@@ -109,7 +109,7 @@ if (WIN32)
 endif(WIN32)
 
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include ${OPAELIB_INC_PATH})
 
 ## Add install directory to include path in case OPAE has been installed there
 if (IS_DIRECTORY ${CMAKE_INSTALL_PREFIX}/include)
