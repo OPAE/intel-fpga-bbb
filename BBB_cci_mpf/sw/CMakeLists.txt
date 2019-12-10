@@ -104,12 +104,10 @@ if (WIN32)
     set_property(TARGET OpaeLib PROPERTY IMPORTED_IMPLIB_DEBUG ${OPAELIB_LIBS_PATH}/Debug/OpaeLib.lib)
     set_property(TARGET OpaeLib PROPERTY IMPORTED_LOCATION_RELEASE ${OPAELIB_LIBS_PATH}/Release/OpaeLib.dll)
     set_property(TARGET OpaeLib PROPERTY IMPORTED_IMPLIB_RELEASE ${OPAELIB_LIBS_PATH}/Release/OpaeLib.lib)
-
-    include_directories(${OPAELIB_INC_PATH})
 endif(WIN32)
 
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include ${OPAELIB_INC_PATH})
 
 ## Add install directory to include path in case OPAE has been installed there
 if (IS_DIRECTORY ${CMAKE_INSTALL_PREFIX}/include)
