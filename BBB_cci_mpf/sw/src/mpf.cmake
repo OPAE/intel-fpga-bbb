@@ -27,6 +27,8 @@
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
+include(GNUInstallDirs)
+
 # Configuration based on the OPAE version, etc.
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/src/cmake/config")
 include(mpf_opae_config)
@@ -58,22 +60,15 @@ aux_source_directory(
 add_library(MPF SHARED ${LIBMPF})
 add_library(MPF-cxx SHARED ${LIBMPF_CXX})
 
-get_property(LIB64 GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS)
-if ("${LIB64}" STREQUAL "TRUE")
-    set(LIB_DIR "lib64")
-else()
-    set(LIB_DIR "lib")
-endif()
-
 install(
     TARGETS MPF MPF-cxx
     RUNTIME DESTINATION bin
-    LIBRARY DESTINATION ${LIB_DIR}
-    ARCHIVE DESTINATION ${LIB_DIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
 
-install(FILES ${HDR} DESTINATION include/opae/mpf)
-install(FILES ${HDR_CXX} DESTINATION include/opae/mpf/cxx)
+install(FILES ${HDR} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opae/mpf)
+install(FILES ${HDR_CXX} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opae/mpf/cxx)
 
 ##
 ## Add pthreads to the generated library.  VTP uses a mutex to guarantee
