@@ -15,3 +15,8 @@ set_global_assignment -name SEARCH_PATH $CCI_MPF_SRC/test/test-mpf/base/hw/rtl
 
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/test/test-mpf/base/hw/rtl/cci_test_afu.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/test/test-mpf/base/hw/rtl/cci_test_csrs.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/test/test-mpf/base/hw/rtl/clock_counter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/test/test-mpf/base/hw/rtl/counter_multicycle.sv
+
+## Constraints
+set_global_assignment -name SDC_FILE $CCI_MPF_SRC/test/test-mpf/base/hw/rtl/clock_counter.sdc

@@ -32,5 +32,7 @@
 // Test configuration.
 //
 
+// `define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
+
 // This test doesn't use MPF
 `define MPF_DISABLED 1

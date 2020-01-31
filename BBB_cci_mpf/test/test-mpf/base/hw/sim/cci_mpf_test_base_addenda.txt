@@ -12,3 +12,5 @@
 
 ../rtl/cci_test_afu.sv
 ../rtl/cci_test_csrs.sv
+../rtl/clock_counter.sv
+../rtl/counter_multicycle.sv

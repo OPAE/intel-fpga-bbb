@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2019, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,38 +29,55 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// test_random configuration.  These are in ifdefs so they can be overridden
-// by command line definitions.
+// Count cycles of "count_clk", with all other ports in the "clk" domain.
 //
+module clock_counter
+  #(
+    parameter COUNTER_WIDTH = 16
+    )
+   (
+    input  logic clk,
+    input  logic count_clk,
+    input  logic sync_reset,
+    input  logic enable,
+    output logic [COUNTER_WIDTH-1:0] count
+    );
 
-// `define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
+    // Convenient names that will be used to declare timing constraints for clock crossing
+    (* preserve *) logic [COUNTER_WIDTH-1:0] cntclksync_count;
+    (* preserve *) logic cntclksync_reset;
+    (* preserve *) logic cntclksync_enable;
 
-`ifndef MPF_CONF_SORT_READ_RESPONSES
-  `define MPF_CONF_SORT_READ_RESPONSES 1
-`endif
+    logic [COUNTER_WIDTH-1:0] counter_value;
 
-`ifndef MPF_CONF_PRESERVE_WRITE_MDATA
-  `define MPF_CONF_PRESERVE_WRITE_MDATA 1
-`endif
+    always_ff @(posedge count_clk)
+    begin
+        cntclksync_count <= counter_value;
+    end
 
-`ifndef MPF_CONF_ENABLE_VTP
-  `define MPF_CONF_ENABLE_VTP 1
-`endif
+    always_ff @(posedge clk)
+    begin
+        count <= cntclksync_count;
+    end
 
-// Software translation service
-//`define MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+    (* preserve *) logic reset_T1;
+    (* preserve *) logic enable_T1;
 
-`ifndef MPF_CONF_ENABLE_VC_MAP
-  `define MPF_CONF_ENABLE_VC_MAP 1
-`endif
+    always_ff @(posedge count_clk)
+    begin
+        cntclksync_reset <= sync_reset;
+        cntclksync_enable <= enable;
 
-`ifndef MPF_CONF_ENFORCE_WR_ORDER
-  `define MPF_CONF_ENFORCE_WR_ORDER 1
-`endif
+        reset_T1 <= cntclksync_reset;
+        enable_T1 <= cntclksync_enable;
+    end
 
-`ifndef MPF_CONF_ENABLE_PARTIAL_WRITES
-  `define MPF_CONF_ENABLE_PARTIAL_WRITES 1
-`endif
-`ifndef MPF_CONF_PARTIAL_WRITE_MODE
-  `define MPF_CONF_PARTIAL_WRITE_MODE "BYTE_RANGE"
-`endif
+    counter_multicycle#(.NUM_BITS(COUNTER_WIDTH)) counter
+       (
+        .clk(count_clk),
+        .reset(reset_T1),
+        .incr_by(COUNTER_WIDTH'(enable_T1)),
+        .value(counter_value)
+        );
+
+endmodule

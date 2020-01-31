@@ -291,17 +291,20 @@ module csr_mgr
     //
     // CSR writes from the host
     //
-    always_ff @(posedge clk)
-    begin
-        for (int i = 0; i < NUM_APP_CSRS; i = i + 1)
-        begin
-            // Fan out data to all targets
-            csrs.cpu_wr_csrs[i].data <= 64'(c0Rx.data);
-            // Set en for one cycle when the index matches.
-            csrs.cpu_wr_csrs[i].en <= (t_afu_csr_idx'(i + 32) == csr_idx) &&
-                                      is_csr_write;
+    genvar i;
+    generate
+        for (i = 0; i < NUM_APP_CSRS; i = i + 1)
+        begin : wr
+            always_ff @(posedge clk)
+            begin
+                // Fan out data to all targets
+                csrs.cpu_wr_csrs[i].data <= 64'(c0Rx.data);
+                // Set en for one cycle when the index matches.
+                csrs.cpu_wr_csrs[i].en <= is_csr_write &&
+                                          (t_afu_csr_idx'(i + 32) == csr_idx);
+            end
         end
-    end
+    endgenerate
 
 
     //

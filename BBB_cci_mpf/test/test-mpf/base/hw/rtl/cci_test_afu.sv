@@ -33,45 +33,74 @@
 `include "cci_mpf_test_conf_default.vh"
 `include "cci_test_csrs.vh"
 
-module ccip_std_afu
+module ofs_plat_afu
    (
-    // CCI-P Clocks and Resets
-    input           logic             pClk,              // 400MHz - CCI-P clock domain. Primary interface clock
-    input           logic             pClkDiv2,          // 200MHz - CCI-P clock domain.
-    input           logic             pClkDiv4,          // 100MHz - CCI-P clock domain.
-    input           logic             uClk_usr,          // User clock domain. Refer to clock programming guide  ** Currently provides fixed 300MHz clock **
-    input           logic             uClk_usrDiv2,      // User clock domain. Half the programmed frequency  ** Currently provides fixed 150MHz clock **
-    input           logic             pck_cp2af_softReset,      // CCI-P ACTIVE HIGH Soft Reset
-    input           logic [1:0]       pck_cp2af_pwrState,       // CCI-P AFU Power State
-    input           logic             pck_cp2af_error,          // CCI-P Protocol Error Detected
-
-    // Interface structures
-    input           t_if_ccip_Rx      pck_cp2af_sRx,        // CCI-P Rx Port
-    output          t_if_ccip_Tx      pck_af2cp_sTx         // CCI-P Tx Port
+    // All platform wires, wrapped in one interface.
+    ofs_plat_if plat_ifc
     );
 
+    // ====================================================================
+    //
+    //  Get a CCI-P port from the platform.
+    //
+    // ====================================================================
 
-    //
-    // Select the clock that will drive the AFU, specified in the AFU's
-    // JSON file.  The Platform Interface Manager provides these macros.
-    //
+    // Instance of a CCI-P interface. The interface wraps usual CCI-P
+    // sRx and sTx structs as well as the associated clock and reset.
+    ofs_plat_host_ccip_if ccip_fiu_if();
+
+    // Use the platform-provided module to map the primary host interface
+    // to CCI-P. The "primary" interface is the port that includes the
+    // main OPAE-managed MMIO connection.
+    ofs_plat_host_chan_as_ccip
+      #(
+`ifdef TEST_PARAM_AFU_CLK
+        .ADD_CLOCK_CROSSING(1)
+`endif
+        )
+      primary_ccip
+       (
+        .to_fiu(plat_ifc.host_chan.ports[0]),
+        .to_afu(ccip_fiu_if),
+
+`ifdef TEST_PARAM_AFU_CLK
+        .afu_clk(`TEST_PARAM_AFU_CLK)
+`else
+        .afu_clk()
+`endif
+        );
+
     logic afu_clk;
-    assign afu_clk = `PLATFORM_PARAM_CCI_P_CLOCK;
+    assign afu_clk = ccip_fiu_if.clk;
     logic afu_reset;
-    assign afu_reset = `PLATFORM_PARAM_CCI_P_RESET;
+    assign afu_reset = ccip_fiu_if.reset;
+
+    // pwrState in afu_clk domain
+    logic [1:0] pwrState;
+    ofs_plat_prim_clock_crossing_reg
+      #(
+        .WIDTH(2)
+        )
+      pwrState_cross
+       (
+        .clk_src(plat_ifc.host_chan.ports[0].clk),
+        .clk_dst(afu_clk),
+        .r_in(plat_ifc.pwrState),
+        .r_out(pwrState)
+        );
 
 
+    // ====================================================================
     //
-    // Register error and power signals.
+    //  Tie off unused ports.
     //
-    logic [1:0] pck_cp2af_pwrState_q;
-    logic pck_cp2af_error_q;
+    // ====================================================================
 
-    always_ff @(posedge afu_clk)
-    begin
-        pck_cp2af_pwrState_q <= pck_cp2af_pwrState;
-        pck_cp2af_error_q <= pck_cp2af_error;
-    end
+    ofs_plat_if_tie_off_unused
+      #(
+        .HOST_CHAN_IN_USE_MASK(1)
+        )
+        tie_off(plat_ifc);
 
 
     // ====================================================================
@@ -79,19 +108,6 @@ module ccip_std_afu
     //  Convert the external wires to an MPF interface.
     //
     // ====================================================================
-
-    //
-    // The AFU exposes the primary AFU device feature header (DFH) at MMIO
-    // address 0.  MPF defines a set of its own DFHs.  The AFU must
-    // build its feature chain to point to the MPF chain.  The AFU must
-    // also tell the MPF module the MMIO address at which MPF should start
-    // its feature chain.
-    //
-`ifndef MPF_DISABLED
-    localparam MPF_DFH_MMIO_ADDR = 'h1000;
-`else
-    localparam MPF_DFH_MMIO_ADDR = 0;
-`endif
 
     //
     // MPF represents CCI as a SystemVerilog interface, derived from the
@@ -104,11 +120,9 @@ module ccip_std_afu
     //
     // Expose FIU as an MPF interface
     //
-    cci_mpf_if#(.ENABLE_LOG(1)) fiu(.clk(afu_clk));
+    cci_mpf_if#(.ENABLE_LOG(1)) mpf_fiu_if(.clk(afu_clk));
 
-    // The CCI wires to MPF mapping connections have identical naming to
-    // the standard AFU.  The module exports an interface named "fiu".
-    ccip_wires_to_mpf
+    ofs_plat_ccip_if_to_mpf
       #(
         // All inputs and outputs in PR region (AFU) must be registered!
         .REGISTER_INPUTS(1),
@@ -116,10 +130,8 @@ module ccip_std_afu
         )
       map_ifc
        (
-        .pClk(afu_clk),
-        .pck_cp2af_softReset(afu_reset),
-        .fiu,
-        .*
+        .ofs_ccip(ccip_fiu_if),
+        .mpf_ccip(mpf_fiu_if)
         );
 
 
@@ -137,17 +149,17 @@ module ccip_std_afu
 
     always_comb
     begin
-        fiu_flow.reset = fiu.reset;
+        fiu_flow.reset = mpf_fiu_if.reset;
 
-        fiu_flow.c0TxAlmFull = fiu.c0TxAlmFull || c0_force_almost_full;
-        fiu_flow.c1TxAlmFull = fiu.c1TxAlmFull || c1_force_almost_full;
+        fiu_flow.c0TxAlmFull = mpf_fiu_if.c0TxAlmFull || c0_force_almost_full;
+        fiu_flow.c1TxAlmFull = mpf_fiu_if.c1TxAlmFull || c1_force_almost_full;
 
-        fiu_flow.c0Rx = fiu.c0Rx;
-        fiu_flow.c1Rx = fiu.c1Rx;
+        fiu_flow.c0Rx = mpf_fiu_if.c0Rx;
+        fiu_flow.c1Rx = mpf_fiu_if.c1Rx;
 
-        fiu.c0Tx = fiu_flow.c0Tx;
-        fiu.c1Tx = fiu_flow.c1Tx;
-        fiu.c2Tx = fiu_flow.c2Tx;
+        mpf_fiu_if.c0Tx = fiu_flow.c0Tx;
+        mpf_fiu_if.c1Tx = fiu_flow.c1Tx;
+        mpf_fiu_if.c2Tx = fiu_flow.c2Tx;
     end
 
 
@@ -157,6 +169,19 @@ module ccip_std_afu
     //  and to keep them available even when other code fails.
     //
     // ====================================================================
+
+    //
+    // The AFU exposes the primary AFU device feature header (DFH) at MMIO
+    // address 0.  MPF defines a set of its own DFHs.  The AFU must
+    // build its feature chain to point to the MPF chain.  The AFU must
+    // also tell the MPF module the MMIO address at which MPF should start
+    // its feature chain.
+    //
+`ifndef MPF_DISABLED
+    localparam MPF_DFH_MMIO_ADDR = 'h1000;
+`else
+    localparam MPF_DFH_MMIO_ADDR = 0;
+`endif
 
     cci_mpf_if afu_csrs(.clk(afu_clk));
     test_csrs csrs();
@@ -168,10 +193,11 @@ module ccip_std_afu
       csr_io
        (
         .clk(afu_clk),
+        .pClk(plat_ifc.clocks.pClk),
         .fiu(fiu_flow),
         .afu(afu_csrs),
-        .pck_cp2af_pwrState(pck_cp2af_pwrState_q),
-        .pck_cp2af_error(pck_cp2af_error_q),
+        .pck_cp2af_pwrState(pwrState),
+        .pck_cp2af_error(ccip_fiu_if.error),
         .csrs
         );
 
@@ -351,7 +377,7 @@ module ccip_std_afu
        (
         .clk(afu_clk),
 
-        .cci_bus(fiu),
+        .cci_bus(mpf_fiu_if),
 
         .c0NotEmpty(),
         .c1NotEmpty(),

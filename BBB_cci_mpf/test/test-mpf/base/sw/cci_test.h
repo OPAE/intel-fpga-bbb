@@ -151,29 +151,23 @@ class CCI_TEST
 
     uint64_t getAFUMHz(bool uclk_freq_required = true)
     {
-        // What's the AFU frequency (MHz)?
-        uint64_t afu_mhz = readCommonCSR(CSR_COMMON_FREQ);
+        uint16_t pclk_freq, pclk_cnt, clk_cnt;
 
-        // Some low frequencies are a clue that the run-time configurable
-        // frequency is being used.
-        if (afu_mhz == 2)
+        // Get counters in block pClk and AFU clock domains in order to
+        // calculate the frequency of the AFU clock given known pClk
+        // frequency.
+        //
+        // Wait for the RTL to run for long enough to minimize error.
+        do
         {
-            // What's the frequency of uClk_usr?  For now this is a
-            // run-time user-provided parameter.
-            afu_mhz = uint64_t(vm["uclk-freq"].as<int>());
+            uint64_t freq_info = readCommonCSR(CSR_COMMON_FREQ);
+            pclk_freq = freq_info;
+            pclk_cnt = (freq_info >> 16);
+            clk_cnt = (freq_info >> 32);
         }
-        else if (afu_mhz == 1)
-        {
-            afu_mhz = uint64_t(vm["uclk-freq"].as<int>()) >> 1;
-        }
+        while ((pclk_cnt < 2048) && (clk_cnt < 2048));
 
-        if ((afu_mhz == 0) && uclk_freq_required)
-        {
-            cerr << "--uclk-freq must be specified when connecting to uClk_usr" << endl;
-            exit(1);
-        }
-
-        return afu_mhz;
+        return uint64_t((double(clk_cnt) * double(pclk_freq)) / double(pclk_cnt));
     }
 
   protected:

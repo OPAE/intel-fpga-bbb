@@ -42,7 +42,6 @@ int main(int argc, char *argv[])
         ("vcmap-dynamic", po::value<bool>()->default_value(true), "VC MAP: Use dynamic channel mapping (overridden by --vcmap-fixed)")
         ("vcmap-fixed", po::value<int>()->default_value(-1), "VC MAP: Use fixed mapping with VL0 getting <n>/64 of traffic")
         ("vcmap-only-writes", po::value<bool>()->default_value(false), "VC MAP: Apply the chosen mapping mode only to write requests")
-        ("uclk-freq", po::value<int>()->default_value(0), "Frequency of uClk_usr (MHz)")
         ("vtp-force-small-pages", po::value<bool>()->default_value(false), "Force small (4KB) page allocation in VTP")
         ;
 
@@ -164,7 +163,7 @@ int main(int argc, char *argv[])
     {
         cout << "#" << endl
              << "# Test cycles executed: " << cycles
-             << " (" << (mhz ? std::to_string(mhz) : "unknown uClk") << " MHz)"
+             << " (" << (mhz ? std::to_string(mhz) : "unknown") << " MHz)"
              << (svc.hwIsSimulated() ? " [simulated]" : "")
              << endl;
     }

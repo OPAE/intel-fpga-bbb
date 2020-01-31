@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2019, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,38 +29,49 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// test_random configuration.  These are in ifdefs so they can be overridden
-// by command line definitions.
+// Break counter into a two-cycle operation. The output is delayed one cycle.
+// At most half the counter's size can be added to it in one cycle.
 //
+module counter_multicycle
+  #(
+    parameter NUM_BITS = 64
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+    input  logic [NUM_BITS-1 : 0] incr_by,
+    output logic [NUM_BITS-1 : 0] value
+    );
 
-// `define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
+    localparam HALF_BITS = NUM_BITS / 2;
 
-`ifndef MPF_CONF_SORT_READ_RESPONSES
-  `define MPF_CONF_SORT_READ_RESPONSES 1
-`endif
+    logic [HALF_BITS - 1 : 0] low_half;
+    logic carry;
 
-`ifndef MPF_CONF_PRESERVE_WRITE_MDATA
-  `define MPF_CONF_PRESERVE_WRITE_MDATA 1
-`endif
+    always_ff @(posedge clk)
+    begin
+        // First stage: add incr_by to low half and note a carry
+        { carry, low_half } <= low_half + HALF_BITS'(incr_by);
 
-`ifndef MPF_CONF_ENABLE_VTP
-  `define MPF_CONF_ENABLE_VTP 1
-`endif
+        // Second stage: pass on the low half and add the carry to the upper half
+        value[HALF_BITS-1 : 0] <= low_half;
+        value[NUM_BITS-1 : HALF_BITS] <= value[NUM_BITS-1 : HALF_BITS] + carry;
 
-// Software translation service
-//`define MPF_CONF_VTP_PT_MODE_SOFTWARE_SERVICE
+        if (reset)
+        begin
+            value <= 0;
+            low_half <= 0;
+        end
+    end
 
-`ifndef MPF_CONF_ENABLE_VC_MAP
-  `define MPF_CONF_ENABLE_VC_MAP 1
-`endif
+    // synthesis translate_off
+    always_ff @(posedge clk)
+    begin
+        if (! reset && |(incr_by[NUM_BITS-1 : HALF_BITS]))
+        begin
+            $fatal(2, "** ERROR ** %m: The upper half of incr_by is ignored (0x%h)!", incr_by);
+        end
+    end
+    // synthesis translate_on
 
-`ifndef MPF_CONF_ENFORCE_WR_ORDER
-  `define MPF_CONF_ENFORCE_WR_ORDER 1
-`endif
-
-`ifndef MPF_CONF_ENABLE_PARTIAL_WRITES
-  `define MPF_CONF_ENABLE_PARTIAL_WRITES 1
-`endif
-`ifndef MPF_CONF_PARTIAL_WRITE_MODE
-  `define MPF_CONF_PARTIAL_WRITE_MODE "BYTE_RANGE"
-`endif
+endmodule // counter_multicycle

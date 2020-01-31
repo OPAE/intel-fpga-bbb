@@ -33,6 +33,8 @@
 // by command line definitions.
 //
 
+// `define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
+
 `ifndef MPF_CONF_ENABLE_VTP
   `define MPF_CONF_ENABLE_VTP 1
 `endif

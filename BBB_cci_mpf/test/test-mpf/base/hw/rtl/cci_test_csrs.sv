@@ -46,6 +46,7 @@ module cci_test_csrs
     )
    (
     input  logic clk,
+    input  logic pClk,
 
     // Connection toward the QA platform.  Reset comes in here.
     cci_mpf_if.to_fiu fiu,
@@ -145,6 +146,38 @@ module cci_test_csrs
         c1Rx <= fiu.c1Rx;
     end
 
+    //
+    // Count cycles of pClk and AFU clk in order to compute clk frequency.
+    //
+
+    logic clk_cnt_enable;
+    logic [15:0] clk_cnt_pClk;
+    logic [15:0] clk_cnt_clk;
+
+    clock_counter counter_pClk
+       (
+        .clk,
+        .count_clk(pClk),
+        .sync_reset(reset),
+        .enable(clk_cnt_enable),
+        .count(clk_cnt_pClk)
+        );
+
+    clock_counter counter_clk
+       (
+        .clk,
+        .count_clk(clk),
+        .sync_reset(reset),
+        .enable(clk_cnt_enable),
+        .count(clk_cnt_clk)
+        );
+
+    // Stop counting before either counter overflows
+    always_ff @(posedge clk)
+    begin
+        clk_cnt_enable <= ~clk_cnt_pClk[14] && ~clk_cnt_clk[14];
+    end
+
 
     //
     // CSR reads
@@ -198,34 +231,13 @@ module cci_test_csrs
           // Standard CSRs available in all tests.
           //
 
-          // AFU frequency (MHz)
-          8: c2Tx.data <=
-`ifdef PLATFORM_PARAM_CCI_P_CLOCK_IS_DEFAULT
-                          ccip_cfg_pkg::PCLK_FREQ
-`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLK
-                          ccip_cfg_pkg::PCLK_FREQ
-`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLKDIV2
-                          ccip_cfg_pkg::PCLK_FREQ >> 1
-`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_PCLKDIV4
-                          ccip_cfg_pkg::PCLK_FREQ >> 2
-`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_UCLK_USR
-  `ifdef AFU_IMAGE_CLOCK_FREQUENCY_HIGH
-                          `AFU_IMAGE_CLOCK_FREQUENCY_HIGH
-  `else
-                          2  // uClk_usr unknown frequency
-  `endif
-`elsif PLATFORM_PARAM_CCI_P_CLOCK_IS_UCLK_USRDIV2
-  `ifdef AFU_IMAGE_CLOCK_FREQUENCY_LOW
-                          `AFU_IMAGE_CLOCK_FREQUENCY_LOW
-  `elsif AFU_IMAGE_CLOCK_FREQUENCY_HIGH
-                          `AFU_IMAGE_CLOCK_FREQUENCY_HIGH >> 1
-  `else
-                          1  // uClk_usrDiv2 unknown frequency
-  `endif
-`else
-                          0  // unknown frequency
-`endif
-                           ;
+          // AFU clock frequency:
+          //   [47:32] count of cycles in clk
+          //   [31:16] count of cycles in pClk
+          //   [15: 0] pClk frequency (MHz)
+          // The two counters are allowed to increment for the same amount of time
+          // in order to enable computation of clk's frequency.
+          8: c2Tx.data <= { 16'b0, clk_cnt_clk, clk_cnt_pClk, 16'(ccip_cfg_pkg::PCLK_FREQ) };
 
           // Cache read hits
           9: c2Tx.data <= ctr_rd_cache_hits;

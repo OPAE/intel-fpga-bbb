@@ -2,9 +2,11 @@
    "version": 1,
    "afu-image": {
       "power": 0,
+      "clock-frequency-high": "auto",
+      "clock-frequency-low": "auto",
       "afu-top-interface":
          {
-            "name": "ccip_std_afu"
+            "name": "ofs_plat_afu"
          },
       "accelerator-clusters":
          [

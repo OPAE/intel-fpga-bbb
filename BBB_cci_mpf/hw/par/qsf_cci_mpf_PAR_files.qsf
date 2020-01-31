@@ -35,12 +35,14 @@ set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-shims
 
 ## Primary MPF module that instantiates the desired shims
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci_mpf.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci_mpf_csrs.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci_mpf_null.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci_mpf_pipe_std.sv
 
 ## Map CCI wires to MPF's primary interface
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ccip_wires_to_mpf.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ccis_wires_to_mpf.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ofs_plat_ccip_if_to_mpf.sv
 
 ## Primitives used by MPF shims
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-prims/cci_mpf_prim_arb_rr.sv
