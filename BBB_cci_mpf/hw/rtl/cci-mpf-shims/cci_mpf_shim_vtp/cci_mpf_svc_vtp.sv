@@ -663,21 +663,21 @@ module cci_mpf_svc_vtp_multi_size_tlb
     begin
         if (reset)
         begin
-            events.vtp_out_event_4kb_hit <= 1'b0;
-            events.vtp_out_event_2mb_hit <= 1'b0;
+            events.vtp_tlb_events.hit_4kb <= 1'b0;
+            events.vtp_tlb_events.hit_2mb <= 1'b0;
 
-            events.vtp_out_event_4kb_miss <= 1'b0;
-            events.vtp_out_event_2mb_miss <= 1'b0;
+            events.vtp_tlb_events.miss_4kb <= 1'b0;
+            events.vtp_tlb_events.miss_2mb <= 1'b0;
         end
         else
         begin
-            events.vtp_out_event_4kb_hit <= tlb_if_4kb.lookupRspHit;
-            events.vtp_out_event_2mb_hit <= tlb_if_2mb.lookupRspHit;
+            events.vtp_tlb_events.hit_4kb <= tlb_if_4kb.lookupRspHit;
+            events.vtp_tlb_events.hit_2mb <= tlb_if_2mb.lookupRspHit;
 
             // Wait to record misses until the corresponding fill. Until the
             // fill we don't know whether it was a 4KB or a 2MB page miss.
-            events.vtp_out_event_4kb_miss <= tlb_if_4kb.fillEn;
-            events.vtp_out_event_2mb_miss <= tlb_if_2mb.fillEn;
+            events.vtp_tlb_events.miss_4kb <= tlb_if_4kb.fillEn;
+            events.vtp_tlb_events.miss_2mb <= tlb_if_2mb.fillEn;
         end
     end
 

@@ -550,19 +550,19 @@ module cci_mpf_shim_wro_filter_group
     // Events
     always_ff @(posedge clk)
     begin
-        events.wro_out_event_rr_conflict <=
+        events.wro_pipe_events.rr_conflict <=
             cci_mpf_c0TxIsValid(c0_afu_pipe[FILTER_PIPE_TEST].c0Tx) &&
             c0_enforce_order &&
             ! rd_filter_test_notPresent[0];
-        events.wro_out_event_rw_conflict <=
+        events.wro_pipe_events.rw_conflict <=
             cci_mpf_c0TxIsValid(c0_afu_pipe[FILTER_PIPE_TEST].c0Tx) &&
             c0_enforce_order &&
             ! wr_filter_test_notPresent[0];
-        events.wro_out_event_wr_conflict <=
+        events.wro_pipe_events.wr_conflict <=
             cci_mpf_c1TxIsValid(c1_afu_pipe[FILTER_PIPE_TEST].c1Tx) &&
             c1_enforce_order &&
             ! rd_filter_test_notPresent[1];
-        events.wro_out_event_ww_conflict <=
+        events.wro_pipe_events.ww_conflict <=
             cci_mpf_c1TxIsValid(c1_afu_pipe[FILTER_PIPE_TEST].c1Tx) &&
             c1_enforce_order &&
             ! wr_filter_test_notPresent[1];

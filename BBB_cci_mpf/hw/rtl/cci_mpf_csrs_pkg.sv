@@ -33,6 +33,7 @@
 //
 
 package cci_mpf_csrs_pkg;
+    import cci_mpf_if_pkg::*;
 
 // Include the enumerations describing CSR offsets shared with C here.
 // There is no `define protecting the header file from being included once
@@ -66,5 +67,51 @@ package cci_mpf_csrs_pkg;
         logic no_hw_page_walker;
         logic [1:0] reserved;
     } t_cci_mpf_vtp_csr_out_mode;
+
+    // VTP control (host to FPGA)
+    typedef struct packed {
+        t_cci_mpf_vtp_csr_in_mode in_mode;
+
+        // Page table base address (line address)
+        t_cci_clAddr page_table_base;
+        logic        page_table_base_valid;
+        // Invalidate the translation for one page
+        t_cci_clAddr inval_page;
+        logic        inval_page_valid;
+
+        // Physical address of the software page translation service
+        // request ring buffer.
+        t_cci_clAddr page_translation_buf_paddr;
+        logic page_translation_buf_paddr_valid;
+        // Page translation response from the software service. When
+        // page translation is handled by software, the address here is
+        // the physical address corresponding to a translation request
+        // for a virtual address.
+        t_cci_clAddr page_translation_rsp;
+        logic page_translation_rsp_valid;
+    } t_cci_mpf_vtp_ctrl;
+
+    // VTP TLB cache events
+    typedef struct packed {
+        logic hit_4kb;
+        logic miss_4kb;
+        logic hit_2mb;
+        logic miss_2mb;
+    } t_cci_mpf_vtp_tlb_events;
+
+    // VTP page table walker events
+    typedef struct packed {
+        logic busy;
+        logic failed_translation;
+        t_cci_clAddr last_vaddr;
+    } t_cci_mpf_vtp_pt_walk_events;
+
+    // WRO pipeline events
+    typedef struct packed {
+        logic rr_conflict;  // New read conflicts with old read
+        logic rw_conflict;  // New read conflicts with old write
+        logic wr_conflict;  // New write conflicts with old read
+        logic ww_conflict;  // New write conflicts with old write
+    } t_cci_mpf_wro_pipe_events;
 
 endpackage // cci_mpf_csrs_pkg

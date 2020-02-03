@@ -73,10 +73,10 @@ module cci_mpf_svc_vtp_pt_sw
         end
         else
         begin
-            if (csrs.vtp_in_page_translation_buf_paddr_valid)
+            if (csrs.vtp_ctrl.page_translation_buf_paddr_valid)
             begin
                 initialized <= 1'b1;
-                pt_req_buf_pa <= csrs.vtp_in_page_translation_buf_paddr;
+                pt_req_buf_pa <= csrs.vtp_ctrl.page_translation_buf_paddr;
             end
         end
     end
@@ -207,7 +207,7 @@ module cci_mpf_svc_vtp_pt_sw
 
         // Clear the counter on reset and when the request buffer address
         // changes.
-        if (reset || csrs.vtp_in_page_translation_buf_paddr_valid)
+        if (reset || csrs.vtp_ctrl.page_translation_buf_paddr_valid)
         begin
             req_ring_idx <= 6'b0;
         end
@@ -229,15 +229,15 @@ module cci_mpf_svc_vtp_pt_sw
 
     always_ff @(posedge clk)
     begin
-        rsp_valid <= csrs.vtp_in_page_translation_rsp_valid;
-        rsp_pa <= vtp4kbPageIdxFromPA(csrs.vtp_in_page_translation_rsp);
+        rsp_valid <= csrs.vtp_ctrl.page_translation_rsp_valid;
+        rsp_pa <= vtp4kbPageIdxFromPA(csrs.vtp_ctrl.page_translation_rsp);
 
         // Encode failed translation in bit 0
-        rsp_not_present <= csrs.vtp_in_page_translation_rsp[0] &&
-                           csrs.vtp_in_page_translation_rsp_valid;
+        rsp_not_present <= csrs.vtp_ctrl.page_translation_rsp[0] &&
+                           csrs.vtp_ctrl.page_translation_rsp_valid;
 
         // Encode page size in bit 1
-        rsp_is_big_page <= csrs.vtp_in_page_translation_rsp[1];
+        rsp_is_big_page <= csrs.vtp_ctrl.page_translation_rsp[1];
 
         if (reset)
         begin
@@ -261,19 +261,19 @@ module cci_mpf_svc_vtp_pt_sw
     // Statistics and events
     always_ff @(posedge clk)
     begin
-        events.vtp_out_event_pt_walk_busy <= req_not_empty;
-        events.vtp_out_event_failed_translation <= rsp_not_present && rsp_en;
+        events.vtp_pt_walk_events.busy <= req_not_empty;
+        events.vtp_pt_walk_events.failed_translation <= rsp_not_present && rsp_en;
 
         // The "last" request is the one currently waiting for a response at
         // the head of the request FIFO.
         if (req_not_empty)
         begin
-            events.vtp_out_pt_walk_last_vaddr <= { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+            events.vtp_pt_walk_events.last_vaddr <= { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
         end
 
         if (reset)
         begin
-            events.vtp_out_pt_walk_last_vaddr <= 0;
+            events.vtp_pt_walk_events.last_vaddr <= 0;
         end
     end
 

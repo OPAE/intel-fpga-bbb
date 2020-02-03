@@ -887,7 +887,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
     always_ff @(posedge clk)
     begin
-        lookup_rdy <= vtp_svc.lookupRdy && csrs.vtp_in_mode.enabled;
+        lookup_rdy <= vtp_svc.lookupRdy && csrs.vtp_ctrl.in_mode.enabled;
     end
 
     // Heap index manager
@@ -969,7 +969,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
             heap_entry_not_poisoned[allocIdx_q] <= 1'b1;
         end
 
-        if (reset || csrs.vtp_in_inval_page_valid)
+        if (reset || csrs.vtp_ctrl.inval_page_valid)
         begin
             heap_entry_not_poisoned <= CCI_MPF_SHIM_VTP_MAX_SVC_REQS'(0);
         end
@@ -1226,8 +1226,8 @@ module cci_mpf_shim_vtp_chan_l1_caches
     logic n_reset_tlb, n_reset_tlb_q;
     always @(posedge clk)
     begin
-        vtp_enabled <= csrs.vtp_in_mode.enabled;
-        n_reset_tlb <= ~csrs.vtp_in_mode.inval_translation_cache;
+        vtp_enabled <= csrs.vtp_ctrl.in_mode.enabled;
+        n_reset_tlb <= ~csrs.vtp_ctrl.in_mode.inval_translation_cache;
         n_reset_tlb_q <= n_reset_tlb;
 
         if (reset)
@@ -1403,14 +1403,14 @@ module cci_mpf_shim_vtp_chan_l1_caches
         // than TLB fill. It's ok to drop a normal fill request since the
         // address can just go through translation again.
         //
-        if (csrs.vtp_in_inval_page_valid)
+        if (csrs.vtp_ctrl.inval_page_valid)
         begin
             insert_addr_is_valid <= 1'b0;
-            insert_va <= vtp4kbPageIdxFromVA(csrs.vtp_in_inval_page);
+            insert_va <= vtp4kbPageIdxFromVA(csrs.vtp_ctrl.inval_page);
         end
 
-        wen_4kb <= en_insert_4kb || csrs.vtp_in_inval_page_valid;
-        wen_2mb <= en_insert_2mb || csrs.vtp_in_inval_page_valid;
+        wen_4kb <= en_insert_4kb || csrs.vtp_ctrl.inval_page_valid;
+        wen_2mb <= en_insert_2mb || csrs.vtp_ctrl.inval_page_valid;
 
         if (reset)
         begin

@@ -187,7 +187,7 @@ module cci_mpf_svc_vtp_tlb
 
     always @(posedge clk)
     begin
-        n_reset_tlb[1] <= ~csrs.vtp_in_mode.inval_translation_cache;
+        n_reset_tlb[1] <= ~csrs.vtp_ctrl.in_mode.inval_translation_cache;
         n_reset_tlb[0] <= n_reset_tlb[1];
 
         if (reset)
@@ -498,9 +498,9 @@ module cci_mpf_svc_vtp_tlb
 
     always_ff @(posedge clk)
     begin
-        hold_inval_page <= csrs.vtp_in_inval_page_valid || (hold_inval_page_cnt != 3'b0);
+        hold_inval_page <= csrs.vtp_ctrl.inval_page_valid || (hold_inval_page_cnt != 3'b0);
 
-        if (csrs.vtp_in_inval_page_valid)
+        if (csrs.vtp_ctrl.inval_page_valid)
         begin
             hold_inval_page_cnt <= 3'b111;
         end
@@ -528,7 +528,7 @@ module cci_mpf_svc_vtp_tlb
        (
         .clk,
         .reset,
-        .invalHistory(~n_reset_tlb[1] || csrs.vtp_in_inval_page_valid),
+        .invalHistory(~n_reset_tlb[1] || csrs.vtp_ctrl.inval_page_valid),
         .check_valid(fill_state == STATE_TLB_FILL_CHECK_HISTORY),
         .checkSet(fill_idx),
         .checkTag(fill_tag),
@@ -603,7 +603,7 @@ module cci_mpf_svc_vtp_tlb
         // back-to-back invalidate requests that would have to be solved if the
         // code here were sqaushing fills only to the invalidated line. Given
         // the latency of a fill it will be rare to lose any.
-        if (reset || csrs.vtp_in_inval_page_valid || hold_inval_page)
+        if (reset || csrs.vtp_ctrl.inval_page_valid || hold_inval_page)
         begin
             fill_state <= STATE_TLB_FILL_IDLE;
         end
@@ -677,11 +677,11 @@ module cci_mpf_svc_vtp_tlb
         // Invalidation requested by host?  Invalidation has higher priority
         // than TLB fill.
         //
-        if (csrs.vtp_in_inval_page_valid)
+        if (csrs.vtp_ctrl.inval_page_valid)
         begin
             tlb_wdata.valid <= 1'b0;
             tlb_waddr <=
-                t_tlb_idx'(tlbVAIdxFrom4K(vtp4kbPageIdxFromVA(csrs.vtp_in_inval_page)));
+                t_tlb_idx'(tlbVAIdxFrom4K(vtp4kbPageIdxFromVA(csrs.vtp_ctrl.inval_page)));
 
             for (int way = 0; way < NUM_TLB_SET_WAYS; way = way + 1)
             begin

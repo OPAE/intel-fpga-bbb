@@ -203,46 +203,46 @@ module cci_mpf_shim_csr
         if (csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_MODE))
         begin
-            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_in_mode'(c0_rx.data);
+            csrs.vtp_ctrl.in_mode <= t_cci_mpf_vtp_csr_in_mode'(c0_rx.data);
         end
         else
         begin
             // Invalidate page table held only one cycle
-            csrs.vtp_in_mode.inval_translation_cache <= 1'b0;
+            csrs.vtp_ctrl.in_mode.inval_translation_cache <= 1'b0;
         end
 
         if (csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_PAGE_TABLE_PADDR))
         begin
-            csrs.vtp_in_page_table_base <= t_cci_clAddr'(c0_rx.data);
-            csrs.vtp_in_page_table_base_valid <= 1'b1;
+            csrs.vtp_ctrl.page_table_base <= t_cci_clAddr'(c0_rx.data);
+            csrs.vtp_ctrl.page_table_base_valid <= 1'b1;
         end
 
         // Inval page held only one cycle
-        csrs.vtp_in_inval_page <= t_cci_clAddr'(c0_rx.data);
-        csrs.vtp_in_inval_page_valid <=
+        csrs.vtp_ctrl.inval_page <= t_cci_clAddr'(c0_rx.data);
+        csrs.vtp_ctrl.inval_page_valid <=
             csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR);
 
         // Page translation service ring buffer (held only one cycle)
-        csrs.vtp_in_page_translation_buf_paddr <= t_cci_clAddr'(c0_rx.data);
-        csrs.vtp_in_page_translation_buf_paddr_valid <=
+        csrs.vtp_ctrl.page_translation_buf_paddr <= t_cci_clAddr'(c0_rx.data);
+        csrs.vtp_ctrl.page_translation_buf_paddr_valid <=
             csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR);
 
         // Page translation response (held only one cycle)
-        csrs.vtp_in_page_translation_rsp <= t_cci_clAddr'(c0_rx.data);
-        csrs.vtp_in_page_translation_rsp_valid <=
+        csrs.vtp_ctrl.page_translation_rsp <= t_cci_clAddr'(c0_rx.data);
+        csrs.vtp_ctrl.page_translation_rsp_valid <=
             csrAddrMatches(c0_rx, CCI_MPF_VTP_CSR_BASE +
                                   CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP);
 
         if (reset)
         begin
-            csrs.vtp_in_mode <= t_cci_mpf_vtp_csr_in_mode'(0);
-            csrs.vtp_in_page_table_base_valid <= 1'b0;
-            csrs.vtp_in_inval_page_valid <= 1'b0;
-            csrs.vtp_in_page_translation_buf_paddr_valid <= 1'b0;
-            csrs.vtp_in_page_translation_rsp_valid <= 1'b0;
+            csrs.vtp_ctrl.in_mode <= t_cci_mpf_vtp_csr_in_mode'(0);
+            csrs.vtp_ctrl.page_table_base_valid <= 1'b0;
+            csrs.vtp_ctrl.inval_page_valid <= 1'b0;
+            csrs.vtp_ctrl.page_translation_buf_paddr_valid <= 1'b0;
+            csrs.vtp_ctrl.page_translation_rsp_valid <= 1'b0;
             csrs.vc_map_ctrl_valid <= 1'b0;
             csrs.latency_qos_ctrl_valid <= 1'b0;
             csrs.wro_ctrl_valid <= 1'b0;
@@ -379,7 +379,7 @@ module cci_mpf_shim_csr
                  (CCI_MPF_VTP_CSR_OFFSET + CCI_MPF_VTP_CSR_STAT_PT_WALK_LAST_VADDR) >> 3:
                     begin
                         // VTP last translated address
-                        c2_rsp.data <= events.vtp_out_pt_walk_last_vaddr;
+                        c2_rsp.data <= events.vtp_pt_walk_events.last_vaddr;
                         c2_rsp.mmioRdValid <= 1'b1;
                     end
 
@@ -701,19 +701,19 @@ module cci_mpf_shim_csr_events
     //
     // + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + + +
 
-    `MPF_CSR_STAT_ACCUM(VTP, 0, 4KB_TLB_NUM_HITS, vtp_4kb_hits, vtp_out_event_4kb_hit)
-    `MPF_CSR_STAT_ACCUM(VTP, 1, 4KB_TLB_NUM_MISSES, vtp_4kb_misses, vtp_out_event_4kb_miss)
-    `MPF_CSR_STAT_ACCUM(VTP, 2, 2MB_TLB_NUM_HITS, vtp_2mb_hits, vtp_out_event_2mb_hit)
-    `MPF_CSR_STAT_ACCUM(VTP, 3, 2MB_TLB_NUM_MISSES, vtp_2mb_misses, vtp_out_event_2mb_miss)
-    `MPF_CSR_STAT_ACCUM(VTP, 4, PT_WALK_BUSY_CYCLES, vtp_pt_walk_busy_cycles, vtp_out_event_pt_walk_busy)
-    `MPF_CSR_STAT_ACCUM(VTP, 5, FAILED_TRANSLATIONS, vtp_failed_translations, vtp_out_event_failed_translation)
+    `MPF_CSR_STAT_ACCUM(VTP, 0, 4KB_TLB_NUM_HITS, vtp_4kb_hits, vtp_tlb_events.hit_4kb)
+    `MPF_CSR_STAT_ACCUM(VTP, 1, 4KB_TLB_NUM_MISSES, vtp_4kb_misses, vtp_tlb_events.miss_4kb)
+    `MPF_CSR_STAT_ACCUM(VTP, 2, 2MB_TLB_NUM_HITS, vtp_2mb_hits, vtp_tlb_events.hit_2mb)
+    `MPF_CSR_STAT_ACCUM(VTP, 3, 2MB_TLB_NUM_MISSES, vtp_2mb_misses, vtp_tlb_events.miss_2mb)
+    `MPF_CSR_STAT_ACCUM(VTP, 4, PT_WALK_BUSY_CYCLES, vtp_pt_walk_busy_cycles, vtp_pt_walk_events.busy)
+    `MPF_CSR_STAT_ACCUM(VTP, 5, FAILED_TRANSLATIONS, vtp_failed_translations, vtp_pt_walk_events.failed_translation)
 
     `MPF_CSR_STAT_ACCUM(VC_MAP, 6, NUM_MAPPING_CHANGES, vc_map_mapping_changes, vc_map_out_event_mapping_changed)
 
-    `MPF_CSR_STAT_ACCUM(WRO,  7, RR_CONFLICT, wro_rr_conflicts, wro_out_event_rr_conflict)
-    `MPF_CSR_STAT_ACCUM(WRO,  8, RW_CONFLICT, wro_rw_conflicts, wro_out_event_rw_conflict)
-    `MPF_CSR_STAT_ACCUM(WRO,  9, WR_CONFLICT, wro_wr_conflicts, wro_out_event_wr_conflict)
-    `MPF_CSR_STAT_ACCUM(WRO, 10, WW_CONFLICT, wro_ww_conflicts, wro_out_event_ww_conflict)
+    `MPF_CSR_STAT_ACCUM(WRO,  7, RR_CONFLICT, wro_rr_conflicts, wro_pipe_events.rr_conflict)
+    `MPF_CSR_STAT_ACCUM(WRO,  8, RW_CONFLICT, wro_rw_conflicts, wro_pipe_events.rw_conflict)
+    `MPF_CSR_STAT_ACCUM(WRO,  9, WR_CONFLICT, wro_wr_conflicts, wro_pipe_events.wr_conflict)
+    `MPF_CSR_STAT_ACCUM(WRO, 10, WW_CONFLICT, wro_ww_conflicts, wro_pipe_events.ww_conflict)
 
     `MPF_CSR_STAT_ACCUM(PWRITE, 11, NUM_PWRITES, pwrite_num_pwrites, pwrite_out_event_pwrite)
 

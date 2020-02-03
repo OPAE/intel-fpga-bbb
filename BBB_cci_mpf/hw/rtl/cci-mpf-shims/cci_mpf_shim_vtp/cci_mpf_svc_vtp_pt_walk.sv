@@ -122,7 +122,7 @@ module cci_mpf_svc_vtp_pt_walk
 
     // Root address of the page table
     t_tlb_4kb_pa_page_idx page_table_root;
-    assign page_table_root = vtp4kbPageIdxFromPA(csrs.vtp_in_page_table_base);
+    assign page_table_root = vtp4kbPageIdxFromPA(csrs.vtp_ctrl.page_table_base);
 
     logic initialized;
     always_ff @(posedge clk)
@@ -133,7 +133,7 @@ module cci_mpf_svc_vtp_pt_walk
         end
         else
         begin
-            initialized <= csrs.vtp_in_page_table_base_valid;
+            initialized <= csrs.vtp_ctrl.page_table_base_valid;
         end
     end
 
@@ -709,7 +709,7 @@ module cci_mpf_svc_vtp_pt_walk
             rsp_is_cacheable <= 1'b1;
         end
 
-        if (reset || csrs.vtp_in_inval_page_valid)
+        if (reset || csrs.vtp_ctrl.inval_page_valid)
         begin
             rsp_is_cacheable <= 1'b0;
         end
@@ -736,9 +736,9 @@ module cci_mpf_svc_vtp_pt_walk
     // Statistics and events
     always_ff @(posedge clk)
     begin
-        events.vtp_out_event_pt_walk_busy <= ! state_is_walk_idle;
-        events.vtp_out_pt_walk_last_vaddr <= { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
-        events.vtp_out_event_failed_translation <= pt_walk.rspNotPresent && pt_walk.rspEn;
+        events.vtp_pt_walk_events.busy <= ! state_is_walk_idle;
+        events.vtp_pt_walk_events.last_vaddr <= { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+        events.vtp_pt_walk_events.failed_translation <= pt_walk.rspNotPresent && pt_walk.rspEn;
     end
 
 endmodule // cci_mpf_svc_vtp_pt_walk
@@ -874,12 +874,12 @@ module cci_mpf_svc_vtp_pt_walk_cache
     logic n_reset_tlb[0:1];
     always @(posedge clk)
     begin
-        n_reset_tlb[1] <= ~csrs.vtp_in_mode.inval_translation_cache &&
+        n_reset_tlb[1] <= ~csrs.vtp_ctrl.in_mode.inval_translation_cache &&
                           // Reset the page table cache when any page is
                           // invalidated.  The cost isn't that high and the
                           // protocol for invalidating a single entry is
                           // complicated.
-                          ~csrs.vtp_in_inval_page_valid;
+                          ~csrs.vtp_ctrl.inval_page_valid;
 
         n_reset_tlb[0] <= n_reset_tlb[1];
 
@@ -1185,8 +1185,8 @@ module cci_mpf_svc_vtp_pt_walk_reader
         // to emit a prefetch. Also clear it any cycle that an invalidation
         // is raised.
         if (pt_walk_reader.readDataEn ||
-            csrs.vtp_in_mode.inval_translation_cache ||
-            csrs.vtp_in_inval_page_valid)
+            csrs.vtp_ctrl.in_mode.inval_translation_cache ||
+            csrs.vtp_ctrl.inval_page_valid)
         begin
             pt_prefetch_addr_valid <= 1'b0;
         end
@@ -1388,8 +1388,8 @@ module cci_mpf_svc_vtp_pt_walk_reader
         end
 
         // Poison all outstanding requests on invalidation
-        if (csrs.vtp_in_mode.inval_translation_cache ||
-            csrs.vtp_in_inval_page_valid)
+        if (csrs.vtp_ctrl.in_mode.inval_translation_cache ||
+            csrs.vtp_ctrl.inval_page_valid)
         begin
             pref_state.valid <= t_pref_vec'(0);
             pref_state.not_poison <= t_pref_vec'(0);
