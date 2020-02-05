@@ -113,7 +113,7 @@ typedef enum
     CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP = 112,
 
     // Must be last
-    CCI_MPF_VTP_CSR_SIZE = 120
+    CCI_MPF_VTP_CSR_SIZE = 128
 }
 t_cci_mpf_vtp_csr_offsets;
 
@@ -131,7 +131,7 @@ typedef enum
     CCI_MPF_RSP_ORDER_CSR_ID_H = 16,
 
     // Must be last
-    CCI_MPF_RSP_ORDER_CSR_SIZE = 24
+    CCI_MPF_RSP_ORDER_CSR_SIZE = 32
 }
 t_cci_mpf_rsp_order_csr_offsets;
 
@@ -225,7 +225,7 @@ typedef enum
     CCI_MPF_VC_MAP_CSR_STAT_HISTORY = 40,
 
     // Must be last
-    CCI_MPF_VC_MAP_CSR_SIZE = 48
+    CCI_MPF_VC_MAP_CSR_SIZE = 64
 }
 t_cci_mpf_vc_map_csr_offsets;
 
