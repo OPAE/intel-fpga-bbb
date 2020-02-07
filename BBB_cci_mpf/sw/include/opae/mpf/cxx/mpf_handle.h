@@ -73,10 +73,16 @@ public:
    *
    * @param[in] mpf_flags Bitwise OR of flags to control MPF behavior,
    * such as debugging output.
+   *
+   * @param[in] mpf_feature_id Optional MPF feature ID, used for matching
+   * an instance of MPF when multiple MPF stacks are present in the same
+   * AFU. mpf_feature_id is expected only when MPF_FLAG_FEATURE_ID
+   * is set in mpf_flags.
    */
   static mpf_handle::ptr_t open(opae::fpga::types::handle::ptr_t handle,
                                 uint32_t csr_space, uint64_t csr_offset,
-                                uint32_t mpf_flags);
+                                uint32_t mpf_flags,
+                                uint32_t mpf_feature_id = 0);
 
   /** Close an MPF connection (if opened)
    *

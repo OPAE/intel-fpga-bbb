@@ -32,12 +32,13 @@
 #include <string.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <stdarg.h>
 
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
 
-static void _mpf_find_features(_mpf_handle_p _mpf_handle);
+static void _mpf_find_features(_mpf_handle_p _mpf_handle, bool match_feature_id);
 
 
 fpga_result __MPF_API__ mpfConnect(
@@ -45,11 +46,21 @@ fpga_result __MPF_API__ mpfConnect(
     uint32_t mmio_num,
     uint64_t mmio_offset,
     mpf_handle_t *mpf_handle,
-    uint32_t mpf_flags
+    uint32_t mpf_flags,
+    ...
 )
 {
     fpga_result r;
     _mpf_handle_p _mpf_handle;
+    uint32_t feature_id = 0;
+
+    if (mpf_flags & MPF_FLAG_FEATURE_ID)
+    {
+        va_list arg;
+        va_start(arg, mpf_flags);
+        feature_id = va_arg(arg, uint32_t);
+        va_end(arg);
+    }
 
     _mpf_handle = malloc(sizeof(struct _mpf_handle_t));
     if (NULL == _mpf_handle)
@@ -62,6 +73,7 @@ fpga_result __MPF_API__ mpfConnect(
     _mpf_handle->handle = handle;
     _mpf_handle->mmio_num = mmio_num;
     _mpf_handle->mmio_offset = mmio_offset;
+    _mpf_handle->feature_id = feature_id;
     _mpf_handle->dbg_mode = (0 != (mpf_flags & MPF_FLAG_DEBUG));
 
     // Try to map MMIO space. If that fails (e.g. when using ASE) we
@@ -89,7 +101,7 @@ fpga_result __MPF_API__ mpfConnect(
     // set handle return value
     *mpf_handle = (void *)_mpf_handle;
 
-    _mpf_find_features(_mpf_handle);
+    _mpf_find_features(_mpf_handle, mpf_flags & MPF_FLAG_FEATURE_ID);
 
     // Initialize VTP, even if no VTP hardware is present. Software may still
     // use VTP to manage a collection of virtual to physical page translations.
@@ -202,11 +214,21 @@ static uint64_t _mpf_feature_next(
     return (dfh >> 16) & 0xffffff;
 }
 
+// Extract feature ID from DFH
+static uint32_t _mpf_feature_id(
+    uint64_t dfh
+)
+{
+    return (dfh & 0xfff);
+}
+
 //
-// Walk the feature chain and discover all MPF features.
+// Walk the feature chain and discover all MPF features. If match_feature_id is
+// true then match only MPF features with the feature_id stored in _mpf_handle.
 //
 static void _mpf_find_features(
-    _mpf_handle_p _mpf_handle
+    _mpf_handle_p _mpf_handle,
+    bool match_feature_id
 )
 {
     uint64_t offset = _mpf_handle->mmio_offset;
@@ -225,7 +247,10 @@ static void _mpf_find_features(
         fpgaReadMMIO64(_mpf_handle->handle, _mpf_handle->mmio_num, offset + 16,
                        &feature_uuid[1]);
 
-        if (_mpf_feature_is_bbb(dfh))
+        uint32_t feature_id = _mpf_feature_id(dfh);
+
+        if (_mpf_feature_is_bbb(dfh) &&
+            (!match_feature_id || (feature_id == _mpf_handle->feature_id)))
         {
             // Look for MPF features
             for (int i = 0; i < CCI_MPF_SHIM_LAST_IDX; i++)
@@ -238,8 +263,9 @@ static void _mpf_find_features(
 
                     if (_mpf_handle->dbg_mode)
                     {
-                        MPF_FPGA_MSG("Found MPF shim UUID [0x%016" PRIx64 ", 0x%016" PRIx64 "] (%s) at offset %" PRId64,
-                                     feature_uuid[0], feature_uuid[1], mpf_shim_info[i].name, offset);
+                        MPF_FPGA_MSG("Found MPF shim UUID [0x%016" PRIx64 ", 0x%016" PRIx64 "] fid %d (%s) at offset %" PRId64,
+                                     feature_uuid[0], feature_uuid[1], feature_id,
+                                     mpf_shim_info[i].name, offset);
                     }
                 }
             }

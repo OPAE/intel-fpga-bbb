@@ -50,23 +50,28 @@ extern "C" {
  * is enabled either by passing MPF_FLAG_DEBUG to mpf_flags or by defining
  * an environment variable at run time named MPF_ENABLE_DEBUG.
  *
- * @param[in]  handle       Handle returned by fpgaOpen().
- * @param[in]  mmio_num     Number of MMIO space to access.
- * @param[in]  mmio_offset  Byte offset in MMIO space at which scanning for MPF
- *                          features should begin. This is typically 0.
- * @param[out] mpf_handle   Pointer to preallocated memory into which MPF
- *                          will generate a handle describing the instantiated
- *                          MPF shims.
- * @param[in] mpf_flags     Bitwise OR of flags to control MPF behavior, such as debugging
- *                          output.
- * @returns                 FPGA_OK on success.
+ * @param[in]  handle        Handle returned by fpgaOpen().
+ * @param[in]  mmio_num      Number of MMIO space to access.
+ * @param[in]  mmio_offset   Byte offset in MMIO space at which scanning for MPF
+ *                           features should begin. This is typically 0.
+ * @param[out] mpf_handle    Pointer to preallocated memory into which MPF
+ *                           will generate a handle describing the instantiated
+ *                           MPF shims.
+ * @param[in] mpf_flags      Bitwise OR of flags to control MPF behavior, such as debugging
+ *                           output.
+ * @param[in] mpf_feature_id Optional MPF feature ID, used for matching an instance
+ *                           of MPF when multiple MPF stacks are present in the same
+ *                           AFU. mpf_feature_id is expected only when MPF_FLAG_FEATURE_ID
+ *                           is set in mpf_flags.
+ * @returns                  FPGA_OK on success.
  */
 fpga_result __MPF_API__ mpfConnect(
     fpga_handle handle,
     uint32_t mmio_num,
     uint64_t mmio_offset,
     mpf_handle_t *mpf_handle,
-    uint32_t mpf_flags
+    uint32_t mpf_flags,
+    ...
 );
 
 

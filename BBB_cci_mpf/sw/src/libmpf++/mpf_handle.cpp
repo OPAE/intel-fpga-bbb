@@ -46,11 +46,13 @@ mpf_handle::~mpf_handle() {
 
 mpf_handle::ptr_t mpf_handle::open(handle::ptr_t handle,
                                    uint32_t csr_space, uint64_t csr_offset,
-                                   uint32_t mpf_flags) {
+                                   uint32_t mpf_flags,
+                                   uint32_t mpf_feature_id) {
   mpf_handle_t c_handle = nullptr;
   ptr_t p;
 
-  auto res = mpfConnect(*handle, csr_space, csr_offset, &c_handle, mpf_flags);
+  auto res = mpfConnect(*handle, csr_space, csr_offset, &c_handle,
+                        mpf_flags, mpf_feature_id);
   ASSERT_FPGA_OK(res);
   p.reset(new mpf_handle(c_handle));
 

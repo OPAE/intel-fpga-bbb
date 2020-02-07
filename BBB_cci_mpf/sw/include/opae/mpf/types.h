@@ -52,7 +52,8 @@ typedef void* mpf_handle_t;
 enum mpf_flags_t
 {
     MPF_FLAG_NONE = 0,
-    MPF_FLAG_DEBUG = 1
+    MPF_FLAG_DEBUG = 1,
+    MPF_FLAG_FEATURE_ID = 2
 };
 
 // Size of a cache line in CCI
