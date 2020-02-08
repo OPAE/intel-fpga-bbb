@@ -633,16 +633,6 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     buf_va_end = (char *)buf_va_start + buf_size;
     if (FPGA_OK != r) return r;
 
-    // Was the buffer allocated by MPF? If so, deallocate it.
-    if (flags & MPF_VTP_PT_FLAG_ALLOC)
-    {
-        if (_mpf_handle->dbg_mode)
-        {
-            MPF_FPGA_MSG("unmapping buffer VA %p, size 0x%" PRIx64, buf_va_start, buf_size);
-        }
-        mpfOsUnmapMemory(buf_va_start, buf_size);
-    }
-
     // Loop through the mapped virtual pages until the end of the region
     // is reached or there is an error.
     while (true)
@@ -654,7 +644,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
 
         mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
         r = mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
-                                      &pa, &wsid, &size, &flags);
+                                      &pa, &wsid, &size, NULL);
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
         if (FPGA_OK != r)
         {
@@ -662,6 +652,8 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
             {
                 MPF_FPGA_MSG("error unmapping VA %p", va);
             }
+
+            r = FPGA_NO_MEMORY;
             break;
         }
 
@@ -675,7 +667,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         size_t page_bytes = mpfPageSizeEnumToBytes(size);
 
         r = mpfVtpInvalHWVAMapping(_mpf_handle, va);
-        if (FPGA_OK != r) return r;
+        if (FPGA_OK != r) break;
 
         // If the kernel deallocation fails just give up.  Something bad
         // is bound to happen.
@@ -691,12 +683,27 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
             if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
             mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
 
-            return FPGA_OK;
+            r = FPGA_OK;
+            break;
         }
     }
 
-    // Failure in the deallocation loop.
-    return FPGA_NO_MEMORY;
+    // Was the buffer allocated by MPF? If so, deallocate it.
+    if (flags & MPF_VTP_PT_FLAG_ALLOC)
+    {
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("unmapping buffer VA %p, size 0x%" PRIx64, buf_va_start, buf_size);
+        }
+        mpfOsUnmapMemory(buf_va_start, buf_size);
+    }
+
+    // Pin on demand mode doesn't store preallocated regions. Just ignore
+    // errors when there is no record of the underlying buffer.
+    if ((r == FPGA_NO_MEMORY) && mpfVtpPinOnDemandMode(_mpf_handle))
+        return FPGA_OK;
+
+    return r;
 }
 
 
@@ -741,7 +748,12 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
     mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
     uint32_t pt_flags;
 
-    mpfVtpMonitorWaitWhenBusy(_mpf_handle, true);
+    if ((mode != MPF_VTP_PIN_MODE_LOOKUP_ONLY) || _mpf_handle->vtp.munmap_monitor)
+    {
+        // Auto pinning on reference is enabled. Track the MMU monitor service
+        // so that cached translations are invalidated when pages are unmapped.
+        mpfVtpMonitorWaitWhenBusy(_mpf_handle, true);
+    }
     mpfVtpPtLockMutex(pt);
 
     r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, ioaddr, page_size, &pt_flags);
