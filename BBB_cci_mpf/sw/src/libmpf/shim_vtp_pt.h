@@ -141,6 +141,7 @@ typedef struct
     mpf_vtp_pt_node* prev_find_term_node;
     mpf_vtp_pt_vaddr prev_va;
     uint32_t prev_depth;
+    uint32_t prev_idx;
 
     // Is there a harware page table walker? If yes, the page table must be
     // pinned.
@@ -353,6 +354,39 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     bool set_in_use,
     mpf_vtp_pt_paddr *pa,
     mpf_vtp_page_size *size,
+    uint32_t *flags
+);
+
+
+/**
+ * Return an extended vector of VA to PA translations for a virtually
+ * contiguous region, continuing from the most recent result from
+ * mpfVtpPtTranslateVAtoPA(). Results from the same node in the page table
+ * are returned, up to max_pages. Anywhere from 0 to max_pages may be
+ * returned.
+ *
+ * The page table MUTEX must be held from before the call to
+ * mpfVtpPtTranslateVAtoPA() until after the call to mpfVtpPtExtendVecVAtoPA()
+ * returns in order to ensure that the cached page table node pointer and
+ * index remain consistent.
+ *
+ * @param[in]  pt          Page table.
+ * @param[in]  max_pages   The maximum number of virtually contiguous pages
+ *                         that may be returned.
+ * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE for each returned
+ *                         page in the page table, indicating that the
+ *                         translation has been sent to the FPGA.
+ * @param[out] pa          Vector for storing PAs corresponding to VA. The
+ *                         vector must have at least max_pages entries.
+ * @param[out] flags       Page flags vector, one per pa entry. (Ignored if
+ *                         NULL.)
+ * @returns                Number of page translations stored in pa/flags.
+ */
+int mpfVtpPtExtendVecVAtoPA(
+    mpf_vtp_pt* pt,
+    int max_pages,
+    bool set_in_use,
+    mpf_vtp_pt_paddr *pa,
     uint32_t *flags
 );
 

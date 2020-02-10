@@ -188,6 +188,64 @@ mpf_vtp_pin_mode;
 
 
 /**
+ * Similar to mpfVtpPinAndGetIOAddress() except that ioaddr and flags are
+ * pointers to vectors. The function may return the IO addresses and flags
+ * of multiple virtually contiguous pages. Returning a vector may be
+ * valuable in performance critical software loops that are requesting
+ * translations of small pages in sequence.
+ *
+ * On input, num_pages sets the limit to the number of translations that
+ * may be returned in ioaddr and flags. The function may return fewer. If
+ * num_pages is NULL, one result is returned. On output, num_pages is
+ * updated with the actual number of page translations returned.
+ *
+ * The function works only with addresses allocated by VTP.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  mode        Set the behavior when the page isn't already pinned.
+ * @param[in]  buf_addr    Virtual address to translate. The address does not
+ *                         have to be page aligned. Low address bits will
+ *                         be ignored.
+ * @param[inout] num_pages Maximum number of virtually contiguous pages for
+ *                         which translation is returned. Both ioaddr and flags
+ *                         (when flags isn't NULL) must point to vectors with at
+ *                         least num_pages entries. The actual number of page
+ *                         translations in the returned ioaddr vector is stored
+ *                         in num_pages on return. Passing NULL in num_pages is
+ *                         equivalent to passing a pointer to 1.
+ * @param[out] ioaddr      Vector of corresponding physical addresss (IOVA). The
+ *                         first entry is the start of the page corresponding to
+ *                         buf_addr, even when it does not point to the page start.
+ *                         Subsequent vector entries are the IO addresses of
+ *                         virtually contiguous pages. Up to num_pages may be
+ *                         returned. The actual number of pages is returned in
+ *                         num_pages.
+ * @param[out] page_size   Size of the pinned pages. The enumeration values
+ *                         are log2(page bytes). All pages returned in the ioaddr
+ *                         vector are the same size.
+ * @param[inout] flags     Flags passed to fpgaPrepareBuffer(). Assumed to be
+ *                         0 if flags is NULL. When not null, flags should point
+ *                         to a vector the same size as the ioaddr vector. Only
+ *                         the first entry is consumed as an input. The other entries
+ *                         may be passed in uninitialized. On return, entries in
+ *                         the flags vector correspond to pages in ioaddr.
+ *                         FPGA_BUF_READ_ONLY is set when a page is pinned
+ *                         in read-only mode. Some input flags make no sense
+ *                         here and are ignored (e.g. FPGA_BUF_PREALLOCATED).
+ * @returns                FPGA_OK on success.
+ */
+fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
+    mpf_handle_t mpf_handle,
+    mpf_vtp_pin_mode mode,
+    void* buf_addr,
+    int* num_pages,
+    uint64_t* ioaddr,
+    mpf_vtp_page_size* page_size,
+    int* flags
+);
+
+
+/**
  * Return the IOVA associated with a virtual address.
  *
  * The function works only with addresses allocated by VTP.
@@ -209,14 +267,18 @@ mpf_vtp_pin_mode;
  *                         here and are ignored (e.g. FPGA_BUF_PREALLOCATED).
  * @returns                FPGA_OK on success.
  */
-fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
+static inline fpga_result mpfVtpPinAndGetIOAddress(
     mpf_handle_t mpf_handle,
     mpf_vtp_pin_mode mode,
     void* buf_addr,
     uint64_t* ioaddr,
     mpf_vtp_page_size* page_size,
     int* flags
-);
+)
+{
+    return mpfVtpPinAndGetIOAddressVec(mpf_handle, mode, buf_addr, NULL,
+                                       ioaddr, page_size, flags);
+}
 
 
 /**

@@ -268,7 +268,7 @@ static fpga_result vtpAllocBuffer(
 
 
 // Convert PT flags read-only to OPAE standard flag.
-static int vtpReportReadOnly(
+static inline int vtpReportReadOnly(
     uint32_t pt_flags
 )
 {
@@ -734,10 +734,11 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
 }
 
 
-fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
+fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
     mpf_handle_t mpf_handle,
     mpf_vtp_pin_mode mode,
     void* buf_addr,
+    int* num_pages,
     uint64_t* ioaddr,
     mpf_vtp_page_size* page_size,
     int* flags
@@ -747,6 +748,8 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
     mpf_vtp_pt* pt = _mpf_handle->vtp.pt;
     uint32_t pt_flags;
+
+    if (!ioaddr || !page_size) return FPGA_INVALID_PARAM;
 
     if ((mode != MPF_VTP_PIN_MODE_LOOKUP_ONLY) || _mpf_handle->vtp.munmap_monitor)
     {
@@ -759,18 +762,42 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddress(
     r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, ioaddr, page_size, &pt_flags);
     if (FPGA_OK == r)
     {
-        // Already mapped
-        mpfVtpPtUnlockMutex(pt);
-
-        if (NULL != flags)
+        // Already mapped. Should more virtually contiguous translations
+        // be returned at the same time?
+        if (num_pages && (*num_pages > 1))
         {
-            *flags = vtpReportReadOnly(pt_flags);
+            assert(*num_pages <= 512);
+
+            uint32_t pt_flags_vec[512];
+            pt_flags_vec[0] = pt_flags;
+
+            // Get some more pages, storing the total number returned in
+            // *num_pages. Entry 0 of ioaddr has already been set.
+            *num_pages = 1 + mpfVtpPtExtendVecVAtoPA(pt, *num_pages - 1, true,
+                                                     &ioaddr[1],
+                                                     &pt_flags_vec[1]);
+
+            if (flags)
+            {
+                for (int i = 0; i < *num_pages; i += 1)
+                {
+                    flags[i] = vtpReportReadOnly(pt_flags_vec[i]);
+                }
+            }
         }
+        else if (flags)
+        {
+            flags[0] = vtpReportReadOnly(pt_flags);
+        }
+
+        mpfVtpPtUnlockMutex(pt);
 
         return FPGA_OK;
     }
 
-    // Need to pin the memory.
+    // Need to pin the memory. At most one translation will be returned.
+    if (num_pages) *num_pages = 1;
+
     if (MPF_VTP_PIN_MODE_LOOKUP_ONLY == mode) return r;
 
     // What size is the underlying physical page? As an optimization, if

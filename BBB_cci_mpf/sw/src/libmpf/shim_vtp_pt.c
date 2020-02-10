@@ -485,10 +485,10 @@ static inline fpga_result findTerminalNodeAndIndex(
     // cache will often hit since virtually contiguous translations are
     // likely to be on the same node.
     //
-    uint32_t depth = pt->prev_depth;
+    uint32_t depth = pt->prev_depth + 1;
     mpf_vtp_pt_node* node = pt->prev_find_term_node;
     uint64_t mask = addrMaskFromPtDepth(pt->prev_depth);
-    if (! pt->prev_find_term_node ||
+    if (! node ||
         // Previous VA and current one's bits must match in the node index portion
         (0 != (mask & ((uint64_t)pt->prev_va ^ (uint64_t)va))))
     {
@@ -522,9 +522,10 @@ static inline fpga_result findTerminalNodeAndIndex(
             *node_p = node;
             *idx_p = idx;
 
-            pt->prev_depth = depth + 1;
+            pt->prev_depth = depth;
             pt->prev_va = va;
             pt->prev_find_term_node = node;
+            pt->prev_idx = idx;
 
             return FPGA_OK;
         }
@@ -1095,6 +1096,50 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     }
 
     return FPGA_OK;
+}
+
+
+int mpfVtpPtExtendVecVAtoPA(
+    mpf_vtp_pt* pt,
+    int max_pages,
+    bool set_in_use,
+    mpf_vtp_pt_paddr *pa,
+    uint32_t *flags
+)
+{
+    // Caller must lock the mutex
+    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
+
+    mpf_vtp_pt_node* node = pt->prev_find_term_node;
+    uint64_t idx = pt->prev_idx;
+
+    // No cached result or pages are larger than 2MB?
+    if (! node || (pt->prev_depth > 1)) return 0;
+
+    //
+    // Return pages as long as:
+    //  - No more than max_pages are returned
+    //  - There are translations left in the current 512 entry page table node
+    //
+    int page_cnt = 0;
+    while ((page_cnt < max_pages) && (++idx < 512))
+    {
+        // Stop as soon as an entry is found with no translation
+        if (! nodeEntryExists(node, idx) || ! nodeEntryIsTerminal(node, idx))
+        {
+            break;
+        }
+
+        *pa++ = nodeGetTranslatedAddr(node, idx);
+        if (flags)
+        {
+            *flags++ = nodeGetTranslatedAddrFlags(node, idx);
+        }
+
+        page_cnt += 1;
+    }
+
+    return page_cnt;
 }
 
 
