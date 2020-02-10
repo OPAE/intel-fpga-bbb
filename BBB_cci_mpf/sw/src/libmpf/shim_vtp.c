@@ -41,7 +41,11 @@
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
-static const size_t CCI_MPF_VTP_LARGE_PAGE_THRESHOLD = (128*1024);
+// Try for 1GB pages for requests above 75% of the page
+static const size_t CCI_MPF_VTP_1GB_PAGE_THRESHOLD = 805306368;
+// The threshold for using 2MB pages is lower since the performance gain
+// is more significant.
+static const size_t CCI_MPF_VTP_2MB_PAGE_THRESHOLD = (128*1024);
 
 
 // ========================================================================
@@ -88,6 +92,7 @@ static fpga_result vtpPinRegion(
 )
 {
     fpga_result r;
+    const size_t page_mask_1gb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_1GB) - 1;
     const size_t page_mask_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB) - 1;
     const bool preallocated = (pt_flags & MPF_VTP_PT_FLAG_PREALLOC);
 
@@ -116,10 +121,21 @@ static fpga_result vtpPinRegion(
         }
 
         // Detect huge pages
-        if (0 == ((size_t)page & page_mask_2mb))
+        if ((0 == ((size_t)page & page_mask_2mb)) &&
+            (_mpf_handle->vtp.max_physical_page_size >= MPF_VTP_PAGE_2MB))
         {
             r = mpfOsGetPageSize(page, &this_page_size);
             if (FPGA_OK != r) goto fail;
+
+            // If the page is 1GB then the request has to be aligned
+            // to the start of the page and VTP has to be willing to
+            // manage 1GB pages. If not, treat it as a 2MB page.
+            if ((this_page_size >= MPF_VTP_PAGE_1GB) &&
+                ((0 != ((size_t)page & page_mask_1gb)) ||
+                 (_mpf_handle->vtp.max_physical_page_size < MPF_VTP_PAGE_1GB)))
+            {
+                this_page_size = MPF_VTP_PAGE_2MB;
+            }
         }
         else
         {
@@ -200,7 +216,7 @@ static fpga_result vtpPreallocBuffer(
 
     uint8_t* page = *buf_addr;
 
-    // If the first page is 2MB then ensure the buffer start is aligned to it.
+    // Align buffer start to the page size
     mpf_vtp_page_size this_page_size;
     r = mpfOsGetPageSize(*buf_addr, &this_page_size);
     size_t this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
@@ -238,7 +254,12 @@ static fpga_result vtpAllocBuffer(
     mpf_vtp_page_size page_size = MPF_VTP_PAGE_4KB;
 
     // Is the allocation request large enough for a huge page?
-    if ((len > CCI_MPF_VTP_LARGE_PAGE_THRESHOLD) &&
+    if ((len > CCI_MPF_VTP_1GB_PAGE_THRESHOLD) &&
+        (MPF_VTP_PAGE_1GB <= _mpf_handle->vtp.max_physical_page_size))
+    {
+        page_size = MPF_VTP_PAGE_1GB;
+    }
+    else if ((len > CCI_MPF_VTP_2MB_PAGE_THRESHOLD) &&
         (MPF_VTP_PAGE_2MB <= _mpf_handle->vtp.max_physical_page_size))
     {
         page_size = MPF_VTP_PAGE_2MB;
@@ -336,7 +357,7 @@ fpga_result mpfVtpPinAndInsertPage(
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("FAILED allocating %s page VA %p, status %d",
-                         (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"),
+                         mpfVtpPageSizeToString(page_size),
                          alloc_va, r);
         }
 
@@ -349,7 +370,7 @@ fpga_result mpfVtpPinAndInsertPage(
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("FAILED allocating %s page VA %p -- at %p instead of requested address",
-                         (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"),
+                         mpfVtpPageSizeToString(page_size),
                          alloc_va, va);
         }
 
@@ -375,7 +396,7 @@ fpga_result mpfVtpPinAndInsertPage(
     if (_mpf_handle->dbg_mode)
     {
         MPF_FPGA_MSG("allocate %s page VA %p, PA 0x%" PRIx64 ", wsid 0x%" PRIx64,
-                     (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"),
+                     mpfVtpPageSizeToString(page_size),
                      alloc_va, alloc_pa, wsid);
     }
 
@@ -435,7 +456,7 @@ fpga_result mpfVtpInit(
                           "not supported.  Using compatibility mode."));
     }
 
-    _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
+    _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_1GB;
 
     // Initialize the page table
     r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
@@ -444,6 +465,9 @@ fpga_result mpfVtpInit(
     if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
     {
         _mpf_handle->vtp.is_hw_vtp_available = true;
+
+        // VTP hardware can't deal with 1GB pages yet
+        _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
 
         // Reset the HW TLB
         r = mpfVtpInvalHWTLB(_mpf_handle);
@@ -537,6 +561,30 @@ fpga_result vtpInvalHWVAMapping(
 //
 // ========================================================================
 
+
+__MPF_API__ const char* mpfVtpPageSizeToString(
+    mpf_vtp_page_size page_size
+)
+{
+    const char* s = NULL;
+
+    switch (page_size)
+    {
+      case MPF_VTP_PAGE_4KB:
+        s = "4KB";
+        break;
+      case MPF_VTP_PAGE_2MB:
+        s = "2MB";
+        break;
+      case MPF_VTP_PAGE_1GB:
+        s = "1GB";
+        break;
+      default:
+        s = "INVALID";
+    }
+
+    return s;
+}
 
 bool __MPF_API__ mpfVtpIsAvailable(
     mpf_handle_t mpf_handle
@@ -660,7 +708,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("release %s page VA %p, PA 0x%" PRIx64 ", wsid 0x%" PRIx64,
-                         (size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"),
+                         mpfVtpPageSizeToString(size),
                          va, pa, wsid);
         }
 
@@ -823,7 +871,7 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("VTP kernel says page at VA %p is on a %s page", buf_addr,
-                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                         mpfVtpPageSizeToString(*page_size));
         }
     }
 
@@ -834,7 +882,7 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
     if (_mpf_handle->dbg_mode)
     {
         MPF_FPGA_MSG("VTP pinning VA %p on a %s page", buf_addr,
-                     (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                     mpfVtpPageSizeToString(*page_size));
     }
 
     if (NULL != flags)
@@ -854,7 +902,7 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
         {
             MPF_FPGA_MSG("VTP retrying pinning VA %p on a %s page as READ ONLY",
                          buf_addr,
-                         (*page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                         mpfVtpPageSizeToString(*page_size));
         }
 
         if (NULL != flags)
@@ -908,7 +956,7 @@ fpga_result __MPF_API__ mpfVtpSetMaxPhysPageSize(
 {
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
 
-    if (max_psize > MPF_VTP_PAGE_2MB) return FPGA_INVALID_PARAM;
+    if (max_psize > MPF_VTP_PAGE_1GB) return FPGA_INVALID_PARAM;
 
     _mpf_handle->vtp.max_physical_page_size = max_psize;
     return FPGA_OK;

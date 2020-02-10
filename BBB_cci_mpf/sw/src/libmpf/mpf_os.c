@@ -58,10 +58,18 @@
 
 #include <safe_string/safe_string.h>
 
+
 // MAP_HUGE_SHIFT is defined since Linux 3.8
 #ifndef MAP_HUGE_SHIFT
 #define MAP_HUGE_SHIFT 26
 #endif
+
+#define MAP_1G_HUGEPAGE	(0x1e << MAP_HUGE_SHIFT) /* 2 ^ 0x1e = 1G */
+
+#define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS)
+#define FLAGS_2M (FLAGS_4K | MAP_HUGETLB)
+#define FLAGS_1G (FLAGS_2M | MAP_1G_HUGEPAGE)
+
 
 void mpfOsMemoryBarrier(void)
 {
@@ -201,10 +209,7 @@ fpga_result mpfOsMapMemory(
     void** buffer
 )
 {
-    num_bytes = roundUpToPages(num_bytes, *page_size);
-    size_t page_bytes = mpfPageSizeEnumToBytes(*page_size);
-
-    if ((NULL == buffer) || (0 == num_bytes))
+    if ((NULL == buffer) || (0 == num_bytes) || (NULL == page_size))
     {
         return FPGA_INVALID_PARAM;
     }
@@ -212,59 +217,40 @@ fpga_result mpfOsMapMemory(
 #ifndef _WIN32
     // POSIX
 
-    // Compute the mmap flags
-    const int base_flags = (MAP_PRIVATE | MAP_ANONYMOUS);
-    int flags = base_flags;
-    if (*page_size > MPF_VTP_PAGE_4KB)
+    // Try to allocate the buffer using the requested page size but use smaller
+    // pages if necessary.
+    if (*page_size > MPF_VTP_PAGE_1GB)
     {
-        flags |= MAP_HUGETLB;
-
-        // Indicate the desired size.  The page size enumeration already uses
-        // log2 encoding, which mmap expects.
-        flags |= (*page_size << MAP_HUGE_SHIFT);
+        *page_size = MPF_VTP_PAGE_1GB;
     }
 
-    *buffer = mmap(NULL, num_bytes, (PROT_READ | PROT_WRITE), flags, 0, 0);
-
-    if ((*buffer == MAP_FAILED) && (*page_size > MPF_VTP_PAGE_4KB))
+    while (true)
     {
-        // Failed to allocate at the requested page size.  Retry, but
-        // don't demand huge pages.
-        assert(MPF_VTP_PAGE_2MB == *page_size);
+        int flags;
+        if (*page_size == MPF_VTP_PAGE_1GB)
+            flags = FLAGS_1G;
+        else if (*page_size == MPF_VTP_PAGE_2MB)
+            flags = FLAGS_2M;
+        else
+            flags = FLAGS_4K;
 
-        // Indicate that the preallocated 2MB region wasn't used.  The
-        // response doesn't mean that the underlying pages are necessarily
-        // only 4KB, but they may be.
-        *page_size = MPF_VTP_PAGE_4KB;
+        *buffer = mmap(NULL, roundUpToPages(num_bytes, *page_size),
+                       (PROT_READ | PROT_WRITE), flags, 0, 0);
 
-        // Without requesting 2MB pages, mmap won't guarantee alignment.
-        // Pad the request so that we will handle alignment here.
-        size_t alloc_bytes = num_bytes + page_bytes;
-        void* base_buffer = mmap(NULL, alloc_bytes, (PROT_READ | PROT_WRITE), base_flags, 0, 0);
-        if (base_buffer != MAP_FAILED)
+        // Done if buffer allocated
+        if (*buffer != MAP_FAILED) break;
+
+        // Try a smaller size
+        if (*page_size == MPF_VTP_PAGE_1GB)
+            *page_size = MPF_VTP_PAGE_2MB;
+        else if (*page_size == MPF_VTP_PAGE_2MB)
+            *page_size = MPF_VTP_PAGE_4KB;
+        else
         {
-            // Align the buffer start to a page
-            *buffer = (void*)(((size_t)base_buffer + page_bytes - 1) & ~(page_bytes - 1));
-
-            // Release the unused portion at the start used for alignment
-            if (*buffer != base_buffer)
-            {
-                size_t drop_bytes = (size_t)(*buffer - base_buffer);
-                munmap(base_buffer, drop_bytes);
-                alloc_bytes -= drop_bytes;
-            }
-
-            // Release any extra portion at the end of the buffer
-            if (alloc_bytes > num_bytes)
-            {
-                munmap(*buffer + num_bytes, alloc_bytes - num_bytes);
-            }
+            // Failed
+            *buffer = NULL;
+            break;
         }
-    }
-
-    if (*buffer == MAP_FAILED)
-    {
-        *buffer = NULL;
     }
 #else
     // Windows
@@ -351,7 +337,19 @@ static fpga_result getPageSizeFromMonDev(
         return (errno == ENOMEM) ? FPGA_NOT_FOUND : FPGA_EXCEPTION;
     }
 
-    *page_size = (info.page_shift < 21) ? MPF_VTP_PAGE_4KB : MPF_VTP_PAGE_2MB;
+    if (info.page_shift >= 30)
+    {
+        *page_size = MPF_VTP_PAGE_1GB;
+    }
+    else if (info.page_shift >= 21)
+    {
+        *page_size = MPF_VTP_PAGE_2MB;
+    }
+    else
+    {
+        *page_size = MPF_VTP_PAGE_4KB;
+    }
+
     return FPGA_OK;
 }
 
@@ -427,7 +425,11 @@ fpga_result mpfOsGetPageSize(
             }
 
             // page_kb is reported in kB. Convert to a VTP-supported size.
-            if (page_kb >= 2048)
+            if (page_kb >= 1048576)
+            {
+                *page_size = MPF_VTP_PAGE_1GB;
+            }
+            else if (page_kb >= 2048)
             {
                 *page_size = MPF_VTP_PAGE_2MB;
             }

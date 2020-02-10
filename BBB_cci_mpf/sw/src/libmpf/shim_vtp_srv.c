@@ -126,7 +126,7 @@ static void *mpfVtpSrvMain(void *args)
             {
                 MPF_FPGA_MSG("VTP translation response VA %p -> PA 0x%" PRIx64 " (line 0x%" PRIx64 "), %s",
                              req_va, rsp_pa, rsp_pa >> 6,
-                             (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                             mpfVtpPageSizeToString(page_size));
             }
         }
         else
@@ -144,7 +144,7 @@ static void *mpfVtpSrvMain(void *args)
                 {
                     MPF_FPGA_MSG("VTP speculative translation failure VA %p, %s",
                                  req_va,
-                                 (page_size == MPF_VTP_PAGE_2MB ? "2MB" : "4KB"));
+                                 mpfVtpPageSizeToString(page_size));
                 }
             }
             else

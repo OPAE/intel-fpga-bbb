@@ -35,6 +35,25 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
+#define KB 1024
+#define MB (1024 * KB)
+#define GB (1024UL * MB)
+
+#define PROTECTION (PROT_READ | PROT_WRITE)
+
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0x40000
+#endif
+#ifndef MAP_HUGE_SHIFT
+#define MAP_HUGE_SHIFT 26
+#endif
+
+#define MAP_1G_HUGEPAGE	(0x1e << MAP_HUGE_SHIFT) /* 2 ^ 0x1e = 1G */
+
+#define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS)
+#define FLAGS_2M (FLAGS_4K | MAP_HUGETLB)
+#define FLAGS_1G (FLAGS_2M | MAP_1G_HUGEPAGE)
+
 
 // ========================================================================
 //
@@ -173,11 +192,13 @@ int TEST_RANDOM::test()
     }
     else if (boost::iequals(a_mode, "mmap"))
     {
-        int flags = (MAP_PRIVATE | MAP_ANONYMOUS);
-        if (n_bytes >= 2048 * 1024)
-        {
-            flags |= MAP_HUGETLB;
-        }
+        int flags;
+        if (n_bytes >= GB)
+            flags = FLAGS_1G;
+        else if (n_bytes >= 2 * MB)
+            flags = FLAGS_2M;
+        else
+            flags = FLAGS_4K;
 
         cout << "  Allocating buffer with mmap..." << endl;
         buf = mmap(NULL, n_bytes, (PROT_READ | PROT_WRITE), flags, -1, 0);

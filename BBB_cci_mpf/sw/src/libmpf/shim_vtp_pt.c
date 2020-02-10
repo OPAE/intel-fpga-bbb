@@ -48,6 +48,30 @@
 
 static const uint32_t depth_max = 4;
 
+static mpf_vtp_page_size ptDepthToSize(
+    uint32_t depth
+)
+{
+    mpf_vtp_page_size s;
+
+    switch (depth)
+    {
+      case 0:
+        s = MPF_VTP_PAGE_4KB;
+        break;
+      case 1:
+        s = MPF_VTP_PAGE_2MB;
+        break;
+      case 2:
+        s = MPF_VTP_PAGE_1GB;
+        break;
+      default:
+        s = MPF_VTP_PAGE_NONE;
+    }
+
+    return s;
+}
+
 static void nodeReset(
     mpf_vtp_pt_node* node
 )
@@ -438,17 +462,17 @@ static fpga_result addVAtoTable(
     // Now at the leaf.  Add the translation.
     if (nodeEntryExists(table, leaf_idx))
     {
-        if ((cur_depth == 2) && ! nodeEntryIsTerminal(table, leaf_idx))
+        if ((cur_depth >= 2) && ! nodeEntryIsTerminal(table, leaf_idx))
         {
-            // Entry exists while trying to add a 2MB entry.  Perhaps there is
-            // an old leaf that used to hold 4KB pages.  If the existing
+            // Entry exists while trying to add a huge entry. Perhaps there
+            // is an old leaf that used to hold smaller pages. If the existing
             // entry has no active pages then get rid of it.
             mpf_vtp_pt_node* child_node = nodeGetChildNode(table, leaf_idx);
 
             if (! nodeIsEmpty(child_node)) return FPGA_EXCEPTION;
 
             // The old page that held 4KB translations is now empty and the
-            // pointer will be overwritten with a 2MB page pointer.
+            // pointer will be overwritten with a huge page pointer.
             ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid, true);
             nodeEntryReset(table, leaf_idx);
         }
@@ -729,6 +753,9 @@ static void dumpPageTable(
                   case 2:
                     kind = "2MB";
                     break;
+                  case 3:
+                    kind = "1GB";
+                    break;
                   default:
                     kind = "?";
                     break;
@@ -876,10 +903,15 @@ fpga_result mpfVtpPtInsertPageMapping(
     }
 
     uint32_t depth = depth_max;
-    if (size != MPF_VTP_PAGE_4KB)
+    if (size == MPF_VTP_PAGE_2MB)
     {
         // 2MB page is one node up in the table hierarchy
         depth -= 1;
+    }
+    else if (size == MPF_VTP_PAGE_1GB)
+    {
+        // 1GB page is two nodes up in the table hierarchy
+        depth -= 2;
     }
 
     return addVAtoTable(pt, va, pa, wsid, depth, flags);
@@ -1012,7 +1044,7 @@ fpga_result mpfVtpPtRemovePageMapping(
 
             if (size)
             {
-                *size = (depth == 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
+                *size = ptDepthToSize(depth);
             }
 
             if (flags)
@@ -1076,7 +1108,7 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     // at what level searching stopped.
     if (size)
     {
-        *size = (depth >= 1 ? MPF_VTP_PAGE_2MB : MPF_VTP_PAGE_4KB);
+        *size = ptDepthToSize(depth);
     }
 
     if (FPGA_OK != r)
@@ -1113,8 +1145,8 @@ int mpfVtpPtExtendVecVAtoPA(
     mpf_vtp_pt_node* node = pt->prev_find_term_node;
     uint64_t idx = pt->prev_idx;
 
-    // No cached result or pages are larger than 2MB?
-    if (! node || (pt->prev_depth > 1)) return 0;
+    // No cached result or pages are larger than 1GB?
+    if (! node || (pt->prev_depth > 2)) return 0;
 
     //
     // Return pages as long as:

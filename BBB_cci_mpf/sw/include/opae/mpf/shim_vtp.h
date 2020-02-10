@@ -50,9 +50,20 @@ typedef enum
     // Enumeration values are log2 of the size
     MPF_VTP_PAGE_NONE = 0,
     MPF_VTP_PAGE_4KB = 12,
-    MPF_VTP_PAGE_2MB = 21
+    MPF_VTP_PAGE_2MB = 21,
+    MPF_VTP_PAGE_1GB = 30
 }
 mpf_vtp_page_size;
+
+/**
+ * mpf_vtp_page_size enum to string.
+ *
+ * @param[in]  page_size   mpf_vtp_page_size.
+ * @returns                String.
+ */
+__MPF_API__ const char* mpfVtpPageSizeToString(
+    mpf_vtp_page_size page_size
+);
 
 // mpf_vtp_page_size values are the log2 of the size.  Convert to bytes.
 #define mpfPageSizeEnumToBytes(page_size) ((size_t)1 << page_size)

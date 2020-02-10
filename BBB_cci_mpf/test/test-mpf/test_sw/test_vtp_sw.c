@@ -101,17 +101,9 @@ static fpga_handle connect_to_accel()
 
 #define MAP_1G_HUGEPAGE	(0x1e << MAP_HUGE_SHIFT) /* 2 ^ 0x1e = 1G */
 
-#ifdef __ia64__
-#define ADDR (void *)(0x8000000000000000UL)
-#define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED)
-#define FLAGS_2M (FLAGS_4K | MAP_HUGETLB)
-#define FLAGS_1G (FLAGS_2M | MAP_1G_HUGEPAGE)
-#else
-#define ADDR (void *)(0x0UL)
 #define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS)
 #define FLAGS_2M (FLAGS_4K | MAP_HUGETLB)
 #define FLAGS_1G (FLAGS_2M | MAP_1G_HUGEPAGE)
-#endif
 
 static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
 {
@@ -119,7 +111,7 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
 
     assert(NULL != addr);
 
-    addr_local = mmap(ADDR, len, PROTECTION, flags, 0, 0);
+    addr_local = mmap(NULL, len, PROTECTION, flags, 0, 0);
     if (addr_local == MAP_FAILED) {
         if (errno == ENOMEM) {
             if (len > 2 * MB)
