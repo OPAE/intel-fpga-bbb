@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2020, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,39 +29,40 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Description of the configuration/status register address space in MPF.
+// Interface between a private L1 translation engine and the shared L2 TLB.
 //
 
-package cci_mpf_csrs_pkg;
-    import cci_mpf_if_pkg::*;
+`include "mpf_vtp.vh"
 
-// Include the enumerations describing CSR offsets shared with C here.
-// There is no `define protecting the header file from being included once
-// since there isn't common preprocessor syntax.
-`ifndef CCI_MPF_CSRS_H_INC
-`define CCI_MPF_CSRS_H_INC
-`include "cci_mpf_csrs.h"
-`endif
+interface mpf_vtp_l2_if;
+    // Request translation of 4KB aligned address
+    logic lookupEn;         // Enable the request
+    t_mpf_vtp_lookup_req lookupReq;
+    logic lookupRdy;        // Ready to accept a request?
 
-    // MPF needs MMIO address space to hold its feature lists and CSRs.
-    // AFUs that instantiate MPF must allocate at least this much space.
-    // AFUs will pass the base MMIO address of the allocated space to
-    // the MPF wrapper.  See cci_mpf.sv.
+    // Response with translated address.  The response is latency-
+    // insensitive, signaled with lookupRspValid.
+    logic lookupRspValid;
+    t_mpf_vtp_lookup_rsp lookupRsp;
 
-    // Assume all shims are allocated.  Size is in bytes.
-    parameter CCI_MPF_MMIO_SIZE = CCI_MPF_VTP_CSR_SIZE +
-                                  CCI_MPF_RSP_ORDER_CSR_SIZE +
-                                  CCI_MPF_VC_MAP_CSR_SIZE +
-                                  CCI_MPF_LATENCY_QOS_CSR_SIZE +
-                                  CCI_MPF_WRO_CSR_SIZE +
-                                  CCI_MPF_PWRITE_CSR_SIZE;
+    modport server
+       (
+        input  lookupEn,
+        input  lookupReq,
+        output lookupRdy,
 
-    // WRO pipeline events
-    typedef struct packed {
-        logic rr_conflict;  // New read conflicts with old read
-        logic rw_conflict;  // New read conflicts with old write
-        logic wr_conflict;  // New write conflicts with old read
-        logic ww_conflict;  // New write conflicts with old write
-    } t_cci_mpf_wro_pipe_events;
+        output lookupRspValid,
+        output lookupRsp
+        );
 
-endpackage // cci_mpf_csrs_pkg
+    modport client
+       (
+        output lookupEn,
+        output lookupReq,
+        input  lookupRdy,
+
+        input  lookupRspValid,
+        input  lookupRsp
+        );
+
+endinterface // mpf_vtp_l2_if

@@ -30,9 +30,9 @@
 
 `include "cci_mpf_if.vh"
 `include "cci_mpf_shim.vh"
-`include "cci_mpf_shim_vtp.vh"
 `include "cci_mpf_shim_edge.vh"
 `include "cci_mpf_shim_pwrite.vh"
+`include "mpf_vtp.vh"
 
 //
 // This is a mandatory connection at the tail of an MPF pipeline.
@@ -69,7 +69,7 @@ module cci_mpf_shim_edge_fiu
 
     // Interface to the VTP page table walker.  The page table requests
     // host memory page table reads through this connection.
-    cci_mpf_shim_vtp_pt_fim_if.to_fim pt_fim,
+    mpf_vtp_pt_host_if.to_fim pt_fim,
 
     // Interface to the partial write emulator
     cci_mpf_shim_pwrite_if.pwrite_edge_fiu pwrite,
@@ -363,8 +363,8 @@ module cci_mpf_shim_edge_fiu
     //
     logic pt_c1_valid;
     t_cci_clAddr pt_c1_addr;
-    t_cci_mpf_shim_vtp_pt_fim_wr_data pt_c1_data;
-    t_cci_mpf_shim_vtp_pt_fim_wr_data stg1_pt_c1_data, stg2_pt_c1_data, stg3_pt_c1_data;
+    t_mpf_vtp_pt_fim_wr_data pt_c1_data;
+    t_mpf_vtp_pt_fim_wr_data stg1_pt_c1_data, stg2_pt_c1_data, stg3_pt_c1_data;
     logic pt_c1_deq;
 
     assign pt_fim.writeRdy = ! pt_c1_valid;

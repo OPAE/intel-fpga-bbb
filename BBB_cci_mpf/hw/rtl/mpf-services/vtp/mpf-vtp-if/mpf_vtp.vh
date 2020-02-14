@@ -28,40 +28,9 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-//
-// Description of the configuration/status register address space in MPF.
-//
+`ifndef __MPF_VTP_VH__
+`define __MPF_VTP_VH__
 
-package cci_mpf_csrs_pkg;
-    import cci_mpf_if_pkg::*;
+import mpf_vtp_pkg::*;
 
-// Include the enumerations describing CSR offsets shared with C here.
-// There is no `define protecting the header file from being included once
-// since there isn't common preprocessor syntax.
-`ifndef CCI_MPF_CSRS_H_INC
-`define CCI_MPF_CSRS_H_INC
-`include "cci_mpf_csrs.h"
-`endif
-
-    // MPF needs MMIO address space to hold its feature lists and CSRs.
-    // AFUs that instantiate MPF must allocate at least this much space.
-    // AFUs will pass the base MMIO address of the allocated space to
-    // the MPF wrapper.  See cci_mpf.sv.
-
-    // Assume all shims are allocated.  Size is in bytes.
-    parameter CCI_MPF_MMIO_SIZE = CCI_MPF_VTP_CSR_SIZE +
-                                  CCI_MPF_RSP_ORDER_CSR_SIZE +
-                                  CCI_MPF_VC_MAP_CSR_SIZE +
-                                  CCI_MPF_LATENCY_QOS_CSR_SIZE +
-                                  CCI_MPF_WRO_CSR_SIZE +
-                                  CCI_MPF_PWRITE_CSR_SIZE;
-
-    // WRO pipeline events
-    typedef struct packed {
-        logic rr_conflict;  // New read conflicts with old read
-        logic rw_conflict;  // New read conflicts with old write
-        logic wr_conflict;  // New write conflicts with old read
-        logic ww_conflict;  // New write conflicts with old write
-    } t_cci_mpf_wro_pipe_events;
-
-endpackage // cci_mpf_csrs_pkg
+`endif // __MPF_VTP_VH__

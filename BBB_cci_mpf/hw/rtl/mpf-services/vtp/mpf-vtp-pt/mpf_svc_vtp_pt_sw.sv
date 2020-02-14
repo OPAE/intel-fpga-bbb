@@ -29,10 +29,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
-`include "cci_mpf_shim_vtp.vh"
+`include "mpf_vtp.vh"
 
 
 //
@@ -40,7 +37,7 @@
 // physical addresses.
 //
 
-module cci_mpf_svc_vtp_pt_sw
+module mpf_svc_vtp_pt_sw
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -49,20 +46,20 @@ module cci_mpf_svc_vtp_pt_sw
     input  logic reset,
 
     // Primary interface
-    cci_mpf_shim_vtp_pt_walk_if.server pt_walk,
+    mpf_vtp_pt_walk_if.server pt_walk,
 
     // FIM interface for host I/O
-    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
+    mpf_vtp_pt_host_if.pt_walk pt_fim,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
+    mpf_vtp_csrs_if.vtp csrs,
 
     // Events
-    cci_mpf_csrs.vtp_events_pt_walk events
+    mpf_vtp_csrs_if.vtp_events_pt_walk events
     );
 
     // Page translation request buffer's physical address.
-    t_cci_clAddr pt_req_buf_pa;
+    cci_mpf_if_pkg::t_cci_clAddr pt_req_buf_pa;
     logic initialized;
 
     always_ff @(posedge clk)
@@ -96,9 +93,9 @@ module cci_mpf_svc_vtp_pt_sw
     logic req_valid;
     logic send_req;
     t_tlb_4kb_va_page_idx req_va;
-    t_cci_mpf_shim_vtp_pt_walk_meta req_meta;
+    t_mpf_vtp_pt_walk_meta req_meta;
     logic req_isSpeculative;
-    t_cci_mpf_shim_vtp_req_tag req_tag;
+    t_mpf_vtp_req_tag req_tag;
 
     assign pt_walk.reqRdy = ~req_valid;
 
@@ -133,9 +130,9 @@ module cci_mpf_svc_vtp_pt_sw
 
     logic rsp_en;
     t_tlb_4kb_va_page_idx rsp_va;
-    t_cci_mpf_shim_vtp_pt_walk_meta rsp_meta;
+    t_mpf_vtp_pt_walk_meta rsp_meta;
     logic rsp_isSpeculative;
-    t_cci_mpf_shim_vtp_req_tag rsp_tag;
+    t_mpf_vtp_req_tag rsp_tag;
 
     assign send_req = req_valid && req_not_full &&
                       initialized && pt_fim.writeRdy;
@@ -143,9 +140,9 @@ module cci_mpf_svc_vtp_pt_sw
     cci_mpf_prim_fifo_lutram
       #(
         .N_DATA_BITS($bits(t_tlb_4kb_va_page_idx) +
-                     $bits(t_cci_mpf_shim_vtp_pt_walk_meta) +
+                     $bits(t_mpf_vtp_pt_walk_meta) +
                      1 +
-                     $bits(t_cci_mpf_shim_vtp_req_tag)),
+                     $bits(t_mpf_vtp_req_tag)),
         .N_ENTRIES(8),
         .REGISTER_OUTPUT(1)
         )
@@ -198,7 +195,7 @@ module cci_mpf_svc_vtp_pt_sw
         //
         // Bit 1 indicates whether the request is speculative.
         pt_fim.writeData <=
-            { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 4'b0, req_isSpeculative, 1'b1 };
+            { req_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 4'b0, req_isSpeculative, 1'b1 };
 
         if (send_req)
         begin
@@ -268,7 +265,7 @@ module cci_mpf_svc_vtp_pt_sw
         // the head of the request FIFO.
         if (req_not_empty)
         begin
-            events.vtp_pt_walk_events.last_vaddr <= { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+            events.vtp_pt_walk_events.last_vaddr <= { rsp_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) };
         end
 
         if (reset)
@@ -293,8 +290,8 @@ module cci_mpf_svc_vtp_pt_sw
             begin
                 $display("VTP PT WALK %0t: New REQ translate VA 0x%x (line 0x%x), tag (%0d, %0d)",
                          $time,
-                         { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
-                         { req_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         { req_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
+                         { req_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) },
                          req_meta, req_tag);
             end
 
@@ -303,18 +300,18 @@ module cci_mpf_svc_vtp_pt_sw
                 $display("VTP PT WALK %0t: Completed RESP FAILED %sTRANSLATION, VA 0x%x (line 0x%x), tag (%0d, %0d)",
                          $time,
                          (rsp_isSpeculative ? "speculative " : ""),
-                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
-                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         { rsp_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
+                         { rsp_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) },
                          rsp_meta, rsp_tag);
             end
             else if (rsp_en)
             begin
                 $display("VTP PT WALK %0t: Completed RESP PA 0x%x (line 0x%x), VA 0x%x (line 0x%x), tag (%0d, %0d), %0s",
                          $time,
-                         { rsp_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
-                         { rsp_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
-                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
-                         { rsp_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         { rsp_pa, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
+                         { rsp_pa, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         { rsp_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 },
+                         { rsp_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) },
                          rsp_meta, rsp_tag,
                          (rsp_is_big_page ? "2MB" : "4KB"));
             end
@@ -322,5 +319,4 @@ module cci_mpf_svc_vtp_pt_sw
         end
     end
 
-endmodule // cci_mpf_svc_vtp_pt_sw
-
+endmodule // mpf_svc_vtp_pt_sw

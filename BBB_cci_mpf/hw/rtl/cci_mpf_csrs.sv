@@ -44,20 +44,6 @@
 interface cci_mpf_csrs();
 
     //
-    // VTP -- virtual to physical translation
-    //
-
-    t_cci_mpf_vtp_ctrl vtp_ctrl;
-
-    // Output: page table mode (see cci_mpf_csrs.h)
-    t_cci_mpf_vtp_csr_out_mode vtp_out_mode;
-
-    // Events: these wires fire to indicate an event. The CSR shim sums
-    // events into counters.
-    t_cci_mpf_vtp_tlb_events vtp_tlb_events;
-    t_cci_mpf_vtp_pt_walk_events vtp_pt_walk_events;
-
-    //
     // VC MAP -- Mapping eVC_VA to real physical channels.
     //
     logic [63:0] vc_map_ctrl;
@@ -95,9 +81,6 @@ interface cci_mpf_csrs();
     // CSR manager port
     modport csr
        (
-        output vtp_ctrl,
-        input  vtp_out_mode,
-
         output vc_map_ctrl,
         output vc_map_ctrl_valid,
         input  vc_map_history,
@@ -110,27 +93,11 @@ interface cci_mpf_csrs();
         );
     modport csr_events
        (
-        input  vtp_tlb_events,
-        input  vtp_pt_walk_events,
-
         input  vc_map_out_event_mapping_changed,
 
         input  wro_pipe_events,
 
         input  pwrite_out_event_pwrite
-        );
-
-    modport vtp
-       (
-        input  vtp_ctrl
-        );
-    modport vtp_events
-       (
-        output vtp_tlb_events
-        );
-    modport vtp_events_pt_walk
-       (
-        output vtp_pt_walk_events
         );
 
     modport vc_map

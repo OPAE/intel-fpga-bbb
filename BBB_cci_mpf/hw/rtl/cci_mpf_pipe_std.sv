@@ -49,7 +49,6 @@
 `include "cci_mpf_csrs.vh"
 `include "cci_mpf_shim_edge.vh"
 `include "cci_mpf_shim_pwrite.vh"
-`include "cci_mpf_shim_vtp.vh"
 
 
 module cci_mpf_pipe_std
@@ -99,7 +98,7 @@ module cci_mpf_pipe_std
     cci_mpf_shim_pwrite_lock_if.pwrite pwrite_lock,
 
     // VTP translation service ports.  One port for each request channel.
-    cci_mpf_shim_vtp_svc_if.client vtp_svc[2]
+    mpf_vtp_port_if.to_slave vtp_ports[2]
     );
 
     logic  reset;
@@ -242,8 +241,7 @@ module cci_mpf_pipe_std
                 .clk,
                 .fiu(stgp3_dedup_reads),
                 .afu(stgp4_fiu_virtual),
-                .vtp_svc,
-                .csrs(mpf_csrs)
+                .vtp_ports
                 );
         end
         else

@@ -29,13 +29,11 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
+`include "cci_mpf_platform.vh"
 `include "cci_mpf_config.vh"
-
-`include "cci_mpf_shim_vtp.vh"
 `include "cci_mpf_prim_hash.vh"
+
+`include "mpf_vtp.vh"
 
 
 //
@@ -91,7 +89,7 @@ function automatic t_cci_mpf_pt_walk_status cci_mpf_ptWalkWordToStatus(logic [63
 endfunction
 
 
-module cci_mpf_svc_vtp_pt_walk
+module mpf_svc_vtp_pt_walk
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -100,25 +98,29 @@ module cci_mpf_svc_vtp_pt_walk
     input  logic reset,
 
     // Primary interface
-    cci_mpf_shim_vtp_pt_walk_if.server pt_walk,
+    mpf_vtp_pt_walk_if.server pt_walk,
 
     // FIM interface for host I/O
-    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
+    mpf_vtp_pt_host_if.pt_walk pt_fim,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
+    mpf_vtp_csrs_if.vtp csrs,
 
     // Events
-    cci_mpf_csrs.vtp_events_pt_walk events
+    mpf_vtp_csrs_if.vtp_events_pt_walk events
     );
 
+    import cci_mpf_if_pkg::*;
+
+    // synthesis translate_off
     initial begin
         // Confirm that the VA size specified in VTP matches CCI.  The CCI
         // version is line addresses, so the units must be converted.
         assert (CCI_MPF_CLADDR_WIDTH + $clog2(CCI_CLDATA_WIDTH >> 3) ==
                 48) else
-            $fatal("cci_mpf_svc_vtp_pt_walk.sv: VA address size mismatch!");
+            $fatal(2, "** ERROR ** %m: VA address size mismatch!");
     end
+    // synthesis translate_on
 
     // Root address of the page table
     t_tlb_4kb_pa_page_idx page_table_root;
@@ -188,9 +190,9 @@ module cci_mpf_svc_vtp_pt_walk
     // It includes a simple prefetch engine that reduces latency on
     // serial accesses to 4KB pages.
 
-    cci_mpf_shim_vtp_pt_fim_if pt_walk_reader();
+    mpf_vtp_pt_host_if pt_walk_reader();
 
-    cci_mpf_svc_vtp_pt_walk_reader
+    mpf_svc_vtp_pt_walk_reader
       #(
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
         )
@@ -255,9 +257,9 @@ module cci_mpf_svc_vtp_pt_walk
     t_tlb_4kb_va_page_idx translate_va;
 
     // Metadata associated with translation request
-    t_cci_mpf_shim_vtp_pt_walk_meta req_meta;
+    t_mpf_vtp_pt_walk_meta req_meta;
     logic req_isSpeculative;
-    t_cci_mpf_shim_vtp_req_tag req_tag;
+    t_mpf_vtp_req_tag req_tag;
 
     // During translation the VA is broken down into 9 bit indices during
     // the tree-based page walk.  This register is shifted as each level
@@ -319,7 +321,7 @@ module cci_mpf_svc_vtp_pt_walk
     t_tlb_4kb_pa_page_idx pt_walk_cache_page;
     logic pt_walk_page_from_cache;
 
-    cci_mpf_svc_vtp_pt_walk_cache
+    mpf_svc_vtp_pt_walk_cache
       #(
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
         )
@@ -538,8 +540,8 @@ module cci_mpf_svc_vtp_pt_walk
 
                     if (! reset)
                     begin
-                        $fatal("VTP PT WALK: No translation found for VA 0x%x",
-                               { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
+                        $fatal(2, "** ERROR ** %m: No translation found for VA 0x%x",
+                               { translate_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
                     end
                 end
 
@@ -586,7 +588,7 @@ module cci_mpf_svc_vtp_pt_walk
         pt_walk_reader.readAddr = t_cci_clAddr'(0);
 
         // Current page in table
-        pt_walk_reader.readAddr[CCI_PT_4KB_PAGE_OFFSET_BITS +: CCI_PT_4KB_PA_PAGE_INDEX_BITS] =
+        pt_walk_reader.readAddr[VTP_PT_4KB_PAGE_OFFSET_BITS +: VTP_PT_4KB_PA_PAGE_INDEX_BITS] =
             pt_walk_cur_page;
 
         // Select the proper line in this level of the table, based on the
@@ -620,7 +622,7 @@ module cci_mpf_svc_vtp_pt_walk
             begin
                 $display("VTP PT WALK %0t: Response PA 0x%x, size %s",
                          $time,
-                         {pt_walk_cur_page, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {pt_walk_cur_page, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          (pt_walk.rspIsBigPage ? "2MB" : "4KB"));
             end
 
@@ -628,8 +630,8 @@ module cci_mpf_svc_vtp_pt_walk
             begin
                 $display("VTP PT WALK %0t: New req translate line 0x%x (VA 0x%x)",
                          $time,
-                         { pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) },
-                         { pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
+                         { pt_walk.reqVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) },
+                         { pt_walk.reqVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
             end
 
             if ((state == STATE_PT_WALK_READ_CACHE_REQ) && ptReadCacheRdy)
@@ -652,7 +654,7 @@ module cci_mpf_svc_vtp_pt_walk
             begin
                 $display("VTP PT WALK %0t: Cache hit PA 0x%x (terminal %0d, error %0d)",
                          $time,
-                         {ptReadCachePage, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {ptReadCachePage, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          ptReadCacheStatus.terminal,
                          ptReadCacheStatus.error);
             end
@@ -737,17 +739,17 @@ module cci_mpf_svc_vtp_pt_walk
     always_ff @(posedge clk)
     begin
         events.vtp_pt_walk_events.busy <= ! state_is_walk_idle;
-        events.vtp_pt_walk_events.last_vaddr <= { translate_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0) };
+        events.vtp_pt_walk_events.last_vaddr <= { translate_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0) };
         events.vtp_pt_walk_events.failed_translation <= pt_walk.rspNotPresent && pt_walk.rspEn;
     end
 
-endmodule // cci_mpf_svc_vtp_pt_walk
+endmodule // mpf_svc_vtp_pt_walk
 
 
 //
 // Small cache of previously read lines in the page table.
 //
-module cci_mpf_svc_vtp_pt_walk_cache
+module mpf_svc_vtp_pt_walk_cache
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -756,7 +758,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
     input  logic reset,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
+    mpf_vtp_csrs_if.vtp csrs,
 
     // Ready for new request?
     output logic rdy,
@@ -774,10 +776,12 @@ module cci_mpf_svc_vtp_pt_walk_cache
 
     // Insert data in the cache
     input  logic insertEn,
-    input  t_cci_clData insertData,
+    input  cci_mpf_if_pkg::t_cci_clData insertData,
     input  t_cci_mpf_pt_page_idx_vec insertPageIdxVec,
     input  t_cci_mpf_pt_walk_depth insertWalkDepth
     );
+
+    import cci_mpf_if_pkg::*;
 
     // Number of cache entries.  Each entry has one tag and
     // PT_WORDS_PER_LINE words.
@@ -940,7 +944,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
     cci_mpf_prim_ram_simple
       #(
         .N_ENTRIES(PT_CACHE_ENTRIES * PT_WORDS_PER_LINE),
-        .N_DATA_BITS(CCI_PT_4KB_PA_PAGE_INDEX_BITS +
+        .N_DATA_BITS(VTP_PT_4KB_PA_PAGE_INDEX_BITS +
                      $bits(t_cci_mpf_pt_walk_status)),
         .REGISTER_WRITES(1),
         .BYPASS_REGISTERED_WRITES(0),
@@ -1067,7 +1071,7 @@ module cci_mpf_svc_vtp_pt_walk_cache
                                               CCI_CLADDR_WIDTH]);
     assign ins_data_status = cci_mpf_ptWalkWordToStatus(ins_line_words[0]);
 
-endmodule // cci_mpf_svc_vtp_pt_walk_cache
+endmodule // mpf_svc_vtp_pt_walk_cache
 
 
 //
@@ -1076,7 +1080,7 @@ endmodule // cci_mpf_svc_vtp_pt_walk_cache
 // lines in the page table since the latency of reading page table entries
 // of 4KB pages is sometimes a problem.
 //
-module cci_mpf_svc_vtp_pt_walk_reader
+module mpf_svc_vtp_pt_walk_reader
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -1085,14 +1089,16 @@ module cci_mpf_svc_vtp_pt_walk_reader
     input  logic reset,
 
     // Command interface from PT walker
-    cci_mpf_shim_vtp_pt_fim_if.to_fim pt_walk_reader,
+    mpf_vtp_pt_host_if.to_fim pt_walk_reader,
 
     // FIM interface for host I/O
-    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
+    mpf_vtp_pt_host_if.pt_walk pt_fim,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
+
+    import cci_mpf_if_pkg::*;
 
     // Don't allow back-to-back requests to the FIM. The readRdy flag
     // isn't updated properly because of register delay.
@@ -1592,4 +1598,4 @@ module cci_mpf_svc_vtp_pt_walk_reader
     end
     // synthesis translate_on
 
-endmodule // cci_mpf_svc_vtp_pt_walk_reader
+endmodule // mpf_svc_vtp_pt_walk_reader

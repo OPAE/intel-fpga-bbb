@@ -75,9 +75,11 @@ import ccip_if_pkg::*;
     `elsif PLATFORM_CLASS_NAME_IS_A10_GX_INTG_XEON_BDX
         localparam MPF_PLATFORM = "INTG_BDX";
         `undef MPF_HOST_IFC_CCIP_WRPUSH
+        `define MPF_PLATFORM_PA_BITS 32
     `elsif PLATFORM_CLASS_NAME_IS_INTG_XEON
         localparam MPF_PLATFORM = "INTG_BDX";
         `undef MPF_HOST_IFC_CCIP_WRPUSH
+        `define MPF_PLATFORM_PA_BITS 32
 
     `else
         localparam MPF_PLATFORM = `PLATFORM_CLASS_NAME;
@@ -117,6 +119,7 @@ import ccip_if_pkg::*;
 
         localparam MPF_PLATFORM = "INTG_BDX";
         `undef MPF_HOST_IFC_CCIP_WRPUSH
+        `define MPF_PLATFORM_PA_BITS 32
 
     `elsif MPF_PLATFORM_OME
         //
@@ -127,6 +130,7 @@ import ccip_if_pkg::*;
         `undef MPF_HOST_IFC_CCIP
         `define MPF_HOST_IFC_CCIS
         `undef MPF_HOST_IFC_CCIP_WRPUSH
+        `define MPF_PLATFORM_PA_BITS 32
 
         // Use only VL0 (QPI)
         `undef  MPF_PLATFORM_NUM_PHYSICAL_CHANNELS

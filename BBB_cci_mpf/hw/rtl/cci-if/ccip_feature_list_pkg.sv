@@ -43,4 +43,22 @@ package ccip_feature_list_pkg;
         return dfh;
     endfunction
 
+    // Construct a feature header for a BBB
+    function automatic t_ccip_dfh ccip_dfh_genDFH(
+        t_ccip_feature_next nextFeature,
+        t_ccip_feature_id instance_id,
+        logic is_eol
+        );
+
+        t_ccip_dfh dfh;
+
+        dfh = ccip_dfh_defaultDFH();
+        dfh.f_type = eFTYP_BBB;
+        dfh.id = instance_id;
+        dfh.nextFeature = nextFeature;
+        dfh.eol = is_eol;
+
+        return dfh;
+    endfunction
+
 endpackage // ccip_feature_list_pkg

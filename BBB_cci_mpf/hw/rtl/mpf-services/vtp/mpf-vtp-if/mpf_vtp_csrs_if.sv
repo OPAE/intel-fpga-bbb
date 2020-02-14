@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2020, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,39 +29,54 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Description of the configuration/status register address space in MPF.
+// VTP CSR and event interface. This interface is internal to the VTP service.
+// The external interface, exposed to the AFU, is mpf_services_gen_csr_if.
 //
 
-package cci_mpf_csrs_pkg;
-    import cci_mpf_if_pkg::*;
+`include "cci_mpf_if.vh"
+`include "cci_mpf_csrs.vh"
 
-// Include the enumerations describing CSR offsets shared with C here.
-// There is no `define protecting the header file from being included once
-// since there isn't common preprocessor syntax.
-`ifndef CCI_MPF_CSRS_H_INC
-`define CCI_MPF_CSRS_H_INC
-`include "cci_mpf_csrs.h"
-`endif
+interface mpf_vtp_csrs_if();
 
-    // MPF needs MMIO address space to hold its feature lists and CSRs.
-    // AFUs that instantiate MPF must allocate at least this much space.
-    // AFUs will pass the base MMIO address of the allocated space to
-    // the MPF wrapper.  See cci_mpf.sv.
+    import mpf_vtp_pkg::*;
 
-    // Assume all shims are allocated.  Size is in bytes.
-    parameter CCI_MPF_MMIO_SIZE = CCI_MPF_VTP_CSR_SIZE +
-                                  CCI_MPF_RSP_ORDER_CSR_SIZE +
-                                  CCI_MPF_VC_MAP_CSR_SIZE +
-                                  CCI_MPF_LATENCY_QOS_CSR_SIZE +
-                                  CCI_MPF_WRO_CSR_SIZE +
-                                  CCI_MPF_PWRITE_CSR_SIZE;
+    //
+    // VTP -- virtual to physical translation
+    //
 
-    // WRO pipeline events
-    typedef struct packed {
-        logic rr_conflict;  // New read conflicts with old read
-        logic rw_conflict;  // New read conflicts with old write
-        logic wr_conflict;  // New write conflicts with old read
-        logic ww_conflict;  // New write conflicts with old write
-    } t_cci_mpf_wro_pipe_events;
+    t_mpf_vtp_ctrl vtp_ctrl;
 
-endpackage // cci_mpf_csrs_pkg
+    // Output: page table mode (see cci_mpf_csrs.h)
+    t_mpf_vtp_csr_out_mode vtp_out_mode;
+
+    // Events: these wires fire to indicate an event. The CSR shim sums
+    // events into counters.
+    t_mpf_vtp_tlb_events vtp_tlb_events;
+    t_mpf_vtp_pt_walk_events vtp_pt_walk_events;
+
+    // CSR manager port
+    modport csr
+       (
+        output vtp_ctrl,
+        input  vtp_out_mode
+        );
+    modport csr_events
+       (
+        input  vtp_tlb_events,
+        input  vtp_pt_walk_events
+        );
+
+    modport vtp
+       (
+        input  vtp_ctrl
+        );
+    modport vtp_events
+       (
+        output vtp_tlb_events
+        );
+    modport vtp_events_pt_walk
+       (
+        output vtp_pt_walk_events
+        );
+
+endinterface // mpf_vtp_csrs_if

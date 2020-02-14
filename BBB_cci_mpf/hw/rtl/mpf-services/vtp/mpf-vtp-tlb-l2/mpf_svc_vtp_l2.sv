@@ -28,11 +28,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
-`include "cci_mpf_shim_vtp.vh"
 `include "cci_mpf_config.vh"
+`include "mpf_vtp.vh"
 
 
 //
@@ -43,7 +40,7 @@
 // to reduce the number of requests to this service.
 //
 
-module cci_mpf_svc_vtp
+module mpf_svc_vtp_l2
   #(
     parameter N_VTP_PORTS = 0,
     parameter DEBUG_MESSAGES = 0
@@ -53,17 +50,17 @@ module cci_mpf_svc_vtp
     input  logic reset,
 
     // Clients
-    cci_mpf_shim_vtp_svc_if.server vtp_svc[N_VTP_PORTS],
+    mpf_vtp_l2_if.server vtp_svc[N_VTP_PORTS],
 
     // Page table walker bus
-    cci_mpf_shim_vtp_pt_walk_if.client pt_walk,
+    mpf_vtp_pt_walk_if.client pt_walk,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
-    cci_mpf_csrs.vtp_events events
+    mpf_vtp_csrs_if.vtp csrs,
+    mpf_vtp_csrs_if.vtp_events events
     );
 
-    typedef logic [$clog2(N_VTP_PORTS)-1 : 0] t_cci_mpf_shim_vtp_port_idx;
+    typedef logic [$clog2(N_VTP_PORTS)-1 : 0] t_mpf_vtp_port_idx;
 
     // ====================================================================
     //
@@ -74,7 +71,7 @@ module cci_mpf_svc_vtp
     //
     // Buffer incoming requests in small FIFOs.
     //
-    t_cci_mpf_shim_vtp_lookup_req new_req[0 : N_VTP_PORTS-1];
+    t_mpf_vtp_lookup_req new_req[0 : N_VTP_PORTS-1];
     logic [N_VTP_PORTS-1 : 0] arb_grant;
     logic [N_VTP_PORTS-1 : 0] arb_grant_q;
     logic [N_VTP_PORTS-1 : 0] new_req_rdy;
@@ -99,8 +96,8 @@ module cci_mpf_svc_vtp
 
             cci_mpf_prim_fifo_lutram
               #(
-                .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req)),
-                .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+                .N_DATA_BITS($bits(t_mpf_vtp_lookup_req)),
+                .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
                 .THRESHOLD(2)
                 )
               in_fifo
@@ -127,8 +124,8 @@ module cci_mpf_svc_vtp
                     begin
                         $display("VTP SVC %0t: Incoming REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
                                  $time,
-                                 {vtp_svc[p].lookupReq.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                                 {vtp_svc[p].lookupReq.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                                 {vtp_svc[p].lookupReq.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {vtp_svc[p].lookupReq.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                                  p, vtp_svc[p].lookupReq.tag);
                     end
                 end
@@ -141,8 +138,8 @@ module cci_mpf_svc_vtp
     //
     // Fair arbitration for new requests
     //
-    t_cci_mpf_shim_vtp_port_idx arb_grant_idx;
-    t_cci_mpf_shim_vtp_port_idx arb_grant_idx_q;
+    t_mpf_vtp_port_idx arb_grant_idx;
+    t_mpf_vtp_port_idx arb_grant_idx_q;
 
     cci_mpf_prim_arb_rr
       #(
@@ -169,12 +166,12 @@ module cci_mpf_svc_vtp
     //
     // Post-arbitration, unified FIFO
     //
-    t_cci_mpf_shim_vtp_lookup_req winner_req;
+    t_mpf_vtp_lookup_req winner_req;
     logic winner_req_en;
-    t_cci_mpf_shim_vtp_port_idx winner_req_port_idx;
+    t_mpf_vtp_port_idx winner_req_port_idx;
 
-    t_cci_mpf_shim_vtp_lookup_req first;
-    t_cci_mpf_shim_vtp_port_idx first_port_idx;
+    t_mpf_vtp_lookup_req first;
+    t_mpf_vtp_port_idx first_port_idx;
     logic first_rdy;
 
     always_ff @(posedge clk)
@@ -194,8 +191,8 @@ module cci_mpf_svc_vtp
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
-                     $bits(t_cci_mpf_shim_vtp_port_idx)),
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_req) +
+                     $bits(t_mpf_vtp_port_idx)),
         .N_ENTRIES(4),
         .THRESHOLD(2),
         .REGISTER_OUTPUT(1)
@@ -224,8 +221,8 @@ module cci_mpf_svc_vtp
             begin
                 $display("VTP SVC %0t: Arb winner REQ VA 0x%x (line 0x%x), tag (%0d, %0d)",
                          $time,
-                         {winner_req.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {winner_req.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {winner_req.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {winner_req.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                          winner_req_port_idx, winner_req.tag);
             end
         end
@@ -241,9 +238,9 @@ module cci_mpf_svc_vtp
     // ====================================================================
 
     // Interface to the TLB
-    cci_mpf_shim_vtp_tlb_if tlb_if();
+    mpf_vtp_tlb_data_if tlb_if();
 
-    cci_mpf_svc_vtp_multi_size_tlb
+    mpf_svc_vtp_multi_size_tlb
       #(
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
         )
@@ -274,14 +271,14 @@ module cci_mpf_svc_vtp
     //
     logic tlb_lookup_rsp_deq_en;
     logic tlb_almostFull;
-    t_cci_mpf_shim_vtp_lookup_req tlb_processed_req;
-    t_cci_mpf_shim_vtp_port_idx tlb_processed_port;
+    t_mpf_vtp_lookup_req tlb_processed_req;
+    t_mpf_vtp_port_idx tlb_processed_port;
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
-                     $bits(t_cci_mpf_shim_vtp_port_idx)),
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_req) +
+                     $bits(t_mpf_vtp_port_idx)),
+        .N_ENTRIES(MPF_VTP_TLB_MIN_PIPE_STAGES + 4),
         .THRESHOLD(3),
         .REGISTER_OUTPUT(1)
         )
@@ -320,8 +317,8 @@ module cci_mpf_svc_vtp
             begin
                 $display("VTP SVC %0t: TLB lookup REQ VA 0x%x (line 0x%x), tag (%0d, %0d)%0s",
                          $time,
-                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {tlb_if.lookupPageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.lookupPageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                          first_port_idx, first.tag,
                          (first.isSpeculative ? ", speculative" : ""));
             end
@@ -343,9 +340,9 @@ module cci_mpf_svc_vtp
         logic isBigPage;
         logic notPresent;    // Failed speculative translation (not in page table)
     }
-    t_cci_mpf_shim_vtp_tlb_rsp;
+    t_mpf_vtp_tlb_rsp;
 
-    t_cci_mpf_shim_vtp_tlb_rsp tlb_rsp_in, tlb_lookup_rsp;
+    t_mpf_vtp_tlb_rsp tlb_rsp_in, tlb_lookup_rsp;
     logic tlb_lookup_rsp_valid;
 
     always_ff @(posedge clk)
@@ -359,8 +356,8 @@ module cci_mpf_svc_vtp
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_tlb_rsp)),
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_TLB_MIN_PIPE_STAGES + 4),
+        .N_DATA_BITS($bits(t_mpf_vtp_tlb_rsp)),
+        .N_ENTRIES(MPF_VTP_TLB_MIN_PIPE_STAGES + 4),
         .THRESHOLD(3),
         .REGISTER_OUTPUT(1)
         )
@@ -389,8 +386,8 @@ module cci_mpf_svc_vtp
             begin
                 $display("VTP SVC %0t: TLB lookup RESP hit PA 0x%x (line 0x%x), %0s page%0s",
                          $time,
-                         {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlb_rsp_in.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {tlb_rsp_in.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_rsp_in.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                          (tlb_rsp_in.isBigPage ? "2MB" : "4KB"),
                          (tlb_rsp_in.notPresent ? " [NOT PRESENT]" : ""));
             end
@@ -411,11 +408,11 @@ module cci_mpf_svc_vtp
 
     logic pt_walk_req_valid;
     logic pt_walk_rsp_valid;
-    t_cci_mpf_shim_vtp_lookup_rsp pt_walk_rsp;
-    t_cci_mpf_shim_vtp_port_idx pt_walk_rsp_port_idx;
+    t_mpf_vtp_lookup_rsp pt_walk_rsp;
+    t_mpf_vtp_port_idx pt_walk_rsp_port_idx;
     logic pt_walk_notFull;
 
-    cci_mpf_svc_vtp_do_pt_walk
+    mpf_svc_vtp_do_pt_walk
       #(
         .N_VTP_PORTS(N_VTP_PORTS),
         .DEBUG_MESSAGES(DEBUG_MESSAGES)
@@ -462,7 +459,7 @@ module cci_mpf_svc_vtp
 
     assign tlb_lookup_rsp_deq_en = do_tlb_hit_rsp || pt_walk_req_valid;
 
-    t_cci_mpf_shim_vtp_lookup_rsp rsp_data;
+    t_mpf_vtp_lookup_rsp rsp_data;
     logic [N_VTP_PORTS-1 : 0] rsp_port_onehot;
     logic pt_walk_rsp_valid_q;
 
@@ -511,8 +508,8 @@ module cci_mpf_svc_vtp
                                  $time,
                                  (rsp_data.error ? "ERROR " : ""),
                                  (pt_walk_rsp_valid_q ? "PT" : "TLB"),
-                                 {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                                 {rsp_data.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                                 {rsp_data.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {rsp_data.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                                  p, rsp_data.tag,
                                  (rsp_data.isBigPage ? "2MB" : "4KB"));
                     end
@@ -522,13 +519,13 @@ module cci_mpf_svc_vtp
         end
     endgenerate
 
-endmodule // cci_mpf_svc_vtp
+endmodule // mpf_svc_vtp_l2
 
 
 //
 // TLB cache lookup interface that checks all pages sizes in parallel.
 //
-module cci_mpf_svc_vtp_multi_size_tlb
+module mpf_svc_vtp_multi_size_tlb
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -537,11 +534,11 @@ module cci_mpf_svc_vtp_multi_size_tlb
     input  logic reset,
 
     // TLB lookup
-    cci_mpf_shim_vtp_tlb_if.server tlb_if,
+    mpf_vtp_tlb_data_if.server tlb_if,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
-    cci_mpf_csrs.vtp_events events
+    mpf_vtp_csrs_if.vtp csrs,
+    mpf_vtp_csrs_if.vtp_events events
     );
 
     //
@@ -549,11 +546,11 @@ module cci_mpf_svc_vtp_multi_size_tlb
     // 2MB pages.
     //
 
-    cci_mpf_shim_vtp_tlb_if tlb_if_4kb();
+    mpf_vtp_tlb_data_if tlb_if_4kb();
 
-    cci_mpf_svc_vtp_tlb
+    mpf_svc_vtp_l2_tlb
       #(
-        .CCI_PT_PAGE_OFFSET_BITS(CCI_PT_4KB_PAGE_OFFSET_BITS),
+        .VTP_PT_PAGE_OFFSET_BITS(VTP_PT_4KB_PAGE_OFFSET_BITS),
         .NUM_TLB_SETS(`VTP_N_TLB_4KB_SETS),
         .NUM_TLB_SET_WAYS(`VTP_N_TLB_4KB_WAYS),
         .DEBUG_MESSAGES(DEBUG_MESSAGES),
@@ -568,11 +565,11 @@ module cci_mpf_svc_vtp_multi_size_tlb
         );
 
 
-    cci_mpf_shim_vtp_tlb_if tlb_if_2mb();
+    mpf_vtp_tlb_data_if tlb_if_2mb();
 
-    cci_mpf_svc_vtp_tlb
+    mpf_svc_vtp_l2_tlb
       #(
-        .CCI_PT_PAGE_OFFSET_BITS(CCI_PT_2MB_PAGE_OFFSET_BITS),
+        .VTP_PT_PAGE_OFFSET_BITS(VTP_PT_2MB_PAGE_OFFSET_BITS),
         .NUM_TLB_SETS(`VTP_N_TLB_2MB_SETS),
         .NUM_TLB_SET_WAYS(`VTP_N_TLB_2MB_WAYS),
         .DEBUG_MESSAGES(DEBUG_MESSAGES),
@@ -614,21 +611,23 @@ module cci_mpf_svc_vtp_multi_size_tlb
     assign tlb_if.lookupMissVA = tlb_if_4kb.lookupMissVA;
 
     // Validation
+    // synthesis translate_off
     always_ff @(posedge clk)
     begin
         if (! reset)
         begin
             assert(! tlb_if_4kb.lookupRspHit || ! tlb_if_2mb.lookupRspHit) else
-                $fatal("cci_mpf_svc_vtp: Both TLBs valid!");
+                $fatal(2, "** ERROR ** %m: Both TLBs valid!");
 
             if (tlb_if.lookupMiss)
             begin
                 assert(vtp4kbTo2mbVA(tlb_if_4kb.lookupMissVA) ==
                        vtp4kbTo2mbVA(tlb_if_2mb.lookupMissVA)) else
-                    $fatal("cci_mpf_svc_vtp: Both TLBs missed but addresses different!");
+                    $fatal(2, "** ERROR ** %m: Both TLBs missed but addresses different!");
             end
         end
     end
+    // synthesis translate_on
 
 
     //
@@ -681,10 +680,10 @@ module cci_mpf_svc_vtp_multi_size_tlb
         end
     end
 
-endmodule // cci_mpf_svc_vtp_multi_size_tlb
+endmodule // mpf_svc_vtp_multi_size_tlb
 
 
-module cci_mpf_svc_vtp_do_pt_walk
+module mpf_svc_vtp_do_pt_walk
   #(
     parameter N_VTP_PORTS = 0,
     parameter DEBUG_MESSAGES = 0
@@ -695,40 +694,40 @@ module cci_mpf_svc_vtp_do_pt_walk
 
     // Incoming requests
     input  logic pt_walk_req_valid,
-    input  t_cci_mpf_shim_vtp_lookup_req pt_walk_req,
+    input  t_mpf_vtp_lookup_req pt_walk_req,
     input  logic [$clog2(N_VTP_PORTS)-1 : 0] pt_walk_req_port_idx,
     output logic pt_walk_notFull,
 
     // Outgoing walk responses
     output logic pt_walk_rsp_valid,
-    output t_cci_mpf_shim_vtp_lookup_rsp pt_walk_rsp,
+    output t_mpf_vtp_lookup_rsp pt_walk_rsp,
     output logic [$clog2(N_VTP_PORTS)-1 : 0] pt_walk_rsp_port_idx,
 
     // Outgoing fill messages to the TLBs
-    cci_mpf_shim_vtp_tlb_if.fill tlb_if,
+    mpf_vtp_tlb_data_if.fill tlb_if,
 
     // Page table walker bus
-    cci_mpf_shim_vtp_pt_walk_if.client pt_walk,
+    mpf_vtp_pt_walk_if.client pt_walk,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
-    typedef logic [$clog2(N_VTP_PORTS)-1 : 0] t_cci_mpf_shim_vtp_port_idx;
+    typedef logic [$clog2(N_VTP_PORTS)-1 : 0] t_mpf_vtp_port_idx;
 
     //
     // Push incoming requests to a FIFO. This allows the primary TLB pipeline
     // to flow around multiple translations that miss.
     //
     logic first_rdy;
-    t_cci_mpf_shim_vtp_lookup_req first;
-    t_cci_mpf_shim_vtp_port_idx first_port_idx;
+    t_mpf_vtp_lookup_req first;
+    t_mpf_vtp_port_idx first_port_idx;
     logic deq_first;
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_req) +
-                     $bits(t_cci_mpf_shim_vtp_port_idx)),
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_req) +
+                     $bits(t_mpf_vtp_port_idx)),
         .N_ENTRIES(8),
         .REGISTER_OUTPUT(1)
         )
@@ -757,7 +756,7 @@ module cci_mpf_svc_vtp_do_pt_walk
     begin
         pt_walk.reqEn <= deq_first;
         pt_walk.reqVA <= first.pageVA;
-        pt_walk.reqMeta <= t_cci_mpf_shim_vtp_pt_walk_meta'(first_port_idx);
+        pt_walk.reqMeta <= t_mpf_vtp_pt_walk_meta'(first_port_idx);
         pt_walk.reqIsSpeculative <= first.isSpeculative;
         pt_walk.reqTag <= first.tag;
 
@@ -783,7 +782,7 @@ module cci_mpf_svc_vtp_do_pt_walk
         pt_walk_rsp.tag <= pt_walk.rspTag;
         pt_walk_rsp.isBigPage <= pt_walk.rspIsBigPage;
         pt_walk_rsp.mayCache <= pt_walk.rspIsCacheable;
-        pt_walk_rsp_port_idx <= t_cci_mpf_shim_vtp_port_idx'(pt_walk.rspMeta);
+        pt_walk_rsp_port_idx <= t_mpf_vtp_port_idx'(pt_walk.rspMeta);
 
         if (reset)
         begin
@@ -819,7 +818,7 @@ module cci_mpf_svc_vtp_do_pt_walk
             begin
                 $display("VTP SVC %0t: REQ page walk VA 0x%x, tag (%0d, %0d)",
                          $time,
-                         {pt_walk.reqVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {pt_walk.reqVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          pt_walk.reqMeta, pt_walk.reqTag);
             end
 
@@ -828,7 +827,7 @@ module cci_mpf_svc_vtp_do_pt_walk
                 $display("VTP SVC %0t: %sRESP page walk PA 0x%x, %0s, tag (%0d, %0d)",
                          $time,
                          (pt_walk_rsp.error ? "ERROR " : ""),
-                         {pt_walk_rsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {pt_walk_rsp.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          (pt_walk_rsp.isBigPage ? "2MB" : "4KB"),
                          pt_walk_rsp_port_idx, pt_walk_rsp.tag);
             end
@@ -837,10 +836,10 @@ module cci_mpf_svc_vtp_do_pt_walk
             begin
                 $display("VTP SVC %0t: TLB fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x), %0s%0s",
                          $time,
-                         {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlb_if.fillVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
-                         {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlb_if.fillPA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {tlb_if.fillVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.fillVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
+                         {tlb_if.fillPA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.fillPA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0)},
                          (tlb_if.fillBigPage ? "2MB" : "4KB"),
                          (tlb_if.fillNotPresent ? " [NOT PRESENT]" : ""));
             end
@@ -849,14 +848,16 @@ module cci_mpf_svc_vtp_do_pt_walk
     end
 
     // Detect errors
+    // synthesis translate_off
     always_ff @(posedge clk)
     begin
         if (! reset)
         begin
             assert (! pt_walk.rspEn || ! pt_walk.rspNotPresent || pt_walk.rspIsSpeculative) else
-                $fatal("cci_mpf_svc_vtp: VA 0x%x not present in page table",
-                       {pt_walk.rspVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                $fatal(2, "** ERROR ** %m: VA 0x%x not present in page table",
+                       {pt_walk.rspVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
         end
     end
+    // synthesis translate_on
 
-endmodule // cci_mpf_svc_vtp_do_pt_walk
+endmodule // mpf_svc_vtp_do_pt_walk

@@ -32,16 +32,18 @@
 // Instantiate the VTP service and page translation engine.
 //
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
-`include "cci_mpf_shim_vtp.vh"
-`include "cci_mpf_config.vh"
+`include "mpf_vtp.vh"
 
 
-module cci_mpf_svc_vtp_wrapper
+module mpf_svc_vtp
   #(
-    parameter ENABLE_VTP = 0,
+    // When ENABLE_VTP is set to 0 no VTP service is instantiated and the
+    // pt_fim and gen_csr_if ports are tied off.
+    parameter ENABLE_VTP = 1,
+
+    // Number of translation ports (vtp_ports below). Each port is a
+    // pipeline with a private translation cache. Misses are serviced
+    // by a shared TLB.
     parameter N_VTP_PORTS = 0,
 
     // Two implementations of physical to virtual page translation are
@@ -59,31 +61,80 @@ module cci_mpf_svc_vtp_wrapper
     input  logic clk,
     input  logic reset,
 
-    // Client connections to the server
-    cci_mpf_shim_vtp_svc_if.server vtp_svc[N_VTP_PORTS],
+    // Translations ports. Each port has a private L1 cache. Misses
+    // are routed internally to a shared L2 TLB and, if necessary,
+    // to a miss handler that queries the page table.
+    mpf_vtp_port_if.to_master vtp_ports[N_VTP_PORTS],
 
     // FIM interface for host I/O
-    cci_mpf_shim_vtp_pt_fim_if.pt_walk pt_fim,
+    mpf_vtp_pt_host_if.pt_walk pt_fim,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs,
-    cci_mpf_csrs.vtp_events vtp_events,
-    cci_mpf_csrs.vtp_events_pt_walk pt_events
+    mpf_services_gen_csr_if.to_master gen_csr_if
     );
 
     genvar p;
     generate
         if (ENABLE_VTP)
         begin : v_to_p
+            mpf_vtp_csrs_if vtp_csrs();
+            always_comb
+            begin
+                vtp_csrs.vtp_out_mode = '0;
+                vtp_csrs.vtp_out_mode.no_hw_page_walker = (VTP_PT_MODE != "HARDWARE_WALKER");
+                vtp_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
+            end
+
+            mpf_vtp_csr
+              #(
+                .ENABLE_VTP(ENABLE_VTP)
+                )
+              csr_mgr
+               (
+                .clk,
+                .reset,
+                .gen_csr_if,
+                .csrs(vtp_csrs),
+                .events(vtp_csrs)
+                );
+
+            mpf_vtp_l2_if vtp_l2_ports[N_VTP_PORTS] ();
+
+            mpf_svc_vtp_l1
+              #(
+                .CTX_NUMBER(0)
+                )
+              l1_c0
+               (
+                .clk,
+                .reset,
+                .vtp_port(vtp_ports[0]),
+                .vtp_svc(vtp_l2_ports[0]),
+                .csrs(vtp_csrs)
+                );
+
+            mpf_svc_vtp_l1
+              #(
+                .CTX_NUMBER(1)
+                )
+              l1_c1
+               (
+                .clk,
+                .reset,
+                .vtp_port(vtp_ports[1]),
+                .vtp_svc(vtp_l2_ports[1]),
+                .csrs(vtp_csrs)
+                );
+
             //
             // Deduplicate back-to-back requests for the same page coming
             // from a single client.
             //
-            cci_mpf_shim_vtp_svc_if vtp_svc_dedup[N_VTP_PORTS]();
+            mpf_vtp_l2_if vtp_svc_dedup[N_VTP_PORTS]();
 
             for (p = 0; p < N_VTP_PORTS; p = p + 1)
             begin : d
-                cci_mpf_svc_vtp_dedup
+                mpf_svc_vtp_l2_dedup
                   #(
                     .DEBUG_MESSAGES(DEBUG_MESSAGES)
                     )
@@ -91,7 +142,7 @@ module cci_mpf_svc_vtp_wrapper
                    (
                     .clk,
                     .reset,
-                    .to_client(vtp_svc[p]),
+                    .to_client(vtp_l2_ports[p]),
                     .to_server(vtp_svc_dedup[p])
                     );
             end
@@ -99,26 +150,26 @@ module cci_mpf_svc_vtp_wrapper
             //
             // Instantiate the shared VTP service.
             //
-            cci_mpf_shim_vtp_pt_walk_if pt_walk();
+            mpf_vtp_pt_walk_if pt_walk();
 
-            cci_mpf_svc_vtp
+            mpf_svc_vtp_l2
               #(
                 .N_VTP_PORTS(N_VTP_PORTS),
                 .DEBUG_MESSAGES(DEBUG_MESSAGES)
                 )
-              vtp
+              vtp_l2
                (
                 .clk,
                 .reset,
                 .vtp_svc(vtp_svc_dedup),
                 .pt_walk,
-                .csrs,
-                .events(vtp_events)
+                .csrs(vtp_csrs),
+                .events(vtp_csrs)
                 );
 
             if (VTP_PT_MODE == "HARDWARE_WALKER")
             begin
-                cci_mpf_svc_vtp_pt_walk
+                mpf_svc_vtp_pt_walk
                   #(
                     .DEBUG_MESSAGES(DEBUG_MESSAGES)
                     )
@@ -128,13 +179,13 @@ module cci_mpf_svc_vtp_wrapper
                     .reset,
                     .pt_walk,
                     .pt_fim,
-                    .csrs,
-                    .events(pt_events)
+                    .csrs(vtp_csrs),
+                    .events(vtp_csrs)
                 );
             end
             else if (VTP_PT_MODE == "SOFTWARE_SERVICE")
             begin
-                cci_mpf_svc_vtp_pt_sw
+                mpf_svc_vtp_pt_sw
                   #(
                     .DEBUG_MESSAGES(DEBUG_MESSAGES)
                     )
@@ -144,8 +195,8 @@ module cci_mpf_svc_vtp_wrapper
                     .reset,
                     .pt_walk,
                     .pt_fim,
-                    .csrs,
-                    .events(pt_events)
+                    .csrs(vtp_csrs),
+                    .events(vtp_csrs)
                 );
             end
             else
@@ -161,7 +212,21 @@ module cci_mpf_svc_vtp_wrapper
             // Tie off page table walker
             assign pt_fim.readEn = 1'b0;
             assign pt_fim.writeEn = 1'b0;
+
+            // Tie off the external CSR interface. Index 0 is the DFH
+            // and must be present in case it is still used in a CSR chain.
+            // All other registers (especially the BBB UUID) are driven
+            // to zero.
+            always_ff @(posedge clk)
+            begin
+                gen_csr_if.rd_rsp_valid <= gen_csr_if.rd_req_en;
+
+                if ((|(gen_csr_if.csr_req_idx)))
+                    gen_csr_if.rd_data <= '0;
+                else
+                    gen_csr_if.rd_data <= gen_csr_if.dfh_value;
+            end
         end
     endgenerate
 
-endmodule // cci_mpf_svc_vtp_wrapper
+endmodule // mpf_svc_vtp

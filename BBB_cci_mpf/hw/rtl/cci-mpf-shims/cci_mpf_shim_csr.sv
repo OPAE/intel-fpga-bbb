@@ -77,7 +77,8 @@ module cci_mpf_shim_csr
 
     // CSR connections to other shims
     cci_mpf_csrs.csr csrs,
-    cci_mpf_csrs.csr_events events
+    cci_mpf_csrs.csr_events events,
+    mpf_services_gen_csr_if.to_slave vtp_csrs
     );
 
     assign afu.reset = fiu.reset;
@@ -221,10 +222,7 @@ module cci_mpf_shim_csr
         .rd_valid(vtp_rd_valid),
         .rd_data(vtp_rd_data),
 
-        .vtp_out_mode(csrs.vtp_out_mode),
-        .vtp_ctrl(csrs.vtp_ctrl),
-        .vtp_tlb_events(events.vtp_tlb_events),
-        .vtp_pt_walk_events(events.vtp_pt_walk_events)
+        .gen_csr_if(vtp_csrs)
         );
 
 
@@ -468,22 +466,6 @@ module cci_mpf_shim_csr
 endmodule // cci_mpf_shim_csr
 
 
-// Construct a feature header for a BBB
-function automatic t_ccip_dfh mpfCsrGenDFH(t_ccip_feature_next nextFeature,
-                                           t_ccip_feature_id instance_id,
-                                           logic is_eol);
-    t_ccip_dfh dfh;
-
-    dfh = ccip_dfh_defaultDFH();
-    dfh.f_type = eFTYP_BBB;
-    dfh.id = instance_id;
-    dfh.nextFeature = nextFeature;
-    dfh.eol = is_eol;
-
-    return dfh;
-endfunction
-
-
 // Standard prolog in shim CSR handlers. Define the UUID and some MMIO
 // address parsing state.
 `define MPF_CSR_SHIM_STD_PROLOG(BBB_UUID) \
@@ -587,112 +569,31 @@ module cci_mpf_shim_csr_vtp
     output logic rd_valid,
     output logic [63:0] rd_data,
 
-    input  t_cci_mpf_vtp_csr_out_mode vtp_out_mode,
-    output t_cci_mpf_vtp_ctrl vtp_ctrl,
-    input  t_cci_mpf_vtp_tlb_events vtp_tlb_events,
-    input  t_cci_mpf_vtp_pt_walk_events vtp_pt_walk_events
+    mpf_services_gen_csr_if.to_slave gen_csr_if
     );
+
+    //
+    // VTP CSRs are managed inside the MPF VTP service. Decode MMIO addresses
+    // and pass requests to VTP. The address passed to VTP is already decoded.
+    // It is just the offset of the CSR within VTP's region.
+    //
 
     `MPF_CSR_SHIM_STD_PROLOG(128'hc8a2982f_ff96_42bf_a705_45727f501901);
 
-    // Event counters
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_tlb_events, hit_4kb);
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_tlb_events, miss_4kb);
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_tlb_events, hit_2mb);
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_tlb_events, miss_2mb);
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_pt_walk_events, busy);
-    `MPF_CSR_STAT_ACCUM_GROUP(54, vtp_pt_walk_events, failed_translation);
+    // The DFH is generated here since the code here knows the MMIO address
+    // space layout and VTP does not.
+    assign gen_csr_if.dfh_value =
+        ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                        MPF_INSTANCE_ID,
+                        MMIO_NEXT_ADDR == 0);
 
-    // Select a register to read
-    always_ff @(posedge clk)
-    begin
-        rd_valid <= shim_addr_match;
+    assign gen_csr_if.csr_req_idx = mmio_addr_local;
+    assign gen_csr_if.rd_req_en = shim_addr_match;
+    assign gen_csr_if.wr_req_en = shim_addr_match && mmioWrValid;
+    assign gen_csr_if.wr_data = wr_data;
 
-        case (mmio_addr_local)
-            // DFH
-          LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
-            // BBB ID
-          LOCAL_ADDR_BITS'(1):
-            rd_data <= shim_uuid[63:0];
-          LOCAL_ADDR_BITS'(2):
-            rd_data <= shim_uuid[127:64];
-
-            // CSRs
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_MODE):
-            rd_data <= 64'(vtp_out_mode);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_HITS):
-            rd_data <= 64'(vtp_tlb_events_hit_4kb_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_MISSES):
-            rd_data <= 64'(vtp_tlb_events_miss_4kb_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_2MB_TLB_NUM_HITS):
-            rd_data <= 64'(vtp_tlb_events_hit_2mb_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_2MB_TLB_NUM_MISSES):
-            rd_data <= 64'(vtp_tlb_events_miss_2mb_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_PT_WALK_BUSY_CYCLES):
-            rd_data <= 64'(vtp_pt_walk_events_busy_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_FAILED_TRANSLATIONS):
-            rd_data <= 64'(vtp_pt_walk_events_failed_translation_accum);
-          `MPF_CSR_IDX(CCI_MPF_VTP_CSR_STAT_PT_WALK_LAST_VADDR):
-            rd_data <= 64'(vtp_pt_walk_events.last_vaddr);
-
-          default:
-            rd_data <= 64'b0;
-        endcase
-    end
-
-    //
-    // CSR writes
-    //
-    always_ff @(posedge clk)
-    begin
-        if (shim_wr_valid &&
-            (mmio_addr_local_q == `MPF_CSR_IDX(CCI_MPF_VTP_CSR_MODE)))
-        begin
-            vtp_ctrl.in_mode <= t_cci_mpf_vtp_csr_in_mode'(wr_data_q);
-        end
-        else
-        begin
-            // Invalidate page table held only one cycle
-            vtp_ctrl.in_mode.inval_translation_cache <= 1'b0;
-        end
-
-        if (shim_wr_valid &&
-            (mmio_addr_local_q == `MPF_CSR_IDX(CCI_MPF_VTP_CSR_PAGE_TABLE_PADDR)))
-        begin
-            vtp_ctrl.page_table_base <= t_cci_clAddr'(wr_data_q);
-            vtp_ctrl.page_table_base_valid <= 1'b1;
-        end
-
-        // Inval page held only one cycle
-        vtp_ctrl.inval_page <= t_cci_clAddr'(wr_data_q);
-        vtp_ctrl.inval_page_valid <=
-            shim_wr_valid &&
-            (mmio_addr_local_q == `MPF_CSR_IDX(CCI_MPF_VTP_CSR_INVAL_PAGE_VADDR));
-
-        // Page translation service ring buffer (held only one cycle)
-        vtp_ctrl.page_translation_buf_paddr <= t_cci_clAddr'(wr_data_q);
-        vtp_ctrl.page_translation_buf_paddr_valid <=
-            shim_wr_valid &&
-            (mmio_addr_local_q == `MPF_CSR_IDX(CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR));
-
-        // Page translation response (held only one cycle)
-        vtp_ctrl.page_translation_rsp <= t_cci_clAddr'(wr_data_q);
-        vtp_ctrl.page_translation_rsp_valid <=
-            shim_wr_valid &&
-            (mmio_addr_local_q == `MPF_CSR_IDX(CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP));
-
-        if (reset)
-        begin
-            vtp_ctrl.in_mode <= t_cci_mpf_vtp_csr_in_mode'(0);
-            vtp_ctrl.page_table_base_valid <= 1'b0;
-            vtp_ctrl.inval_page_valid <= 1'b0;
-            vtp_ctrl.page_translation_buf_paddr_valid <= 1'b0;
-            vtp_ctrl.page_translation_rsp_valid <= 1'b0;
-        end
-    end
+    assign rd_valid = gen_csr_if.rd_rsp_valid;
+    assign rd_data = gen_csr_if.rd_data;
 
 endmodule // cci_mpf_shim_csr_vtp
 
@@ -742,9 +643,9 @@ module cci_mpf_shim_csr_vc_map
         case (mmio_addr_local)
             // DFH
           LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
+            rd_data <= ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                                       MPF_INSTANCE_ID,
+                                       MMIO_NEXT_ADDR == 0);
             // BBB ID
           LOCAL_ADDR_BITS'(1):
             rd_data <= shim_uuid[63:0];
@@ -830,9 +731,9 @@ module cci_mpf_shim_csr_wro
         case (mmio_addr_local)
             // DFH
           LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
+            rd_data <= ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                                       MPF_INSTANCE_ID,
+                                       MMIO_NEXT_ADDR == 0);
             // BBB ID
           LOCAL_ADDR_BITS'(1):
             rd_data <= shim_uuid[63:0];
@@ -912,9 +813,9 @@ module cci_mpf_shim_csr_rsp_order
         case (mmio_addr_local)
             // DFH
           LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
+            rd_data <= ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                                       MPF_INSTANCE_ID,
+                                       MMIO_NEXT_ADDR == 0);
             // BBB ID
           LOCAL_ADDR_BITS'(1):
             rd_data <= shim_uuid[63:0];
@@ -970,9 +871,9 @@ module cci_mpf_shim_csr_latency_qos
         case (mmio_addr_local)
             // DFH
           LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
+            rd_data <= ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                                       MPF_INSTANCE_ID,
+                                       MMIO_NEXT_ADDR == 0);
             // BBB ID
           LOCAL_ADDR_BITS'(1):
             rd_data <= shim_uuid[63:0];
@@ -1046,9 +947,9 @@ module cci_mpf_shim_csr_pwrite
         case (mmio_addr_local)
             // DFH
           LOCAL_ADDR_BITS'(0):
-            rd_data <= mpfCsrGenDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
-                                    MPF_INSTANCE_ID,
-                                    MMIO_NEXT_ADDR == 0);
+            rd_data <= ccip_dfh_genDFH(MMIO_NEXT_ADDR - MMIO_SHIM_ADDR - DFH_MMIO_BASE_ADDR,
+                                       MPF_INSTANCE_ID,
+                                       MMIO_NEXT_ADDR == 0);
             // BBB ID
           LOCAL_ADDR_BITS'(1):
             rd_data <= shim_uuid[63:0];

@@ -38,7 +38,6 @@
 `include "cci_mpf_csrs.vh"
 `include "cci_mpf_shim_edge.vh"
 `include "cci_mpf_shim_pwrite.vh"
-`include "cci_mpf_shim_vtp.vh"
 
 
 //
@@ -289,7 +288,7 @@ module cci_mpf
         )
       pwrite_lock();
 
-    cci_mpf_shim_vtp_pt_fim_if pt_fim();
+    mpf_vtp_pt_host_if pt_fim();
 
     cci_mpf_shim_edge_fiu
       #(
@@ -323,6 +322,16 @@ module cci_mpf
 
     cci_mpf_if stgm3_fiu_csrs (.clk);
 
+    // The VTP service manages its own CSR space. Connect the generic
+    // register read/write interface exported by VTP to the MPF MMIO CSR
+    // manager, which will forward MMIO events to the VTP service.
+    mpf_services_gen_csr_if
+      #(
+        .N_ENTRIES(mpf_vtp_pkg::MPF_VTP_CSR_N_ENTRIES),
+        .N_DATA_BITS(mpf_vtp_pkg::MPF_VTP_CSR_N_DATA_BITS)
+        )
+      vtp_gen_csrs();
+
     cci_mpf_shim_csr
       #(
         .MPF_INSTANCE_ID(MPF_INSTANCE_ID),
@@ -341,7 +350,8 @@ module cci_mpf
         .fiu(stgm2_mpf_fiu),
         .afu(stgm3_fiu_csrs),
         .csrs(mpf_csrs),
-        .events(mpf_csrs)
+        .events(mpf_csrs),
+        .vtp_csrs(vtp_gen_csrs)
         );
 
 
@@ -354,31 +364,22 @@ module cci_mpf
 
     localparam N_VTP_PORTS = 2;
 
-    cci_mpf_shim_vtp_svc_if vtp_svc_ports[N_VTP_PORTS] ();
+    mpf_vtp_port_if vtp_ports[N_VTP_PORTS] ();
 
-    always_comb
-    begin
-        mpf_csrs.vtp_out_mode = '0;
-        mpf_csrs.vtp_out_mode.no_hw_page_walker = (VTP_PT_MODE != "HARDWARE_WALKER");
-        mpf_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
-    end
-
-    cci_mpf_svc_vtp_wrapper
+    mpf_svc_vtp
       #(
         .ENABLE_VTP(ENABLE_VTP),
         .N_VTP_PORTS(N_VTP_PORTS),
         .VTP_PT_MODE(VTP_PT_MODE),
         .DEBUG_MESSAGES(0)
         )
-      vtp_wrapper
+      vtp
        (
         .clk,
         .reset,
-        .vtp_svc(vtp_svc_ports),
+        .vtp_ports,
         .pt_fim,
-        .csrs(mpf_csrs),
-        .vtp_events(mpf_csrs),
-        .pt_events(mpf_csrs)
+        .gen_csr_if(vtp_gen_csrs)
         );
 
 
@@ -416,7 +417,7 @@ module cci_mpf
         .pwrite,
         .pwrite_afu(pwrite),
         .pwrite_lock,
-        .vtp_svc(vtp_svc_ports[0:1])
+        .vtp_ports
         );
 
 

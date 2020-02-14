@@ -36,14 +36,10 @@
 // be a performance problem without this filter.
 //
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
-`include "cci_mpf_shim_vtp.vh"
-`include "cci_mpf_config.vh"
+`include "mpf_vtp.vh"
 
 
-module cci_mpf_svc_vtp_dedup
+module mpf_svc_vtp_l2_dedup
   #(
     parameter DEBUG_MESSAGES = 0
     )
@@ -51,8 +47,8 @@ module cci_mpf_svc_vtp_dedup
     input  logic clk,
     input  logic reset,
 
-    cci_mpf_shim_vtp_svc_if.server to_client,
-    cci_mpf_shim_vtp_svc_if.client to_server
+    mpf_vtp_l2_if.server to_client,
+    mpf_vtp_l2_if.client to_server
     );
 
     // ====================================================================
@@ -64,7 +60,7 @@ module cci_mpf_svc_vtp_dedup
     logic next_req_valid;
     logic next_req_deq_en;
     logic next_req_addr_matches_prev;
-    t_cci_mpf_shim_vtp_lookup_req next_req;
+    t_mpf_vtp_lookup_req next_req;
 
     assign next_req_deq_en = to_server.lookupRdy && next_req_valid;
 
@@ -97,7 +93,7 @@ module cci_mpf_svc_vtp_dedup
     // Incoming request FIFO
     cci_mpf_prim_fifo2
       #(
-        .N_DATA_BITS(1 + $bits(t_cci_mpf_shim_vtp_lookup_req))
+        .N_DATA_BITS(1 + $bits(t_mpf_vtp_lookup_req))
         )
       req_fifo
        (
@@ -119,14 +115,14 @@ module cci_mpf_svc_vtp_dedup
     //
 
     logic cur_req_valid;
-    t_cci_mpf_shim_vtp_req_tag cur_req_tag;
-    t_cci_mpf_shim_vtp_req_tag cur_req_tail;
+    t_mpf_vtp_req_tag cur_req_tag;
+    t_mpf_vtp_req_tag cur_req_tail;
 
     logic next_req_is_dup;
     assign next_req_is_dup = cur_req_valid && next_req_addr_matches_prev;
 
-    t_cci_mpf_shim_vtp_req_tag cur_rsp_tag, next_rsp_tag;
-    t_cci_mpf_shim_vtp_req_tag rsp_tail_ptr_raddr, rsp_tail_ptr_rdata;
+    t_mpf_vtp_req_tag cur_rsp_tag, next_rsp_tag;
+    t_mpf_vtp_req_tag rsp_tail_ptr_raddr, rsp_tail_ptr_rdata;
 
     // Two memories are used to track duplicate references. The next pointer forms
     // a linked list of duplicates, indexed by unique tags. The tail pointer is
@@ -135,8 +131,8 @@ module cci_mpf_svc_vtp_dedup
     // in another linked list simplifies write port management.
     cci_mpf_prim_lutram
       #(
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_req_tag))
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(t_mpf_vtp_req_tag))
         )
       next_ptr
        (
@@ -155,8 +151,8 @@ module cci_mpf_svc_vtp_dedup
     // duplicates and are forwarded to the server.
     cci_mpf_prim_lutram
       #(
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_req_tag))
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(t_mpf_vtp_req_tag))
         )
       tail_ptr
        (
@@ -216,14 +212,14 @@ module cci_mpf_svc_vtp_dedup
     //
     // ====================================================================
 
-    t_cci_mpf_shim_vtp_lookup_rsp rsp_fifo_first;
+    t_mpf_vtp_lookup_rsp rsp_fifo_first;
     logic rsp_fifo_valid;
     logic rsp_fifo_deq_en;
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_rsp)),
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_rsp)),
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
         .REGISTER_OUTPUT(1),
         .BYPASS_TO_REGISTER(1)
         )
@@ -244,8 +240,8 @@ module cci_mpf_svc_vtp_dedup
         );
 
     logic cur_rsp_valid;
-    t_cci_mpf_shim_vtp_lookup_rsp cur_rsp;
-    t_cci_mpf_shim_vtp_req_tag cur_rsp_dedup_tail_tag;
+    t_mpf_vtp_lookup_rsp cur_rsp;
+    t_mpf_vtp_req_tag cur_rsp_dedup_tail_tag;
 
     assign cur_rsp_tag = cur_rsp.tag;
     assign rsp_tail_ptr_raddr = rsp_fifo_first.tag;
@@ -313,7 +309,7 @@ module cci_mpf_svc_vtp_dedup
                 $display("%m VTP DEDUP: %0t REQ new tag 0x%x, VA 0x%x",
                          $time,
                          to_server.lookupReq.tag,
-                         {to_server.lookupReq.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {to_server.lookupReq.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
             end
 
             if (next_req_deq_en && next_req_is_dup)
@@ -322,7 +318,7 @@ module cci_mpf_svc_vtp_dedup
                          $time,
                          next_req.tag,
                          cur_req_tail,
-                         {next_req.pageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {next_req.pageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
             end
 
             if (rsp_dedup_active)
@@ -330,18 +326,17 @@ module cci_mpf_svc_vtp_dedup
                 $display("%m VTP DEDUP: %0t RESP duplicate tag 0x%x, PA 0x%x",
                          $time,
                          next_rsp_tag,
-                         {cur_rsp.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {cur_rsp.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
             end
             else if (rsp_fifo_valid)
             begin
                 $display("%m VTP DEDUP: %0t RESP new tag 0x%x, PA 0x%x",
                          $time,
                          rsp_fifo_first.tag,
-                         {rsp_fifo_first.pagePA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                         {rsp_fifo_first.pagePA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
             end
         end
     end
     // synthesis translate_on
 
-endmodule // cci_mpf_svc_vtp_dedup
-
+endmodule // mpf_svc_vtp_dedup

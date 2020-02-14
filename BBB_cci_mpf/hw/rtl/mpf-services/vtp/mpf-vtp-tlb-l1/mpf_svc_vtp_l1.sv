@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2020, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,344 +28,14 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+//
+// VTP level 1 private translation port. Each VTP translation port exposed to the
+// AFU from the VTP service is an instance of mpf_vtp_tlb_l1.
+//
+
 `include "cci_mpf_if.vh"
-`include "cci_mpf_shim_vtp.vh"
-
+`include "mpf_vtp.vh"
 `include "cci_mpf_config.vh"
-
-//
-// Virtual to physical pipeline shim performs address translation in
-// an AFU -> FIU stream by forwarding translation requests to the VTP
-// service.
-//
-
-module cci_mpf_shim_vtp
-  #(
-    parameter AFU_BUF_THRESHOLD = CCI_TX_ALMOST_FULL_THRESHOLD + 4
-    )
-   (
-    input  logic clk,
-
-    // Connection toward the QA platform.  Reset comes in here.
-    cci_mpf_if.to_fiu fiu,
-
-    // Connections toward user code.
-    cci_mpf_if.to_afu afu,
-
-    // VTP service translation ports - one for each channel
-    cci_mpf_shim_vtp_svc_if.client vtp_svc[0 : 1],
-
-    // CSRs
-    cci_mpf_csrs.vtp csrs
-    );
-
-    logic reset = 1'b1;
-    assign afu.reset = reset;
-    always @(posedge clk)
-    begin
-        reset <= fiu.reset;
-    end
-
-    localparam DEBUG_MESSAGES = 0;
-
-    // ====================================================================
-    //
-    //  Channel 0 (reads)
-    //
-    // ====================================================================
-
-    logic c0chan_outValid;
-    t_if_cci_mpf_c0_Tx c0chan_outTx;
-    logic c0chan_outError;
-    t_tlb_4kb_pa_page_idx c0chan_outPhysAddr;
-    logic c0chan_outAddrIsBigPage;
-    logic error_fifo_almostFull;
-
-    // Pass TX requests through a translation pipeline
-    cci_mpf_shim_vtp_chan_lookup
-      #(
-        .THRESHOLD(AFU_BUF_THRESHOLD),
-        .CTX_NUMBER(0),
-        .N_CTX_BITS($bits(t_if_cci_mpf_c0_Tx)),
-        .N_LOCAL_4KB_CACHE_ENTRIES(`VTP_N_C0_L1_4KB_CACHE_ENTRIES),
-        .N_LOCAL_2MB_CACHE_ENTRIES(`VTP_N_C0_L1_2MB_CACHE_ENTRIES),
-        .DEBUG_MESSAGES(DEBUG_MESSAGES)
-        )
-      c0_vtp
-       (
-        .clk,
-        .reset,
-
-        .almostFullToAFU(afu.c0TxAlmFull),
-        .cTxValid(cci_mpf_c0TxIsValid(afu.c0Tx)),
-        .cTx(afu.c0Tx),
-        .cTxAddrIsVirtual(cci_mpf_c0_getReqAddrIsVirtual(afu.c0Tx.hdr)),
-        .cTxReqIsSpeculative(cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu.c0Tx)),
-        .cTxReqIsOrdered(1'b0),
-
-        .cTxValid_out(c0chan_outValid),
-        .cTx_out(c0chan_outTx),
-        .cTxError_out(c0chan_outError),
-        .cTxPhysAddr_out(c0chan_outPhysAddr),
-        .cTxAddrIsBigPage_out(c0chan_outAddrIsBigPage),
-        .almostFullFromFIU(fiu.c0TxAlmFull || error_fifo_almostFull),
-
-        .vtp_svc(vtp_svc[0]),
-        .csrs
-        );
-
-    // Route translated requests to the FIU
-    always_ff @(posedge clk)
-    begin
-        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_outValid && ! c0chan_outError);
-
-        // Set the physical address. The page comes from the TLB and the
-        // offset from the original memory request.
-        fiu.c0Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        if (cci_mpf_c0_getReqAddrIsVirtual(c0chan_outTx.hdr))
-        begin
-            if (c0chan_outAddrIsBigPage)
-            begin
-                // 2MB page
-                fiu.c0Tx.hdr.base.address <=
-                    t_cci_clAddr'({ vtp4kbTo2mbPA(c0chan_outPhysAddr),
-                                    vtp2mbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
-            end
-            else
-            begin
-                // 4KB page
-                fiu.c0Tx.hdr.base.address <=
-                    t_cci_clAddr'({ c0chan_outPhysAddr,
-                                    vtp4kbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
-            end
-
-`ifdef CCIP_ENCODING_HAS_RDLSPEC
-            // If the read request is speculative and the FIU doesn't support
-            // speculation (e.g. no IOMMU) then make the request non-speculative.
-            // At this point it has already passed VTP and a valid translation
-            // was found.
-            if (cci_mpf_c0TxIsSpecReadReq_noCheckValid(c0chan_outTx) &&
-                ! (ccip_cfg_pkg::C0_REQ_RDLSPEC_S & ccip_cfg_pkg::C0_SUPPORTED_REQS))
-            begin
-                fiu.c0Tx.hdr.base.req_type[1] <= 1'b0;
-            end
-`endif
-        end
-    end
-
-
-    //
-    // Responses
-    //
-
-    // There are two sources of read responses: the normal path from the FIU and the
-    // error path from failed translations of speculative loads. The FIFO holds
-    // speculative failures and will be used to generate read error responses on
-    // cycles when there is no FIU response.
-
-    t_cci_c0_RspMemHdr c0_error_hdr_in, c0_error_hdr;
-    logic c0_deq_error_hdr;
-    logic c0_error_hdr_notEmpty;
-    t_cci_clNum c0_error_hdr_cl_num;
-    logic c0_error_last_cl;
-
-    always_comb
-    begin
-        c0_error_hdr_in = cci_c0_genRspHdr(eRSP_RDLINE, c0chan_outTx.hdr.base.mdata);
-        // Store the number of responses (lines) needed in the cl_len field.
-        c0_error_hdr_in.cl_num = t_cci_clLen'(c0chan_outTx.hdr.base.cl_len);
-
-        c0_error_hdr_in = cci_mpf_c0Rx_updEOP(c0_error_hdr_in, c0_error_last_cl);
-
-        // Signal the translation error
-`ifdef CCIP_ENCODING_HAS_RDLSPEC
-        c0_error_hdr_in.error = 1'b1;
-`endif
-    end
-
-    cci_mpf_prim_fifo_lutram
-      #(
-        .N_DATA_BITS($bits(t_cci_c0_RspMemHdr)),
-        .N_ENTRIES(8),
-        .THRESHOLD(4),
-        .REGISTER_OUTPUT(1)
-        )
-      error_fifo
-       (
-        .clk,
-        .reset(reset),
-
-        .enq_en(c0chan_outValid && c0chan_outError),
-        .enq_data(c0_error_hdr_in),
-        .notFull(),
-        .almostFull(error_fifo_almostFull),
-
-        .first(c0_error_hdr),
-        .deq_en(c0_deq_error_hdr),
-        .notEmpty(c0_error_hdr_notEmpty)
-        );
-
-
-    // Track cl_num for multi-line speculative error responses
-    always_ff @(posedge clk)
-    begin
-        if (reset || c0_deq_error_hdr)
-        begin
-            c0_error_hdr_cl_num <= t_cci_clNum'(0);
-        end
-        else if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
-        begin
-            // Error response generated this cycle
-            c0_error_hdr_cl_num <= c0_error_hdr_cl_num + t_cci_clNum'(1);
-        end
-    end
-
-    // The standard c0 response path just forwards messages from the FIU.
-    // When a speculation error is needed it will be injected in cycles
-    // that aren't already occupied by FIU messages.
-    always_ff @(posedge clk)
-    begin
-        afu.c0Rx <= fiu.c0Rx;
-
-        if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
-        begin
-            afu.c0Rx.rspValid <= 1'b1;
-            afu.c0Rx.hdr <= c0_error_hdr;
-            afu.c0Rx.hdr.cl_num <= c0_error_hdr_cl_num;
-        end
-    end
-
-    // Done with the speculation error when responses are generated
-    // for all lines.
-    assign c0_error_last_cl = (c0_error_hdr_cl_num == c0_error_hdr.cl_num);
-    assign c0_deq_error_hdr = c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx) &&
-                              c0_error_last_cl;
-
-
-    //
-    // Debugging
-    //
-    always_ff @(posedge clk)
-    begin
-        if (DEBUG_MESSAGES && ! reset)
-        begin
-            if (c0chan_outValid && c0chan_outError)
-            begin
-                $display("%m VTP: %0t Speculative load translation error from VA 0x%x",
-                         $time,
-                         {cci_mpf_c0_getReqAddr(c0chan_outTx.hdr), 6'b0});
-            end
-        end
-    end
-
-
-    // ====================================================================
-    //
-    //  Channel 1 (writes)
-    //
-    // ====================================================================
-
-    // Block order-sensitive requests until all previous translations are
-    // complete so that they aren't reordered in the VTP channel pipeline.
-    logic c1_order_sensitive;
-    assign c1_order_sensitive = cci_mpf_c1TxIsWriteFenceReq(afu.c1Tx) ||
-                                cci_mpf_c1TxIsInterruptReq(afu.c1Tx);
-
-    logic c1chan_outValid;
-    t_if_cci_mpf_c1_Tx c1chan_outTx;
-    logic c1chan_outError;
-    t_tlb_4kb_pa_page_idx c1chan_outPhysAddr;
-    logic c1chan_outAddrIsBigPage;
-
-    // Pass TX requests through a translation pipeline
-    cci_mpf_shim_vtp_chan_lookup
-      #(
-        .THRESHOLD(AFU_BUF_THRESHOLD),
-        .CTX_NUMBER(1),
-        .N_CTX_BITS($bits(t_if_cci_mpf_c1_Tx)),
-        .N_LOCAL_4KB_CACHE_ENTRIES(`VTP_N_C1_L1_4KB_CACHE_ENTRIES),
-        .N_LOCAL_2MB_CACHE_ENTRIES(`VTP_N_C1_L1_2MB_CACHE_ENTRIES),
-        .DEBUG_MESSAGES(DEBUG_MESSAGES)
-        )
-      c1_vtp
-       (
-        .clk,
-        .reset,
-
-        .almostFullToAFU(afu.c1TxAlmFull),
-        .cTxValid(cci_mpf_c1TxIsValid(afu.c1Tx)),
-        .cTx(afu.c1Tx),
-        .cTxAddrIsVirtual(cci_mpf_c1_getReqAddrIsVirtual(afu.c1Tx.hdr)),
-        .cTxReqIsSpeculative(1'b0),
-        .cTxReqIsOrdered(c1_order_sensitive),
-
-        .cTxValid_out(c1chan_outValid),
-        .cTx_out(c1chan_outTx),
-        .cTxError_out(c1chan_outError),
-        .cTxPhysAddr_out(c1chan_outPhysAddr),
-        .cTxAddrIsBigPage_out(c1chan_outAddrIsBigPage),
-        .almostFullFromFIU(fiu.c1TxAlmFull),
-
-        .vtp_svc(vtp_svc[1]),
-        .csrs
-        );
-
-    // Route translated requests to the FIU
-    always_ff @(posedge clk)
-    begin
-        fiu.c1Tx <= cci_mpf_c1TxMaskValids(c1chan_outTx, c1chan_outValid);
-
-        // Set the physical address. The page comes from the TLB and the
-        // offset from the original memory request.
-        fiu.c1Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        if (cci_mpf_c1_getReqAddrIsVirtual(c1chan_outTx.hdr))
-        begin
-            if (c1chan_outAddrIsBigPage)
-            begin
-                // 2MB page
-                fiu.c1Tx.hdr.base.address <=
-                    t_cci_clAddr'({ vtp4kbTo2mbPA(c1chan_outPhysAddr),
-                                    vtp2mbPageOffsetFromVA(cci_mpf_c1_getReqAddr(c1chan_outTx.hdr)) });
-            end
-            else
-            begin
-                // 4KB page
-                fiu.c1Tx.hdr.base.address <=
-                    t_cci_clAddr'({ c1chan_outPhysAddr,
-                                    vtp4kbPageOffsetFromVA(cci_mpf_c1_getReqAddr(c1chan_outTx.hdr)) });
-            end
-        end
-    end
-
-
-    //
-    // Responses
-    //
-    assign afu.c1Rx = fiu.c1Rx;
-
-
-    //
-    // Assertions
-    //
-    always_ff @(posedge clk)
-    begin
-        if (! reset)
-        begin
-            assert((c1chan_outValid == 1'b0) || (c1chan_outError == 1'b0)) else
-                $fatal(2, "cci_mpf_shim_vtp.sv: Store channel should never raise a speculative translation error");
-        end
-    end
-
-
-    // ====================================================================
-    //
-    //  MMIO (c2Tx)
-    //
-    // ====================================================================
-
-    assign fiu.c2Tx = afu.c2Tx;
-
-endmodule // cci_mpf_shim_vtp
 
 
 //
@@ -390,6 +60,62 @@ endmodule // cci_mpf_shim_vtp
         end \
         return vtp4kbPageIdxFromVA(addr); \
     endfunction // get_4kb_va_page_idx
+
+
+module mpf_svc_vtp_l1
+  #(
+    parameter THRESHOLD = CCI_TX_ALMOST_FULL_THRESHOLD,
+    parameter CTX_NUMBER = 0,
+    parameter N_LOCAL_4KB_CACHE_ENTRIES = `VTP_N_C0_L1_4KB_CACHE_ENTRIES,
+    parameter N_LOCAL_2MB_CACHE_ENTRIES = `VTP_N_C0_L1_2MB_CACHE_ENTRIES,
+    parameter DEBUG_MESSAGES = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    mpf_vtp_port_if.to_master vtp_port,
+
+    // Shared L2 translation service connection
+    mpf_vtp_l2_if.client vtp_svc,
+
+    // CSRs
+    mpf_vtp_csrs_if.vtp csrs
+    );
+
+    cci_mpf_shim_vtp_chan_lookup
+      #(
+        .THRESHOLD(THRESHOLD),
+        .CTX_NUMBER(CTX_NUMBER),
+        .N_CTX_BITS(1024),
+        .N_LOCAL_4KB_CACHE_ENTRIES(N_LOCAL_4KB_CACHE_ENTRIES),
+        .N_LOCAL_2MB_CACHE_ENTRIES(N_LOCAL_2MB_CACHE_ENTRIES),
+        .DEBUG_MESSAGES(DEBUG_MESSAGES)
+        )
+      vtp
+       (
+        .clk,
+        .reset,
+
+        .almostFullToAFU(vtp_port.almostFullToAFU),
+        .cTxValid(vtp_port.cTxValid),
+        .cTx(vtp_port.cTx),
+        .cTxAddrIsVirtual(vtp_port.cTxAddrIsVirtual),
+        .cTxReqIsSpeculative(vtp_port.cTxReqIsSpeculative),
+        .cTxReqIsOrdered(vtp_port.cTxReqIsOrdered),
+
+        .cTxValid_out(vtp_port.cTxValid_out),
+        .cTx_out(vtp_port.cTx_out),
+        .cTxError_out(vtp_port.cTxError_out),
+        .cTxPhysAddr_out(vtp_port.cTxPhysAddr_out),
+        .cTxAddrIsBigPage_out(vtp_port.cTxAddrIsBigPage_out),
+        .almostFullFromFIU(vtp_port.almostFullFromFIU),
+
+        .vtp_svc,
+        .csrs
+        );
+
+endmodule // mpf_svc_vtp_l1
 
 
 //
@@ -434,10 +160,10 @@ module cci_mpf_shim_vtp_chan_lookup
     input  logic almostFullFromFIU,
 
     // Translation service connection
-    cci_mpf_shim_vtp_svc_if.client vtp_svc,
+    mpf_vtp_l2_if.client vtp_svc,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
     // Register incoming almost full for timing. The FIFOs below respond quickly
@@ -672,7 +398,7 @@ module cci_mpf_shim_vtp_chan_l1_lookup
     input  en_insert_2mb,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
     // Instantiate a function that can parse cTx as the proper type. The macro
@@ -862,10 +588,10 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     output logic en_insert_2mb,
 
     // Translation service connection
-    cci_mpf_shim_vtp_svc_if.client vtp_svc,
+    mpf_vtp_l2_if.client vtp_svc,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
     // Instantiate a function that can parse cTx as the proper type. The macro
@@ -878,8 +604,8 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     //
     // ====================================================================
 
-    t_cci_mpf_shim_vtp_req_tag allocIdx;
-    t_cci_mpf_shim_vtp_req_tag freeIdx;
+    t_mpf_vtp_req_tag allocIdx;
+    t_mpf_vtp_req_tag freeIdx;
     logic heap_notFull;
 
     logic lookup_rdy;
@@ -893,7 +619,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // Heap index manager
     cci_mpf_prim_heap_ctrl
       #(
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS)
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS)
         )
       heap_ctrl
        (
@@ -911,7 +637,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
     // Heap data is written in cycle 1. It is available in cycle 0 but
     // not needed yet, so waiting a cycle simplifies timing.
-    t_cci_mpf_shim_vtp_req_tag allocIdx_q;
+    t_mpf_vtp_req_tag allocIdx_q;
     logic cTxValid_q;
     logic [N_CTX_BITS-1 : 0] cTx_q;
     logic cTxReqIsSpeculative_q;
@@ -924,12 +650,12 @@ module cci_mpf_shim_vtp_chan_l2_lookup
         cTxReqIsSpeculative_q <= cTxReqIsSpeculative;
     end
 
-    t_cci_mpf_shim_vtp_req_tag readIdx;
+    t_mpf_vtp_req_tag readIdx;
     logic [N_CTX_BITS-1 : 0] read_cTx_out;
 
     cci_mpf_prim_lutram
       #(
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
         .N_DATA_BITS(N_CTX_BITS)
         )
       heap_ctx
@@ -960,7 +686,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // In order to avoid caching stale data we set a poison bit on
     // L2 lookups that are in flight when an invalidation request arrives.
     // Poisoned L2 responses are not stored in the L1 cache.
-    logic [CCI_MPF_SHIM_VTP_MAX_SVC_REQS-1 : 0] heap_entry_not_poisoned;
+    logic [MPF_VTP_MAX_SVC_REQS-1 : 0] heap_entry_not_poisoned;
 
     always_ff @(posedge clk)
     begin
@@ -971,7 +697,7 @@ module cci_mpf_shim_vtp_chan_l2_lookup
 
         if (reset || csrs.vtp_ctrl.inval_page_valid)
         begin
-            heap_entry_not_poisoned <= CCI_MPF_SHIM_VTP_MAX_SVC_REQS'(0);
+            heap_entry_not_poisoned <= MPF_VTP_MAX_SVC_REQS'(0);
         end
     end
 
@@ -1000,16 +726,16 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     // TLB response timing is latency insensitive.  This FIFO collects
     // responses until they can be merged into the pipeline.
     //
-    t_cci_mpf_shim_vtp_lookup_rsp tlb_lookup_rsp;
-    t_cci_mpf_shim_vtp_lookup_rsp tlb_lookup_rsp_q;
+    t_mpf_vtp_lookup_rsp tlb_lookup_rsp;
+    t_mpf_vtp_lookup_rsp tlb_lookup_rsp_q;
     logic tlb_lookup_rsp_rdy;
     logic tlb_lookup_deq;
     logic tlb_lookup_deq_q;
 
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS($bits(t_cci_mpf_shim_vtp_lookup_rsp)),
-        .N_ENTRIES(CCI_MPF_SHIM_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_rsp)),
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
         .REGISTER_OUTPUT(1),
         // Bypass to save a cycle on c0 (reads), don't bother for writes.
         .BYPASS_TO_REGISTER((CTX_NUMBER == 0) ? 1 : 0)
@@ -1101,8 +827,8 @@ module cci_mpf_shim_vtp_chan_l2_lookup
     //
     // ====================================================================
 
-    logic [$clog2(CCI_MPF_SHIM_VTP_MAX_SVC_REQS+1)-1 : 0] n_active;
-    logic [$clog2(CCI_MPF_SHIM_VTP_MAX_SVC_REQS+1)-1 : 0] n_active_next;
+    logic [$clog2(MPF_VTP_MAX_SVC_REQS+1)-1 : 0] n_active;
+    logic [$clog2(MPF_VTP_MAX_SVC_REQS+1)-1 : 0] n_active_next;
 
     always_comb
     begin
@@ -1167,7 +893,7 @@ module cci_mpf_shim_vtp_chan_l1_caches
     input  en_insert_2mb,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
     //
@@ -1437,8 +1163,8 @@ module cci_mpf_shim_vtp_chan_l1_caches
                     $display("%m VTP: %0t 4KB: Insert idx %0d, VA 0x%x, PA 0x%x",
                              $time,
                              cacheIdx4KB(insert_va),
-                             {insert_va, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
-                             {insert_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                             {insert_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                             {insert_pa, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
                 end
                 else
                 begin
@@ -1453,8 +1179,8 @@ module cci_mpf_shim_vtp_chan_l1_caches
                     $display("%m VTP: %0t 2MB: Insert idx %0d, VA 0x%x, PA 0x%x",
                              $time,
                              cacheIdx2MB(insert_va),
-                             {vtp4kbTo2mbVA(insert_va), CCI_PT_2MB_PAGE_OFFSET_BITS'(0), 6'b0},
-                             {insert_pa, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                             {vtp4kbTo2mbVA(insert_va), VTP_PT_2MB_PAGE_OFFSET_BITS'(0), 6'b0},
+                             {insert_pa, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
                 end
                 else
                 begin

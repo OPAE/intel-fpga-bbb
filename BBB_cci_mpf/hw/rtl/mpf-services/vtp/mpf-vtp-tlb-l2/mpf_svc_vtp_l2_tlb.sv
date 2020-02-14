@@ -29,10 +29,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
-
-`include "cci_mpf_shim_vtp.vh"
+`include "mpf_vtp.vh"
 
 
 //
@@ -46,12 +43,12 @@
 // is the software must guarantee that new page table entries are globally
 // visible in system memory before passing a new virtual address to the FPGA.
 //
-module cci_mpf_svc_vtp_tlb
+module mpf_svc_vtp_l2_tlb
   #(
     // Number of offset bits in pages managed by this TLB instance.  OFFSETS
     // ARE LINES, NOT BYTES.  Typical values are 6 for 4KB pages and 15
     // for 2MB pages.
-    parameter CCI_PT_PAGE_OFFSET_BITS = CCI_PT_2MB_PAGE_OFFSET_BITS,
+    parameter VTP_PT_PAGE_OFFSET_BITS = VTP_PT_2MB_PAGE_OFFSET_BITS,
 
     // Number of sets in the FPGA-side TLB
     parameter NUM_TLB_SETS = 512,
@@ -66,10 +63,10 @@ module cci_mpf_svc_vtp_tlb
     input  logic clk,
     input  logic reset,
 
-    cci_mpf_shim_vtp_tlb_if.server tlb_if,
+    mpf_vtp_tlb_data_if.server tlb_if,
 
     // CSRs
-    cci_mpf_csrs.vtp csrs
+    mpf_vtp_csrs_if.vtp csrs
     );
 
     localparam NUM_TLB_INDEX_BITS = $clog2(NUM_TLB_SETS);
@@ -79,9 +76,9 @@ module cci_mpf_svc_vtp_tlb
     // ====================================================================
     //
     // The page size managed in this TLB is configured by setting the
-    // CCI_PT_PAGE_OFFSET_BITS parameter.  Build types around the
+    // VTP_PT_PAGE_OFFSET_BITS parameter.  Build types around the
     // configured size and functions to map to/from 4KB page indices
-    // used in cci_mpf_shim_vtp_tlb_if.
+    // used in mpf_vtp_tlb_data_if.
     //
     // The interface connecting the TLB to the VTP pipeline and to the
     // page walker always uses 4KB aligned addresses, independent of
@@ -89,35 +86,35 @@ module cci_mpf_svc_vtp_tlb
     //
     // ====================================================================
 
-    localparam CCI_PT_VA_PAGE_INDEX_BITS = CCI_PT_VA_BITS -
-                                           CCI_PT_PAGE_OFFSET_BITS;
-    localparam CCI_PT_PA_PAGE_INDEX_BITS = CCI_PT_PA_BITS -
-                                           CCI_PT_PAGE_OFFSET_BITS;
+    localparam VTP_PT_VA_PAGE_INDEX_BITS = VTP_PT_VA_BITS -
+                                           VTP_PT_PAGE_OFFSET_BITS;
+    localparam VTP_PT_PA_PAGE_INDEX_BITS = VTP_PT_PA_BITS -
+                                           VTP_PT_PAGE_OFFSET_BITS;
 
-    typedef logic [CCI_PT_VA_PAGE_INDEX_BITS-1 : 0] t_tlb_va_page_idx;
-    typedef logic [CCI_PT_PA_PAGE_INDEX_BITS-1 : 0] t_tlb_pa_page_idx;
+    typedef logic [VTP_PT_VA_PAGE_INDEX_BITS-1 : 0] t_tlb_va_page_idx;
+    typedef logic [VTP_PT_PA_PAGE_INDEX_BITS-1 : 0] t_tlb_pa_page_idx;
 
     // Convert 4KB page index to this TLB's size. We assume the index
     // is properly aligned.
     function automatic t_tlb_va_page_idx tlbVAIdxFrom4K(t_tlb_4kb_va_page_idx p);
-        return p[CCI_PT_4KB_VA_PAGE_INDEX_BITS - CCI_PT_VA_PAGE_INDEX_BITS +:
-                 CCI_PT_VA_PAGE_INDEX_BITS];
+        return p[VTP_PT_4KB_VA_PAGE_INDEX_BITS - VTP_PT_VA_PAGE_INDEX_BITS +:
+                 VTP_PT_VA_PAGE_INDEX_BITS];
     endfunction
 
     function automatic t_tlb_4kb_va_page_idx tlbVAIdxTo4K(t_tlb_va_page_idx p);
-        t_tlb_4kb_va_page_idx p4k = CCI_PT_4KB_VA_PAGE_INDEX_BITS'(0);
-        p4k[CCI_PT_4KB_VA_PAGE_INDEX_BITS-1 -: CCI_PT_VA_PAGE_INDEX_BITS] = p;
+        t_tlb_4kb_va_page_idx p4k = VTP_PT_4KB_VA_PAGE_INDEX_BITS'(0);
+        p4k[VTP_PT_4KB_VA_PAGE_INDEX_BITS-1 -: VTP_PT_VA_PAGE_INDEX_BITS] = p;
         return p4k;
     endfunction
 
     function automatic t_tlb_pa_page_idx tlbPAIdxFrom4K(t_tlb_4kb_pa_page_idx p);
-        return p[CCI_PT_4KB_PA_PAGE_INDEX_BITS - CCI_PT_PA_PAGE_INDEX_BITS +:
-                 CCI_PT_PA_PAGE_INDEX_BITS];
+        return p[VTP_PT_4KB_PA_PAGE_INDEX_BITS - VTP_PT_PA_PAGE_INDEX_BITS +:
+                 VTP_PT_PA_PAGE_INDEX_BITS];
     endfunction
 
     function automatic t_tlb_4kb_pa_page_idx tlbPAIdxTo4K(t_tlb_pa_page_idx p);
-        t_tlb_4kb_pa_page_idx p4k = CCI_PT_4KB_PA_PAGE_INDEX_BITS'(0);
-        p4k[CCI_PT_4KB_PA_PAGE_INDEX_BITS-1 -: CCI_PT_PA_PAGE_INDEX_BITS] = p;
+        t_tlb_4kb_pa_page_idx p4k = VTP_PT_4KB_PA_PAGE_INDEX_BITS'(0);
+        p4k[VTP_PT_4KB_PA_PAGE_INDEX_BITS-1 -: VTP_PT_PA_PAGE_INDEX_BITS] = p;
         return p4k;
     endfunction
 
@@ -129,7 +126,7 @@ module cci_mpf_svc_vtp_tlb
     // the FPGA's TLB hash size.  The page table hash is large because
     // we can afford a large table in host memory.  The TLB here is in
     // block RAM so is necessarily smaller.
-    localparam TLB_VA_TAG_BITS = CCI_PT_VA_PAGE_INDEX_BITS - NUM_TLB_INDEX_BITS;
+    localparam TLB_VA_TAG_BITS = VTP_PT_VA_PAGE_INDEX_BITS - NUM_TLB_INDEX_BITS;
     typedef logic [TLB_VA_TAG_BITS-1 : 0] t_tlb_virtual_tag;
 
     // A single TLB entry is a virtual tag and physical page index.
@@ -236,7 +233,7 @@ module cci_mpf_svc_vtp_tlb
     // Structures holding state for each lookup pipeline stage
     //
 
-    localparam NUM_PIPE_STAGES = CCI_MPF_SHIM_VTP_TLB_NUM_INTERNAL_PIPE_STAGES;
+    localparam NUM_PIPE_STAGES = MPF_VTP_TLB_NUM_INTERNAL_PIPE_STAGES;
 
     //
     // Primary state
@@ -519,7 +516,7 @@ module cci_mpf_svc_vtp_tlb
     // Drop duplicate requests.
     logic fill_not_duplicate;
 
-    cci_mpf_svc_vtp_tlb_drop_dups
+    mpf_svc_vtp_l2_tlb_drop_dups
       #(
         .NUM_TLB_INDEX_BITS(NUM_TLB_INDEX_BITS),
         .TLB_VA_TAG_BITS(TLB_VA_TAG_BITS)
@@ -714,7 +711,7 @@ module cci_mpf_svc_vtp_tlb
             begin
                 $display("VTP TLB %s: %0t Lookup VA 0x%x%0s",
                          DEBUG_NAME, $time,
-                         {tlb_if.lookupPageVA, CCI_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlb_if.lookupPageVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0},
                          (tlb_if.lookupIsSpeculative ? ", speculative" : ""));
             end
 
@@ -724,8 +721,8 @@ module cci_mpf_svc_vtp_tlb
                          DEBUG_NAME, $time,
                          target_tlb_idx(stg_state[NUM_PIPE_STAGES].lookup_page_va),
                          lookup_way_hit,
-                         {stg_state[NUM_PIPE_STAGES].lookup_page_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {lookup_page_pa, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {stg_state[NUM_PIPE_STAGES].lookup_page_va, VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {lookup_page_pa, VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
                          (lookup_not_present ? " [NOT PRESENT]" : ""));
             end
 
@@ -738,8 +735,8 @@ module cci_mpf_svc_vtp_tlb
                         $display("VTP TLB %s: %0t Insert idx %0d, way %0d, VA 0x%x, PA 0x%x",
                                  DEBUG_NAME, $time,
                                  tlb_waddr, way,
-                                 {tlb_wdata.tag, tlb_waddr, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                                 {tlb_wdata.idx, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0});
+                                 {tlb_wdata.tag, tlb_waddr, VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                                 {tlb_wdata.idx, VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0});
                     end
                     else
                     begin
@@ -755,10 +752,10 @@ module cci_mpf_svc_vtp_tlb
                 $display("VTP TLB %s: %0t TLB %s fill VA 0x%x (line 0x%x), PA 0x%x (line 0x%x)%0s",
                          DEBUG_NAME, $time,
                          ((fill_state == STATE_TLB_FILL_IDLE) ? "accepted" : "ignored"),
-                         {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlbVAIdxFrom4K(tlb_if.fillVA), CCI_PT_PAGE_OFFSET_BITS'(0)},
-                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {tlbPAIdxFrom4K(tlb_if.fillPA), CCI_PT_PAGE_OFFSET_BITS'(0)},
+                         {tlbVAIdxFrom4K(tlb_if.fillVA), VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlbVAIdxFrom4K(tlb_if.fillVA), VTP_PT_PAGE_OFFSET_BITS'(0)},
+                         {tlbPAIdxFrom4K(tlb_if.fillPA), VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {tlbPAIdxFrom4K(tlb_if.fillPA), VTP_PT_PAGE_OFFSET_BITS'(0)},
                          (tlb_if.fillNotPresent ? " [NOT PRESENT]" : ""));
             end
 
@@ -766,21 +763,21 @@ module cci_mpf_svc_vtp_tlb
             begin
                 $display("VTP TLB %s: %0t ignoring duplicate fill VA 0x%x (line 0x%x)",
                          DEBUG_NAME, $time,
-                         {fill_va, CCI_PT_PAGE_OFFSET_BITS'(0), 6'b0},
-                         {fill_va, CCI_PT_PAGE_OFFSET_BITS'(0)});
+                         {fill_va, VTP_PT_PAGE_OFFSET_BITS'(0), 6'b0},
+                         {fill_va, VTP_PT_PAGE_OFFSET_BITS'(0)});
             end
         end
         // synthesis translate_on
     end
 
-endmodule // cci_mpf_svc_vtp_tlb
+endmodule // mpf_svc_vtp_l2_tlb
 
 
 //
 // Keep a short history of pages recently added to the TLB and drop requests
 // that would result in a duplicate entry.
 //
-module cci_mpf_svc_vtp_tlb_drop_dups
+module mpf_svc_vtp_l2_tlb_drop_dups
   #(
     parameter NUM_TLB_INDEX_BITS = 0,
     parameter TLB_VA_TAG_BITS = 0
@@ -865,4 +862,4 @@ module cci_mpf_svc_vtp_tlb_drop_dups
         end
     end
 
-endmodule // cci_mpf_svc_vtp_tlb_drop_dups
+endmodule // mpf_svc_vtp_l2_tlb_drop_dups
