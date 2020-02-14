@@ -34,6 +34,7 @@
 #include <linux/uaccess.h>
 #include <linux/device.h>
 #include <linux/sched.h>
+#include <linux/version.h>
 
 #include "mmu_monitor.h"
 
@@ -143,31 +144,69 @@ static void mmu_monitor_clean_queue(struct mmu_monitor *mon)
 	}
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+static int mmu_invalidate_range_start(struct mmu_notifier *mn,
+				      const struct mmu_notifier_range *range)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+static int mmu_invalidate_range_start(struct mmu_notifier *mn,
+				      struct mm_struct *mm, unsigned long start,
+				      unsigned long end, bool blockable)
+#else
 static void mmu_invalidate_range_start(struct mmu_notifier *mn,
 				       struct mm_struct *mm,
 				       unsigned long start, unsigned long end)
+#endif /* LINUX_VERSION_CODE */
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	const unsigned long start = range->start;
+	const unsigned long end = range->end;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
+	const bool blockable = range->flags & MMU_NOTIFIER_RANGE_BLOCKABLE;
+#else
+	const bool blockable = range->blockable;
+#endif /* LINUX_VERSION_CODE */
+#endif /* LINUX_VERSION_CODE */
 	struct mmu_monitor *mon = notifier_to_monitor(mn);
 	struct device *dev = mon_miscdev.this_device;
-        int cnt;
+	int cnt;
 
 	/*
 	 * In range_start we just track the number of ranges that are
 	 * in the invalidation flow. An application may poll the driver
 	 * with MMU_MON_GET_STATE to detecting pending invalidations.
 	 */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+	if (blockable)
+		mutex_lock(&mon_list_lock);
+	else if (!mutex_trylock(&mon_list_lock))
+		return -EAGAIN;
+#else
 	mutex_lock(&mon_list_lock);
+#endif /* LINUX_VERSION_CODE */
 	cnt = ++(mon->start_evt_cnt);
 	mutex_unlock(&mon_list_lock);
 
 	dev_dbg(dev, "%s: pid %d, start %lx, end %lx, cnt %d\n", __func__,
 		task_pid_nr(current), start, end, cnt);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+	return 0;
+#endif /* LINUX_VERSION_CODE */
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 static void mmu_invalidate_range_end(struct mmu_notifier *mn,
-				       struct mm_struct *mm,
-				       unsigned long start, unsigned long end)
+				     const struct mmu_notifier_range *range)
+#else
+static void mmu_invalidate_range_end(struct mmu_notifier *mn,
+				     struct mm_struct *mm, unsigned long start,
+				     unsigned long end)
+#endif /* LINUX_VERSION_CODE */
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+	struct mm_struct *mm = range->mm;
+	unsigned long start = range->start;
+	const unsigned long end = range->end;
+#endif /* LINUX_VERSION_CODE */
 	struct mmu_monitor *mon = notifier_to_monitor(mn);
 	struct device *dev = mon_miscdev.this_device;
 
