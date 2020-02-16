@@ -63,14 +63,13 @@ else()
 endif()
 
 # Check support for C standards
-check_c_compiler_flag("-std=c11" COMPILER_SUPPORTS_C11)
 check_c_compiler_flag("-std=gnu99" COMPILER_SUPPORTS_CGNU99)
-if(COMPILER_SUPPORTS_C11)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
-  set(CMAKE_C_STANDARD 11)
-elseif(COMPILER_SUPPORTS_CGNU99)
+check_c_compiler_flag("-std=c11" COMPILER_SUPPORTS_C11)
+if(COMPILER_SUPPORTS_CGNU99)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
-  # CMake decays to gnu99 if necessary for "11"
+  set(CMAKE_C_STANDARD 11)
+elseif(COMPILER_SUPPORTS_C11)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
   set(CMAKE_C_STANDARD 11)
 endif()
 
