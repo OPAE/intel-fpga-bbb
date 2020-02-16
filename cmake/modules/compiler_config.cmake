@@ -42,6 +42,9 @@ elseif (CMAKE_BUILD_TYPE STREQUAL "Opt")
   set(CMAKE_BUILD_TYPE Release)
 endif ()
 
+set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+find_package(Threads)
+
 # Default flags to compiler when build user-space programs.
 # Should come before enabling language.
 
@@ -52,11 +55,11 @@ if (WIN32)
   set(CMAKE_CXX_FLAGS_RELEASE "-O2")
   set(CMAKE_CXX_FLAGS_DEBUG   "-Od")
 else()
-  set(CMAKE_C_FLAGS_RELEASE   "-O2 -Wall -Wextra -Werror")
-  set(CMAKE_C_FLAGS_DEBUG     "-g -O0 -Wall -Wextra -Werror")
+  set(CMAKE_C_FLAGS_RELEASE   "-O2 -Wall -Wextra -Werror -pthread")
+  set(CMAKE_C_FLAGS_DEBUG     "-g -O0 -Wall -Wextra -Werror -pthread")
 
-  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -Wall -Wextra -Werror")
-  set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra -Werror")
+  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -Wall -Wextra -Werror -pthread")
+  set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra -Werror -pthread")
 endif()
 
 # Check if support for C++ 11 is available
