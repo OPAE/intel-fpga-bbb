@@ -1,4 +1,5 @@
-## Copyright(c) 2017, Intel Corporation
+#!/usr/bin/cmake -P
+## Copyright(c) 2020, Intel Corporation
 ##
 ## Redistribution  and  use  in source  and  binary  forms,  with  or  without
 ## modification, are permitted provided that the following conditions are met:
@@ -24,17 +25,4 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
-cmake_minimum_required(VERSION VERSION 2.8.12)
-project("BBB")
-
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
-
-include(BBB)
-
-## Add projects
-add_subdirectory(BBB_cci_mpf/sw)
-
-## Wrap all sources of documentation
-add_custom_target(doc)
-add_dependencies(doc mpf_doc)
+include(compiler_config)

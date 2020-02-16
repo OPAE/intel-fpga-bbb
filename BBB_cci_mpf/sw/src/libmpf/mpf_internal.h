@@ -71,6 +71,10 @@
                                                  __func__, ## __VA_ARGS__ ); \
         fflush(stdout)
 
+#ifndef UNUSED_PARAM
+#define UNUSED_PARAM(x) ((void)x)
+#endif
+
 // Forward declaration to avoid circular dependence.
 typedef struct _mpf_handle_t* _mpf_handle_p;
 
