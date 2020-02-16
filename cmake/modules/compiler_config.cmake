@@ -62,7 +62,19 @@ else()
   set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra -Werror -pthread")
 endif()
 
-# Check if support for C++ 11 is available
+# Check support for C standards
+check_c_compiler_flag("-std=c11" COMPILER_SUPPORTS_C11)
+check_c_compiler_flag("-std=gnu99" COMPILER_SUPPORTS_CGNU99)
+if(COMPILER_SUPPORTS_C11)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
+  set(CMAKE_C_STANDARD 11)
+elseif(COMPILER_SUPPORTS_CGNU99)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99")
+  # CMake decays to gnu99 if necessary for "11"
+  set(CMAKE_C_STANDARD 11)
+endif()
+
+# Check support for C++ standards
 check_cxx_compiler_flag("-std=c++14" COMPILER_SUPPORTS_CXX14)
 check_cxx_compiler_flag("-std=c++11" COMPILER_SUPPORTS_CXX11)
 check_cxx_compiler_flag("-std=c++0x" COMPILER_SUPPORTS_CXX0X)
