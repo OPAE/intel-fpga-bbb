@@ -631,7 +631,6 @@ static void freeTableAndPinnedPages(
 static bool releaseRange(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_node* node,
-    uint64_t node_wsid,
     uintptr_t min_va,
     uintptr_t max_va,
     uintptr_t partial_va,
@@ -683,7 +682,7 @@ static bool releaseRange(
 
                     mpf_vtp_pt_node* child_node = nodeGetChildNode(node, idx);
                     bool child_active;
-                    child_active = releaseRange(pt, child_node, child_wsid,
+                    child_active = releaseRange(pt, child_node,
                                                 min_va, max_va,
                                                 va, depth - 1);
 
@@ -1077,7 +1076,7 @@ fpga_result mpfVtpPtReleaseRange(
     // Caller must lock the mutex
     DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 
-    releaseRange(pt, pt->pt_root, pt->pt_root_wsid,
+    releaseRange(pt, pt->pt_root,
                  (uintptr_t)min_va, (uintptr_t)max_va,
                  0, depth_max);
 
@@ -1139,6 +1138,8 @@ int mpfVtpPtExtendVecVAtoPA(
     uint32_t *flags
 )
 {
+    UNUSED_PARAM(set_in_use);
+
     // Caller must lock the mutex
     DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
 

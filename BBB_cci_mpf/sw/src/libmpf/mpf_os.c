@@ -74,7 +74,7 @@
 void mpfOsMemoryBarrier(void)
 {
 #ifndef _WIN32
-    asm volatile ("mfence" : : : "memory");
+    __asm__ volatile ("mfence" : : : "memory");
 #else
     MemoryBarrier();
 #endif

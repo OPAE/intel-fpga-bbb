@@ -6,7 +6,7 @@ include(CheckCSourceCompiles)
 check_c_source_compiles(
    "#include <opae/types_enum.h>
     const int dummy = FPGA_BUF_READ_ONLY;
-    int main(int argc, char *argv[]) {}"
+    int main(void) {}"
     MFP_OPAE_HAS_BUF_READ_ONLY)
 
 configure_file("${PROJECT_SOURCE_DIR}/src/cmake/config/mpf_opae_config.h.in"

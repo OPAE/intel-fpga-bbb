@@ -62,7 +62,6 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::allocate(mpf_handle::ptr_t mpf_handl
   }
 
   uint8_t *virt = nullptr;
-  uint64_t wsid = 0;
   int flags = 0;
   if (read_only) {
 #ifdef MFP_OPAE_HAS_BUF_READ_ONLY
@@ -98,7 +97,6 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
   }
 
   uint8_t *virt = base;
-  uint64_t wsid = 0;
   int flags = FPGA_BUF_PREALLOCATED;
   if (read_only) {
 #ifdef MFP_OPAE_HAS_BUF_READ_ONLY
@@ -121,8 +119,8 @@ mpf_shared_buffer::ptr_t mpf_shared_buffer::attach(mpf_handle::ptr_t mpf_handle,
 
 mpf_shared_buffer::mpf_shared_buffer(mpf_handle::ptr_t mpf_handle,
                                      size_t len, uint8_t *virt, uint64_t iova)
-    : mpf_handle_(mpf_handle),
-      shared_buffer(nullptr, len, virt, 0, iova) {}
+    : shared_buffer(nullptr, len, virt, 0, iova),
+      mpf_handle_(mpf_handle) {}
 
 }  // end of namespace types
 }  // end of namespace mpf

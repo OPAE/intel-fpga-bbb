@@ -176,7 +176,7 @@ typedef struct
 }
 mpf_shim_info_t;
 
-const static mpf_shim_info_t mpf_shim_info[CCI_MPF_SHIM_LAST_IDX] =
+static const mpf_shim_info_t mpf_shim_info[CCI_MPF_SHIM_LAST_IDX] =
 {
     // Initialization order must match t_cci_mpf_shim_idx order!
 

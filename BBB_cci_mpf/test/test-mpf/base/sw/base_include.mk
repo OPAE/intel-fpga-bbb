@@ -44,4 +44,4 @@ CPPFLAGS += -I../../base/sw
 LDFLAGS += -lboost_program_options -luuid -lMPF-cxx -lMPF -lopae-cxx-core
 
 FPGA_LIBS = -lopae-c -ljson-c
-ASE_LIBS = -lopae-c-ase
+ASE_LIBS = -lopae-c-ase -ljson-c

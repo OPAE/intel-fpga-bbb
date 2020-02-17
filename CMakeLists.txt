@@ -24,9 +24,13 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
+cmake_minimum_required(VERSION VERSION 2.8.12)
 project("BBB")
 
-cmake_minimum_required(VERSION VERSION 2.8.12)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+
+include(BBB)
 
 ## Add projects
 add_subdirectory(BBB_cci_mpf/sw)

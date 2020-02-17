@@ -56,7 +56,7 @@ static void *mpfVtpMonitorMain(void *args)
 
     struct mmu_monitor_event mon_event;
     uint64_t count;
-    int i;
+    uint64_t i;
 
     // Server loop
     while (true)
@@ -85,7 +85,7 @@ static void *mpfVtpMonitorMain(void *args)
             ioctl(mon_fd, MMU_MON_GET_EVENT, &mon_event);
             if (_mpf_handle->dbg_mode)
             {
-                MPF_FPGA_MSG("mon_event[%d] start = 0x%" PRIx64 " end = 0x%" PRIx64 ", len = %" PRId64,
+                MPF_FPGA_MSG("mon_event[%ld] start = 0x%" PRIx64 " end = 0x%" PRIx64 ", len = %" PRId64,
                              i,
                              (uint64_t)mon_event.start, (uint64_t)mon_event.end,
                              (uint64_t)(mon_event.end - mon_event.start));

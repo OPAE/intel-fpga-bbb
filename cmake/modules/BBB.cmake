@@ -1,4 +1,5 @@
-## Copyright(c) 2017, Intel Corporation
+#!/usr/bin/cmake -P
+## Copyright(c) 2020, Intel Corporation
 ##
 ## Redistribution  and  use  in source  and  binary  forms,  with  or  without
 ## modification, are permitted provided that the following conditions are met:
@@ -24,60 +25,4 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
-include(GNUInstallDirs)
-
-# Configuration based on the OPAE version, etc.
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/src/cmake/config")
-include(mpf_opae_config)
-
-# Add a macro to detect debug builds in source
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG_BUILD=1")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG_BUILD=1")
-
-file(
-    GLOB
-    HDR
-    ${PROJECT_SOURCE_DIR}/include/opae/mpf/*.h
-    )
-file(
-    GLOB
-    HDR_CXX
-    ${PROJECT_SOURCE_DIR}/include/opae/mpf/cxx/*.h
-    )
-
-aux_source_directory(
-    ${PROJECT_SOURCE_DIR}/src/libmpf
-    LIBMPF
-    )
-aux_source_directory(
-    ${PROJECT_SOURCE_DIR}/src/libmpf++
-    LIBMPF_CXX
-    )
-
-add_library(MPF SHARED ${LIBMPF})
-add_library(MPF-cxx SHARED ${LIBMPF_CXX})
-
-install(
-    TARGETS MPF MPF-cxx
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    )
-
-install(FILES ${HDR} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opae/mpf)
-install(FILES ${HDR_CXX} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/opae/mpf/cxx)
-
-##
-## Add pthreads to the generated library.  VTP uses a mutex to guarantee
-## that only one allocation happens at a time.
-##
-find_package(Threads REQUIRED)
-if(CMAKE_THREAD_LIBS_INIT)
-    target_link_libraries(MPF "${CMAKE_THREAD_LIBS_INIT}")
-    target_link_libraries(MPF-cxx "${CMAKE_THREAD_LIBS_INIT}")
-endif()
-
-if(OPAELIB_LIBS_PATH)
-    target_link_libraries(MPF OpaeLib)
-    target_link_libraries(MPF-cxx OpaeLib)
-endif()
+include(compiler_config)
