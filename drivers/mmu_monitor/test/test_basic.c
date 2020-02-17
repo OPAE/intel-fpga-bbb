@@ -48,8 +48,8 @@
 #include "mmu_monitor.h"
 
 #define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS)
-#define FLAGS_2M (FLAGS_4K | MAP_HUGETLB)
-#define FLAGS_1G (FLAGS_2M | MAP_HUGE_1GB)
+#define FLAGS_2M (FLAGS_4K | MAP_HUGE_2MB | MAP_HUGETLB)
+#define FLAGS_1G (FLAGS_4K | MAP_HUGE_1GB | MAP_HUGETLB)
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -111,6 +111,23 @@ static void *mmu_tracking_thread(void *arg)
     return NULL;
 }
 
+static void unmap_buffers(uint8_t **buffers, size_t sz) {
+    size_t n_bytes = 4096 * 2;
+
+    for (int b = 0; b < sz; b += 2) {
+        if (buffers[b] != MAP_FAILED) {
+            printf("munmap buffer %d, va %p\n", b, buffers[b]);
+            assert(munmap(buffers[b], n_bytes) == 0);
+        }
+
+        if (buffers[b + 1] != MAP_FAILED) {
+            printf("munmap buffer %d, va %p\n", b + 1, buffers[b + 1]);
+            assert(munmap(buffers[b + 1], n_bytes) == 0);
+        }
+         n_bytes *= 512;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int ret;
@@ -136,7 +153,7 @@ int main(int argc, char *argv[])
     assert(pthread_create(&tidp, NULL, mmu_tracking_thread, (void*)(uintptr_t)mfd) == 0);
 
     // Allocate two page buffers of varying page size and protection
-    uint8_t* buffers[7];
+    uint8_t* buffers[7] = { MAP_FAILED };
     buffers[0] = mmap(NULL, 4096 * 2, (PROT_READ | PROT_WRITE), FLAGS_4K, -1, 0);
     buffers[1] = mmap(NULL, 4096 * 2, (PROT_READ), FLAGS_4K, -1, 0);
 
@@ -155,6 +172,7 @@ int main(int argc, char *argv[])
         if (buffers[b] == MAP_FAILED)
         {
             fprintf(stderr, "Failed to allocate buffers[%d]\n", b);
+            unmap_buffers(buffers, 6);
             exit(1);
         }
     }
@@ -184,16 +202,7 @@ int main(int argc, char *argv[])
     }
 
     // Unmap the buffers
-    size_t n_bytes = 4096 * 2;
-    for (int b = 0; b < 6; b += 2)
-    {
-        printf("munmap buffer %d, va %p\n", b, buffers[b]);
-        assert(munmap(buffers[b], n_bytes) == 0);
-        printf("munmap buffer %d, va %p\n", b + 1, buffers[b + 1]);
-        assert(munmap(buffers[b + 1], n_bytes) == 0);
-
-        n_bytes *= 512;
-    }
+    unmap_buffers(buffers, 6);
 
     // Loop until there are no monitor events pending
     bool waited = false;
