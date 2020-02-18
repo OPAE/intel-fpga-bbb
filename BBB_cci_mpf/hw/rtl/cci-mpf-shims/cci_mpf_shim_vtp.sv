@@ -54,14 +54,48 @@ module cci_mpf_shim_vtp
     mpf_vtp_port_if.to_slave vtp_ports[2]
     );
 
+    localparam DEBUG_MESSAGES = 0;
+
+    // ====================================================================
+    //
+    //  Instantiate a buffer on the AFU request ports, needed to honor
+    //  the translation pipeline flow control.
+    //
+    // ====================================================================
+
+    cci_mpf_if afu_buf (.clk);
+
+    logic deqC0Tx;
+    logic deqC1Tx;
+
+    cci_mpf_shim_buffer_afu
+      #(
+        .ENABLE_C0_BYPASS(1)
+        )
+      b
+        (
+         .clk,
+         .afu_raw(afu),
+         .afu_buf(afu_buf),
+         .deqC0Tx(deqC0Tx),
+         .deqC1Tx(deqC1Tx)
+         );
+
+    //
+    // Almost full signals in the buffered input are ignored --
+    // replaced by deq signals and the buffer state.  Set them
+    // to 1 to be sure they are ignored.
+    //
+    assign afu_buf.c0TxAlmFull = 1'b1;
+    assign afu_buf.c1TxAlmFull = 1'b1;
+
     logic reset = 1'b1;
-    assign afu.reset = reset;
+    assign afu_buf.reset = reset;
     always @(posedge clk)
     begin
         reset <= fiu.reset;
     end
 
-    localparam DEBUG_MESSAGES = 0;
 
     // ====================================================================
     //
@@ -69,64 +103,64 @@ module cci_mpf_shim_vtp
     //
     // ====================================================================
 
+    logic c0chan_notFull;
     logic c0chan_outValid;
     t_if_cci_mpf_c0_Tx c0chan_outTx;
     logic c0chan_outError;
-    t_tlb_4kb_pa_page_idx c0chan_outPhysAddr;
-    logic c0chan_outAddrIsBigPage;
+    t_cci_clAddr c0chan_outAddr;
     logic error_fifo_almostFull;
+    logic c0chan_deq_en;
 
-    assign afu.c0TxAlmFull = vtp_ports[0].almostFullToAFU;
-    assign vtp_ports[0].cTxValid = cci_mpf_c0TxIsValid(afu.c0Tx);
-    assign vtp_ports[0].cTx = afu.c0Tx;
-    assign vtp_ports[0].cTxAddrIsVirtual = cci_mpf_c0_getReqAddrIsVirtual(afu.c0Tx.hdr);
-    assign vtp_ports[0].cTxReqIsSpeculative = cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu.c0Tx);
-    assign vtp_ports[0].cTxReqIsOrdered = 1'b0;
+    assign deqC0Tx = cci_mpf_c0TxIsValid(afu_buf.c0Tx) && c0chan_notFull;
 
-    assign c0chan_outValid = vtp_ports[0].cTxValid_out;
-    assign c0chan_outTx = vtp_ports[0].cTx_out;
-    assign c0chan_outError = vtp_ports[0].cTxError_out;
-    assign c0chan_outPhysAddr = vtp_ports[0].cTxPhysAddr_out;
-    assign c0chan_outAddrIsBigPage = vtp_ports[0].cTxAddrIsBigPage_out;
-    assign vtp_ports[0].almostFullFromFIU = fiu.c0TxAlmFull || error_fifo_almostFull;
+    mpf_svc_vtp_port_wrapper_unordered
+      #(
+        .N_PAYLOAD_BITS($bits(afu_buf.c0Tx))
+        )
+      tr_c0
+       (
+        .clk,
+        .reset,
+        .vtp_port(vtp_ports[0]),
+        .reqEn(deqC0Tx),
+        .reqAddr(cci_mpf_c0_getReqAddr(afu_buf.c0Tx.hdr)),
+        .reqAddrIsVirtual(cci_mpf_c0_getReqAddrIsVirtual(afu_buf.c0Tx.hdr)),
+        .reqIsSpeculative(cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu_buf.c0Tx)),
+        .reqIsOrdered(1'b0),
+        .reqPayload(afu_buf.c0Tx),
+        .notFull(c0chan_notFull),
+
+        .rspValid(c0chan_outValid),
+        .rspDeqEn(c0chan_deq_en),
+        .rspAddr(c0chan_outAddr),
+        .rspPayload(c0chan_outTx),
+        .rspError(c0chan_outError)
+        );
+
+    assign c0chan_deq_en = c0chan_outValid && !fiu.c0TxAlmFull && !error_fifo_almostFull;
 
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
-        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_outValid && ! c0chan_outError);
+        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_deq_en && ! c0chan_outError);
 
         // Set the physical address. The page comes from the TLB and the
         // offset from the original memory request.
         fiu.c0Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        if (cci_mpf_c0_getReqAddrIsVirtual(c0chan_outTx.hdr))
-        begin
-            if (c0chan_outAddrIsBigPage)
-            begin
-                // 2MB page
-                fiu.c0Tx.hdr.base.address <=
-                    t_cci_clAddr'({ vtp4kbTo2mbPA(c0chan_outPhysAddr),
-                                    vtp2mbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
-            end
-            else
-            begin
-                // 4KB page
-                fiu.c0Tx.hdr.base.address <=
-                    t_cci_clAddr'({ c0chan_outPhysAddr,
-                                    vtp4kbPageOffsetFromVA(cci_mpf_c0_getReqAddr(c0chan_outTx.hdr)) });
-            end
+        fiu.c0Tx.hdr.base.address <= c0chan_outAddr;
 
 `ifdef CCIP_ENCODING_HAS_RDLSPEC
-            // If the read request is speculative and the FIU doesn't support
-            // speculation (e.g. no IOMMU) then make the request non-speculative.
-            // At this point it has already passed VTP and a valid translation
-            // was found.
-            if (cci_mpf_c0TxIsSpecReadReq_noCheckValid(c0chan_outTx) &&
-                ! (ccip_cfg_pkg::C0_REQ_RDLSPEC_S & ccip_cfg_pkg::C0_SUPPORTED_REQS))
-            begin
-                fiu.c0Tx.hdr.base.req_type[1] <= 1'b0;
-            end
-`endif
+        // If the read request is speculative and the FIU doesn't support
+        // speculation (e.g. no IOMMU) then make the request non-speculative.
+        // At this point it has already passed VTP and a valid translation
+        // was found.
+        if (cci_mpf_c0TxIsSpecReadReq_noCheckValid(c0chan_outTx) &&
+            cci_mpf_c0_getReqAddrIsVirtual(c0chan_outTx.hdr) &&
+            ! (ccip_cfg_pkg::C0_REQ_RDLSPEC_S & ccip_cfg_pkg::C0_SUPPORTED_REQS))
+        begin
+            fiu.c0Tx.hdr.base.req_type[1] <= 1'b0;
         end
+`endif
     end
 
 
@@ -171,7 +205,7 @@ module cci_mpf_shim_vtp
         .clk,
         .reset(reset),
 
-        .enq_en(c0chan_outValid && c0chan_outError),
+        .enq_en(c0chan_deq_en && c0chan_outError),
         .enq_data(c0_error_hdr_in),
         .notFull(),
         .almostFull(error_fifo_almostFull),
@@ -201,13 +235,13 @@ module cci_mpf_shim_vtp
     // that aren't already occupied by FIU messages.
     always_ff @(posedge clk)
     begin
-        afu.c0Rx <= fiu.c0Rx;
+        afu_buf.c0Rx <= fiu.c0Rx;
 
         if (c0_error_hdr_notEmpty && ! ccip_c0Rx_isValid(fiu.c0Rx))
         begin
-            afu.c0Rx.rspValid <= 1'b1;
-            afu.c0Rx.hdr <= c0_error_hdr;
-            afu.c0Rx.hdr.cl_num <= c0_error_hdr_cl_num;
+            afu_buf.c0Rx.rspValid <= 1'b1;
+            afu_buf.c0Rx.hdr <= c0_error_hdr;
+            afu_buf.c0Rx.hdr.cl_num <= c0_error_hdr_cl_num;
         end
     end
 
@@ -225,7 +259,7 @@ module cci_mpf_shim_vtp
     begin
         if (DEBUG_MESSAGES && ! reset)
         begin
-            if (c0chan_outValid && c0chan_outError)
+            if (c0chan_deq_en && c0chan_outError)
             begin
                 $display("%m VTP: %0t Speculative load translation error from VA 0x%x",
                          $time,
@@ -244,61 +278,60 @@ module cci_mpf_shim_vtp
     // Block order-sensitive requests until all previous translations are
     // complete so that they aren't reordered in the VTP channel pipeline.
     logic c1_order_sensitive;
-    assign c1_order_sensitive = cci_mpf_c1TxIsWriteFenceReq(afu.c1Tx) ||
-                                cci_mpf_c1TxIsInterruptReq(afu.c1Tx);
+    assign c1_order_sensitive = cci_mpf_c1TxIsWriteFenceReq(afu_buf.c1Tx) ||
+                                cci_mpf_c1TxIsInterruptReq(afu_buf.c1Tx);
 
+    logic c1chan_notFull;
     logic c1chan_outValid;
     t_if_cci_mpf_c1_Tx c1chan_outTx;
     logic c1chan_outError;
-    t_tlb_4kb_pa_page_idx c1chan_outPhysAddr;
-    logic c1chan_outAddrIsBigPage;
+    t_cci_clAddr c1chan_outAddr;
+    logic c1chan_deq_en;
 
-    assign afu.c1TxAlmFull = vtp_ports[1].almostFullToAFU;
-    assign vtp_ports[1].cTxValid = cci_mpf_c1TxIsValid(afu.c1Tx);
-    assign vtp_ports[1].cTx = afu.c1Tx;
-    assign vtp_ports[1].cTxAddrIsVirtual = cci_mpf_c1_getReqAddrIsVirtual(afu.c1Tx.hdr);
-    assign vtp_ports[1].cTxReqIsSpeculative = 1'b0;
-    assign vtp_ports[1].cTxReqIsOrdered = c1_order_sensitive;
+    assign deqC1Tx = cci_mpf_c1TxIsValid(afu_buf.c1Tx) && c1chan_notFull;
 
-    assign c1chan_outValid = vtp_ports[1].cTxValid_out;
-    assign c1chan_outTx = vtp_ports[1].cTx_out;
-    assign c1chan_outError = vtp_ports[1].cTxError_out;
-    assign c1chan_outPhysAddr = vtp_ports[1].cTxPhysAddr_out;
-    assign c1chan_outAddrIsBigPage = vtp_ports[1].cTxAddrIsBigPage_out;
-    assign vtp_ports[1].almostFullFromFIU = fiu.c1TxAlmFull;
+    mpf_svc_vtp_port_wrapper_unordered
+      #(
+        .N_PAYLOAD_BITS($bits(afu_buf.c1Tx))
+        )
+      tr_c1
+       (
+        .clk,
+        .reset,
+        .vtp_port(vtp_ports[1]),
+        .reqEn(deqC1Tx),
+        .reqAddr(cci_mpf_c1_getReqAddr(afu_buf.c1Tx.hdr)),
+        .reqAddrIsVirtual(cci_mpf_c1_getReqAddrIsVirtual(afu_buf.c1Tx.hdr)),
+        .reqIsSpeculative(1'b0),
+        .reqIsOrdered(c1_order_sensitive),
+        .reqPayload(afu_buf.c1Tx),
+        .notFull(c1chan_notFull),
+
+        .rspValid(c1chan_outValid),
+        .rspDeqEn(c1chan_deq_en),
+        .rspAddr(c1chan_outAddr),
+        .rspPayload(c1chan_outTx),
+        .rspError(c1chan_outError)
+        );
+
+    assign c1chan_deq_en = c1chan_outValid && !fiu.c1TxAlmFull;
 
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
-        fiu.c1Tx <= cci_mpf_c1TxMaskValids(c1chan_outTx, c1chan_outValid);
+        fiu.c1Tx <= cci_mpf_c1TxMaskValids(c1chan_outTx, c1chan_deq_en);
 
         // Set the physical address. The page comes from the TLB and the
         // offset from the original memory request.
         fiu.c1Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        if (cci_mpf_c1_getReqAddrIsVirtual(c1chan_outTx.hdr))
-        begin
-            if (c1chan_outAddrIsBigPage)
-            begin
-                // 2MB page
-                fiu.c1Tx.hdr.base.address <=
-                    t_cci_clAddr'({ vtp4kbTo2mbPA(c1chan_outPhysAddr),
-                                    vtp2mbPageOffsetFromVA(cci_mpf_c1_getReqAddr(c1chan_outTx.hdr)) });
-            end
-            else
-            begin
-                // 4KB page
-                fiu.c1Tx.hdr.base.address <=
-                    t_cci_clAddr'({ c1chan_outPhysAddr,
-                                    vtp4kbPageOffsetFromVA(cci_mpf_c1_getReqAddr(c1chan_outTx.hdr)) });
-            end
-        end
+        fiu.c1Tx.hdr.base.address <= c1chan_outAddr;
     end
 
 
     //
     // Responses
     //
-    assign afu.c1Rx = fiu.c1Rx;
+    assign afu_buf.c1Rx = fiu.c1Rx;
 
 
     //
@@ -320,6 +353,226 @@ module cci_mpf_shim_vtp
     //
     // ====================================================================
 
-    assign fiu.c2Tx = afu.c2Tx;
+    assign fiu.c2Tx = afu_buf.c2Tx;
 
 endmodule // cci_mpf_shim_vtp
+
+module mpf_svc_vtp_port_wrapper_unordered
+  #(
+    // This module maintains an index space with a unique ID for every lookup
+    // request in flight. The module offers optional storage to the parent.
+    // Payload_in values are returned as payload_out along with translation
+    // responses. Parent modules will typically use this to store the full
+    // request.
+    parameter N_PAYLOAD_BITS = 0
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Translation port
+    mpf_vtp_port_if.to_slave vtp_port,
+
+    //
+    // Lookup requests
+    //
+    input  logic reqEn,
+    input  t_vtp_clAddr reqAddr,
+    // Does the request need to be translated? When 0 the request flows
+    // through the translation pipeline but is not translated.
+    input  logic reqAddrIsVirtual,
+    // Is the request a speculative translation? Non-speculative requests
+    // that have no translation cause the pipeline to halt. Speculative
+    // requests only raise rspError.
+    input  logic reqIsSpeculative,
+    // Is the request ordered (e.g. a write fence)? If so, the channel logic
+    // will wait for all earlier requests to drain from the VTP pipelines.
+    // It is illegal to set both reqAddrIsVirtual and reqIsOrdered.
+    input  logic reqIsOrdered,
+    // Opaque state to be returned in rspPayload.
+    input  logic [N_PAYLOAD_BITS-1 : 0] reqPayload,
+    output logic notFull,
+
+    //
+    // Responses
+    //
+    // A response is ready
+    output logic rspValid,
+    // Parent accepts the response
+    input  logic rspDeqEn,
+    // Translated address (or original reqAddr if not reqAddrIsVirtual)
+    output t_vtp_clAddr rspAddr,
+    // Translation error?
+    output logic rspError,
+    // Opaque state from reqPayload
+    output logic [N_PAYLOAD_BITS-1 : 0] rspPayload
+    );
+
+
+    // ====================================================================
+    //
+    //  Allocate a unique transaction ID and store request state
+    //
+    // ====================================================================
+
+    t_mpf_vtp_req_tag alloc_idx;
+    logic heap_notFull;
+
+    t_mpf_vtp_req_tag free_idx;
+    logic free_en;
+
+    always_ff @(posedge clk)
+    begin
+        notFull <= heap_notFull && ! vtp_port.almostFullToAFU;
+    end
+
+    //
+    // Heap index manager
+    //
+    cci_mpf_prim_heap_ctrl
+      #(
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        // Reserve a slot so notFull can be registered
+        .MIN_FREE_SLOTS(2)
+        )
+      heap_ctrl
+       (
+        .clk,
+        .reset,
+
+        .enq(reqEn),
+        .notFull(heap_notFull),
+        .allocIdx(alloc_idx),
+
+        .free(free_en),
+        .freeIdx(free_idx)
+        );
+
+    //
+    // Heap data
+    //
+
+    logic req_en_q;
+    t_mpf_vtp_req_tag alloc_idx_q;
+    t_vtp_clAddr req_addr_q;
+    logic req_addr_is_virtual_q;
+    logic [N_PAYLOAD_BITS-1 : 0] req_payload_q;
+
+    always_ff @(posedge clk)
+    begin
+        req_en_q <= reqEn;
+        alloc_idx_q <= alloc_idx;
+        req_addr_q <= reqAddr;
+        req_addr_is_virtual_q <= reqAddrIsVirtual;
+        req_payload_q <= reqPayload;
+    end
+
+    t_mpf_vtp_req_tag read_idx;
+    logic rsp_orig_addr_is_virtual;
+    t_vtp_clAddr rsp_orig_addr;
+
+    cci_mpf_prim_lutram
+      #(
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS(1 + N_PAYLOAD_BITS + $bits(t_vtp_clAddr))
+        )
+      heap_data
+       (
+        .clk,
+        .reset,
+
+        .raddr(read_idx),
+        .rdata({ rspPayload, rsp_orig_addr_is_virtual, rsp_orig_addr }),
+
+        .wen(req_en_q),
+        .waddr(alloc_idx_q),
+        .wdata({ req_payload_q, req_addr_is_virtual_q, req_addr_q })
+        );
+
+    always_ff @(posedge clk)
+    begin
+        free_en <= rspDeqEn;
+        free_idx <= read_idx;
+    end
+
+
+    // ====================================================================
+    //
+    //  Send translation requests to the VTP service. Responses may be
+    //  out of order. The unique alloc_idx tag will be used to associate
+    //  requests and responses.
+    //
+    // ====================================================================
+
+    assign vtp_port.reqEn = reqEn;
+    assign vtp_port.req.tag = alloc_idx;
+    assign vtp_port.req.pageVA = vtp4kbPageIdxFromVA(reqAddr);
+    assign vtp_port.req.isSpeculative = reqIsSpeculative;
+    assign vtp_port.reqAddrIsVirtual = reqAddrIsVirtual;
+    assign vtp_port.reqIsOrdered = reqIsOrdered;
+
+
+    // ====================================================================
+    //
+    //  Responses
+    //
+    // ====================================================================
+
+    typedef struct packed
+    {
+        t_mpf_vtp_req_tag heap_idx;
+        logic error;
+        t_tlb_4kb_pa_page_idx phys_addr;
+        logic addr_is_big_page;
+    }
+    t_translation_rsp;
+
+    t_mpf_vtp_lookup_rsp rsp;
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_rsp)),
+        .N_ENTRIES(8),
+        .THRESHOLD(4),
+        .REGISTER_OUTPUT(1)
+        )
+      tlb_fifo_out
+       (
+        .clk,
+        .reset,
+
+        .enq_data(vtp_port.rsp),
+        .enq_en(vtp_port.rspValid),
+        .notFull(),
+        .almostFull(vtp_port.almostFullFromFIU),
+
+        .first(rsp),
+        .deq_en(rspDeqEn),
+        .notEmpty(rspValid)
+        );
+
+    assign read_idx = rsp.tag;
+    assign rspError = rsp.error;
+
+    always_comb
+    begin
+        if (! rsp_orig_addr_is_virtual)
+        begin
+            // The incoming address wasn't virtual. Keep the original address.
+            rspAddr = rsp_orig_addr;
+        end
+        else if (rsp.isBigPage)
+        begin
+            // 2MB page
+            rspAddr = t_vtp_clAddr'({ vtp4kbTo2mbPA(rsp.pagePA),
+                                      vtp2mbPageOffsetFromVA(rsp_orig_addr) });
+        end
+        else
+        begin
+            // 4KB page
+            rspAddr = t_vtp_clAddr'({ rsp.pagePA,
+                                      vtp4kbPageOffsetFromVA(rsp_orig_addr) });
+        end
+    end
+
+endmodule // mpf_svc_vtp_port_wrapper_unordered

@@ -85,6 +85,10 @@ module mpf_svc_vtp
                 vtp_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
             end
 
+            //
+            // Translate generic CSR read/write requests coming in on gen_csr_if
+            // into VTP-specific data structures.
+            //
             mpf_vtp_csr
               #(
                 .ENABLE_VTP(ENABLE_VTP)
@@ -99,41 +103,29 @@ module mpf_svc_vtp
                 );
 
             mpf_vtp_l2_if vtp_l2_ports[N_VTP_PORTS] ();
-
-            mpf_svc_vtp_l1
-              #(
-                .CTX_NUMBER(0)
-                )
-              l1_c0
-               (
-                .clk,
-                .reset,
-                .vtp_port(vtp_ports[0]),
-                .vtp_svc(vtp_l2_ports[0]),
-                .csrs(vtp_csrs)
-                );
-
-            mpf_svc_vtp_l1
-              #(
-                .CTX_NUMBER(1)
-                )
-              l1_c1
-               (
-                .clk,
-                .reset,
-                .vtp_port(vtp_ports[1]),
-                .vtp_svc(vtp_l2_ports[1]),
-                .csrs(vtp_csrs)
-                );
-
-            //
-            // Deduplicate back-to-back requests for the same page coming
-            // from a single client.
-            //
             mpf_vtp_l2_if vtp_svc_dedup[N_VTP_PORTS]();
 
             for (p = 0; p < N_VTP_PORTS; p = p + 1)
             begin : d
+                //
+                // Per-port private level 1 translation. This is the entry point
+                // for new translation requests.
+                //
+                mpf_svc_vtp_l1
+                  l1
+                   (
+                    .clk,
+                    .reset,
+                    .vtp_port(vtp_ports[p]),
+                    .vtp_svc(vtp_l2_ports[p]),
+                    .csrs(vtp_csrs)
+                    );
+
+                //
+                // Deduplicate back-to-back L1 misses for the same page coming
+                // from a single client. This is a filter between L1 and L2,
+                // reducing the L2 traffic.
+                //
                 mpf_svc_vtp_l2_dedup
                   #(
                     .DEBUG_MESSAGES(DEBUG_MESSAGES)
@@ -148,7 +140,7 @@ module mpf_svc_vtp
             end
 
             //
-            // Instantiate the shared VTP service.
+            // Instantiate the shared VTP service (L2 and page table walker).
             //
             mpf_vtp_pt_walk_if pt_walk();
 

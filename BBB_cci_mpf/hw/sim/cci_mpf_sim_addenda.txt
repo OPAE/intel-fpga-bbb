@@ -99,6 +99,9 @@
 ../rtl/mpf-services/vtp/mpf-vtp-pt/mpf_svc_vtp_pt_sw.sv
 ../rtl/mpf-services/vtp/mpf-vtp-pt/mpf_svc_vtp_pt_walk.sv
 ../rtl/mpf-services/vtp/mpf-vtp-tlb-l1/mpf_svc_vtp_l1.sv
+../rtl/mpf-services/vtp/mpf-vtp-tlb-l1/mpf_svc_vtp_l1_caches.sv
+../rtl/mpf-services/vtp/mpf-vtp-tlb-l1/mpf_svc_vtp_l1_lookup.sv
+../rtl/mpf-services/vtp/mpf-vtp-tlb-l1/mpf_svc_vtp_l1_miss.sv
 ../rtl/mpf-services/vtp/mpf-vtp-tlb-l2/mpf_svc_vtp_l2_dedup.sv
 ../rtl/mpf-services/vtp/mpf-vtp-tlb-l2/mpf_svc_vtp_l2.sv
 ../rtl/mpf-services/vtp/mpf-vtp-tlb-l2/mpf_svc_vtp_l2_tlb.sv

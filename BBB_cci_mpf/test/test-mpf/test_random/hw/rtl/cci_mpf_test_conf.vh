@@ -33,7 +33,7 @@
 // by command line definitions.
 //
 
-// `define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
+`define TEST_PARAM_AFU_CLK plat_ifc.clocks.uClk_usr
 
 `ifndef MPF_CONF_SORT_READ_RESPONSES
   `define MPF_CONF_SORT_READ_RESPONSES 1

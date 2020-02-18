@@ -29,72 +29,58 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Interface of a single VTP translation port. The VTP services typically
+// Interface of a single VTP translation port. The VTP service typically
 // provides a vector of these ports.
+//
+// The port allows enough state to flow through that all requests can flow
+// through it, even if no translation is required. This typically makes
+// it easier to structure ports that have fences or ports where some
+// addresses require translation and some don't.
 //
 
 `include "mpf_vtp.vh"
 
-interface mpf_vtp_port_if
-  #(
-    parameter N_CTX_BITS = 1024
-    );
+interface mpf_vtp_port_if;
 
-    logic almostFullToAFU;
-    // A single TX channel.
-    logic cTxValid;
-    logic [N_CTX_BITS-1 : 0] cTx;
-    logic cTxAddrIsVirtual;
-    // Is the request a speculative translation?
-    logic cTxReqIsSpeculative;
+    logic reqEn;
+    t_mpf_vtp_lookup_req req;
+    // Is the incoming request a virtual address? If not, no translation is
+    // performed and the original address is returned in the response.
+    logic reqAddrIsVirtual;
     // Is the request ordered (e.g. a write fence)? If so, the channel logic
     // will wait for all earlier requests to drain from the VTP pipelines.
-    // It is illegal to set both cTxAddrIsVirtual and cTxReqIsOrdered.
-    logic cTxReqIsOrdered;
+    // It is illegal to set both reqAddrIsVirtual and reqIsOrdered.
+    logic reqIsOrdered;
+    logic almostFullToAFU;
 
-    // Outbound TX channel. Requests are present when cTxValid_out is set.
-    logic cTxValid_out;
-    // Unchanged from the value passed to cTx above.
-    logic [N_CTX_BITS-1 : 0] cTx_out;
-    // Failed translation. This error may be raised only if cTxReqIsSpeculative
-    // was set.
-    logic cTxError_out;
-    // A translated physical address if cTxAddr is virtual.
-    t_tlb_4kb_pa_page_idx cTxPhysAddr_out;
-    logic cTxAddrIsBigPage_out;
+    // Responses are present when rspValid is set.
+    logic rspValid;
+    t_mpf_vtp_lookup_rsp rsp;
     logic almostFullFromFIU;
 
     modport to_master
        (
+        input  reqEn,
+        input  req,
+        input  reqAddrIsVirtual,
+        input  reqIsOrdered,
         output almostFullToAFU,
-        input  cTxValid,
-        input  cTx,
-        input  cTxAddrIsVirtual,
-        input  cTxReqIsSpeculative,
-        input  cTxReqIsOrdered,
 
-        output cTxValid_out,
-        output cTx_out,
-        output cTxError_out,
-        output cTxPhysAddr_out,
-        output cTxAddrIsBigPage_out,
+        output rspValid,
+        output rsp,
         input  almostFullFromFIU
         );
 
     modport to_slave
        (
+        output reqEn,
+        output req,
+        output reqAddrIsVirtual,
+        output reqIsOrdered,
         input  almostFullToAFU,
-        output cTxValid,
-        output cTx,
-        output cTxAddrIsVirtual,
-        output cTxReqIsSpeculative,
-        output cTxReqIsOrdered,
 
-        input  cTxValid_out,
-        input  cTx_out,
-        input  cTxError_out,
-        input  cTxPhysAddr_out,
-        input  cTxAddrIsBigPage_out,
+        input  rspValid,
+        input  rsp,
         output almostFullFromFIU
         );
 
