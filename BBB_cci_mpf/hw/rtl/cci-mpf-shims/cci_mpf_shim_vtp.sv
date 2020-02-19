@@ -103,19 +103,28 @@ module cci_mpf_shim_vtp
     //
     // ====================================================================
 
+    t_mpf_vtp_port_wrapper_req c0chan_req;
+    t_mpf_vtp_port_wrapper_rsp c0chan_rsp;
+
     logic c0chan_notFull;
     logic c0chan_outValid;
     t_if_cci_mpf_c0_Tx c0chan_outTx;
-    logic c0chan_outError;
-    t_cci_clAddr c0chan_outAddr;
     logic error_fifo_almostFull;
     logic c0chan_deq_en;
 
     assign deqC0Tx = cci_mpf_c0TxIsValid(afu_buf.c0Tx) && c0chan_notFull;
 
+    always_comb
+    begin
+        c0chan_req = '0;
+        c0chan_req.addr = cci_mpf_c0_getReqAddr(afu_buf.c0Tx.hdr);
+        c0chan_req.addrIsVirtual = cci_mpf_c0_getReqAddrIsVirtual(afu_buf.c0Tx.hdr);
+        c0chan_req.isSpeculative = cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu_buf.c0Tx);
+    end
+
     mpf_svc_vtp_port_wrapper_unordered
       #(
-        .N_PAYLOAD_BITS($bits(afu_buf.c0Tx))
+        .N_OPAQUE_BITS($bits(afu_buf.c0Tx))
         )
       tr_c0
        (
@@ -123,18 +132,14 @@ module cci_mpf_shim_vtp
         .reset,
         .vtp_port(vtp_ports[0]),
         .reqEn(deqC0Tx),
-        .reqAddr(cci_mpf_c0_getReqAddr(afu_buf.c0Tx.hdr)),
-        .reqAddrIsVirtual(cci_mpf_c0_getReqAddrIsVirtual(afu_buf.c0Tx.hdr)),
-        .reqIsSpeculative(cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu_buf.c0Tx)),
-        .reqIsOrdered(1'b0),
-        .reqPayload(afu_buf.c0Tx),
+        .req(c0chan_req),
+        .reqOpaque(afu_buf.c0Tx),
         .notFull(c0chan_notFull),
 
         .rspValid(c0chan_outValid),
+        .rsp(c0chan_rsp),
         .rspDeqEn(c0chan_deq_en),
-        .rspAddr(c0chan_outAddr),
-        .rspPayload(c0chan_outTx),
-        .rspError(c0chan_outError)
+        .rspOpaque(c0chan_outTx)
         );
 
     assign c0chan_deq_en = c0chan_outValid && !fiu.c0TxAlmFull && !error_fifo_almostFull;
@@ -142,12 +147,13 @@ module cci_mpf_shim_vtp
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
-        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx, c0chan_deq_en && ! c0chan_outError);
+        fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx,
+                                           c0chan_deq_en && ! c0chan_rsp.error);
 
         // Set the physical address. The page comes from the TLB and the
         // offset from the original memory request.
         fiu.c0Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        fiu.c0Tx.hdr.base.address <= c0chan_outAddr;
+        fiu.c0Tx.hdr.base.address <= c0chan_rsp.addr;
 
 `ifdef CCIP_ENCODING_HAS_RDLSPEC
         // If the read request is speculative and the FIU doesn't support
@@ -205,7 +211,7 @@ module cci_mpf_shim_vtp
         .clk,
         .reset(reset),
 
-        .enq_en(c0chan_deq_en && c0chan_outError),
+        .enq_en(c0chan_deq_en && c0chan_rsp.error),
         .enq_data(c0_error_hdr_in),
         .notFull(),
         .almostFull(error_fifo_almostFull),
@@ -259,7 +265,7 @@ module cci_mpf_shim_vtp
     begin
         if (DEBUG_MESSAGES && ! reset)
         begin
-            if (c0chan_deq_en && c0chan_outError)
+            if (c0chan_deq_en && c0chan_rsp.error)
             begin
                 $display("%m VTP: %0t Speculative load translation error from VA 0x%x",
                          $time,
@@ -275,24 +281,32 @@ module cci_mpf_shim_vtp
     //
     // ====================================================================
 
-    // Block order-sensitive requests until all previous translations are
-    // complete so that they aren't reordered in the VTP channel pipeline.
-    logic c1_order_sensitive;
-    assign c1_order_sensitive = cci_mpf_c1TxIsWriteFenceReq(afu_buf.c1Tx) ||
-                                cci_mpf_c1TxIsInterruptReq(afu_buf.c1Tx);
+    t_mpf_vtp_port_wrapper_req c1chan_req;
+    t_mpf_vtp_port_wrapper_rsp c1chan_rsp;
 
     logic c1chan_notFull;
     logic c1chan_outValid;
     t_if_cci_mpf_c1_Tx c1chan_outTx;
-    logic c1chan_outError;
-    t_cci_clAddr c1chan_outAddr;
     logic c1chan_deq_en;
 
     assign deqC1Tx = cci_mpf_c1TxIsValid(afu_buf.c1Tx) && c1chan_notFull;
 
+    always_comb
+    begin
+        c1chan_req = '0;
+        c1chan_req.addr = cci_mpf_c1_getReqAddr(afu_buf.c1Tx.hdr);
+        c1chan_req.addrIsVirtual = cci_mpf_c1_getReqAddrIsVirtual(afu_buf.c1Tx.hdr);
+        c1chan_req.isSpeculative = 1'b0;
+
+        // Block order-sensitive requests until all previous translations are
+        // complete so that they aren't reordered in the VTP channel pipeline.
+        c1chan_req.isOrdered = cci_mpf_c1TxIsWriteFenceReq(afu_buf.c1Tx) ||
+                               cci_mpf_c1TxIsInterruptReq(afu_buf.c1Tx);
+    end
+
     mpf_svc_vtp_port_wrapper_unordered
       #(
-        .N_PAYLOAD_BITS($bits(afu_buf.c1Tx))
+        .N_OPAQUE_BITS($bits(afu_buf.c1Tx))
         )
       tr_c1
        (
@@ -300,18 +314,14 @@ module cci_mpf_shim_vtp
         .reset,
         .vtp_port(vtp_ports[1]),
         .reqEn(deqC1Tx),
-        .reqAddr(cci_mpf_c1_getReqAddr(afu_buf.c1Tx.hdr)),
-        .reqAddrIsVirtual(cci_mpf_c1_getReqAddrIsVirtual(afu_buf.c1Tx.hdr)),
-        .reqIsSpeculative(1'b0),
-        .reqIsOrdered(c1_order_sensitive),
-        .reqPayload(afu_buf.c1Tx),
+        .req(c1chan_req),
+        .reqOpaque(afu_buf.c1Tx),
         .notFull(c1chan_notFull),
 
         .rspValid(c1chan_outValid),
+        .rsp(c1chan_rsp),
         .rspDeqEn(c1chan_deq_en),
-        .rspAddr(c1chan_outAddr),
-        .rspPayload(c1chan_outTx),
-        .rspError(c1chan_outError)
+        .rspOpaque(c1chan_outTx)
         );
 
     assign c1chan_deq_en = c1chan_outValid && !fiu.c1TxAlmFull;
@@ -324,7 +334,7 @@ module cci_mpf_shim_vtp
         // Set the physical address. The page comes from the TLB and the
         // offset from the original memory request.
         fiu.c1Tx.hdr.ext.addrIsVirtual <= 1'b0;
-        fiu.c1Tx.hdr.base.address <= c1chan_outAddr;
+        fiu.c1Tx.hdr.base.address <= c1chan_rsp.addr;
     end
 
 
@@ -341,7 +351,7 @@ module cci_mpf_shim_vtp
     begin
         if (! reset)
         begin
-            assert((c1chan_outValid == 1'b0) || (c1chan_outError == 1'b0)) else
+            assert((c1chan_outValid == 1'b0) || (c1chan_rsp.error == 1'b0)) else
                 $fatal(2, "cci_mpf_shim_vtp.sv: Store channel should never raise a speculative translation error");
         end
     end
@@ -361,10 +371,10 @@ module mpf_svc_vtp_port_wrapper_unordered
   #(
     // This module maintains an index space with a unique ID for every lookup
     // request in flight. The module offers optional storage to the parent.
-    // Payload_in values are returned as payload_out along with translation
+    // reqOpaque values are returned as rspOpaque along with translation
     // responses. Parent modules will typically use this to store the full
     // request.
-    parameter N_PAYLOAD_BITS = 0
+    parameter N_OPAQUE_BITS = 0
     )
    (
     input  logic clk,
@@ -377,20 +387,9 @@ module mpf_svc_vtp_port_wrapper_unordered
     // Lookup requests
     //
     input  logic reqEn,
-    input  t_vtp_clAddr reqAddr,
-    // Does the request need to be translated? When 0 the request flows
-    // through the translation pipeline but is not translated.
-    input  logic reqAddrIsVirtual,
-    // Is the request a speculative translation? Non-speculative requests
-    // that have no translation cause the pipeline to halt. Speculative
-    // requests only raise rspError.
-    input  logic reqIsSpeculative,
-    // Is the request ordered (e.g. a write fence)? If so, the channel logic
-    // will wait for all earlier requests to drain from the VTP pipelines.
-    // It is illegal to set both reqAddrIsVirtual and reqIsOrdered.
-    input  logic reqIsOrdered,
-    // Opaque state to be returned in rspPayload.
-    input  logic [N_PAYLOAD_BITS-1 : 0] reqPayload,
+    input  t_mpf_vtp_port_wrapper_req req,
+    // Opaque state to be returned in rspOpaque.
+    input  logic [N_OPAQUE_BITS-1 : 0] reqOpaque,
     output logic notFull,
 
     //
@@ -398,14 +397,11 @@ module mpf_svc_vtp_port_wrapper_unordered
     //
     // A response is ready
     output logic rspValid,
+    output t_mpf_vtp_port_wrapper_rsp rsp,
+    // Opaque state from reqOpaque
+    output logic [N_OPAQUE_BITS-1 : 0] rspOpaque,
     // Parent accepts the response
-    input  logic rspDeqEn,
-    // Translated address (or original reqAddr if not reqAddrIsVirtual)
-    output t_vtp_clAddr rspAddr,
-    // Translation error?
-    output logic rspError,
-    // Opaque state from reqPayload
-    output logic [N_PAYLOAD_BITS-1 : 0] rspPayload
+    input  logic rspDeqEn
     );
 
 
@@ -454,27 +450,24 @@ module mpf_svc_vtp_port_wrapper_unordered
 
     logic req_en_q;
     t_mpf_vtp_req_tag alloc_idx_q;
-    t_vtp_clAddr req_addr_q;
-    logic req_addr_is_virtual_q;
-    logic [N_PAYLOAD_BITS-1 : 0] req_payload_q;
+    t_mpf_vtp_port_wrapper_req req_q;
+    logic [N_OPAQUE_BITS-1 : 0] req_opaque_q;
 
     always_ff @(posedge clk)
     begin
         req_en_q <= reqEn;
         alloc_idx_q <= alloc_idx;
-        req_addr_q <= reqAddr;
-        req_addr_is_virtual_q <= reqAddrIsVirtual;
-        req_payload_q <= reqPayload;
+        req_q <= req;
+        req_opaque_q <= reqOpaque;
     end
 
     t_mpf_vtp_req_tag read_idx;
-    logic rsp_orig_addr_is_virtual;
-    t_vtp_clAddr rsp_orig_addr;
+    t_mpf_vtp_port_wrapper_req orig_req;
 
     cci_mpf_prim_lutram
       #(
         .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS(1 + N_PAYLOAD_BITS + $bits(t_vtp_clAddr))
+        .N_DATA_BITS(N_OPAQUE_BITS + $bits(t_mpf_vtp_port_wrapper_req))
         )
       heap_data
        (
@@ -482,11 +475,11 @@ module mpf_svc_vtp_port_wrapper_unordered
         .reset,
 
         .raddr(read_idx),
-        .rdata({ rspPayload, rsp_orig_addr_is_virtual, rsp_orig_addr }),
+        .rdata({ rspOpaque, orig_req }),
 
         .wen(req_en_q),
         .waddr(alloc_idx_q),
-        .wdata({ req_payload_q, req_addr_is_virtual_q, req_addr_q })
+        .wdata({ req_opaque_q, req_q })
         );
 
     always_ff @(posedge clk)
@@ -506,10 +499,10 @@ module mpf_svc_vtp_port_wrapper_unordered
 
     assign vtp_port.reqEn = reqEn;
     assign vtp_port.req.tag = alloc_idx;
-    assign vtp_port.req.pageVA = vtp4kbPageIdxFromVA(reqAddr);
-    assign vtp_port.req.isSpeculative = reqIsSpeculative;
-    assign vtp_port.reqAddrIsVirtual = reqAddrIsVirtual;
-    assign vtp_port.reqIsOrdered = reqIsOrdered;
+    assign vtp_port.req.pageVA = vtp4kbPageIdxFromVA(req.addr);
+    assign vtp_port.req.isSpeculative = req.isSpeculative;
+    assign vtp_port.reqAddrIsVirtual = req.addrIsVirtual;
+    assign vtp_port.reqIsOrdered = req.isOrdered;
 
 
     // ====================================================================
@@ -518,16 +511,7 @@ module mpf_svc_vtp_port_wrapper_unordered
     //
     // ====================================================================
 
-    typedef struct packed
-    {
-        t_mpf_vtp_req_tag heap_idx;
-        logic error;
-        t_tlb_4kb_pa_page_idx phys_addr;
-        logic addr_is_big_page;
-    }
-    t_translation_rsp;
-
-    t_mpf_vtp_lookup_rsp rsp;
+    t_mpf_vtp_lookup_rsp lookup_rsp;
 
     cci_mpf_prim_fifo_lutram
       #(
@@ -546,32 +530,32 @@ module mpf_svc_vtp_port_wrapper_unordered
         .notFull(),
         .almostFull(vtp_port.almostFullFromFIU),
 
-        .first(rsp),
+        .first(lookup_rsp),
         .deq_en(rspDeqEn),
         .notEmpty(rspValid)
         );
 
-    assign read_idx = rsp.tag;
-    assign rspError = rsp.error;
+    assign read_idx = lookup_rsp.tag;
+    assign rsp.error = lookup_rsp.error;
 
     always_comb
     begin
-        if (! rsp_orig_addr_is_virtual)
+        if (! orig_req.addrIsVirtual)
         begin
             // The incoming address wasn't virtual. Keep the original address.
-            rspAddr = rsp_orig_addr;
+            rsp.addr = orig_req.addr;
         end
-        else if (rsp.isBigPage)
+        else if (lookup_rsp.isBigPage)
         begin
             // 2MB page
-            rspAddr = t_vtp_clAddr'({ vtp4kbTo2mbPA(rsp.pagePA),
-                                      vtp2mbPageOffsetFromVA(rsp_orig_addr) });
+            rsp.addr = t_vtp_clAddr'({ vtp4kbTo2mbPA(lookup_rsp.pagePA),
+                                       vtp2mbPageOffsetFromVA(orig_req.addr) });
         end
         else
         begin
             // 4KB page
-            rspAddr = t_vtp_clAddr'({ rsp.pagePA,
-                                      vtp4kbPageOffsetFromVA(rsp_orig_addr) });
+            rsp.addr = t_vtp_clAddr'({ lookup_rsp.pagePA,
+                                       vtp4kbPageOffsetFromVA(orig_req.addr) });
         end
     end
 

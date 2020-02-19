@@ -161,6 +161,51 @@ package mpf_vtp_pkg;
 
     // ====================================================================
     //
+    // Translation data passed between an AFU's pipeline and the VTP
+    // port wrapper modules. AFUs should first set the entire data
+    // structure to 0 so that fields can be added in the future without
+    // breaking existing AFUs.
+    //
+    // ====================================================================
+
+    typedef struct packed
+    {
+        // Virtual address to translate
+        t_vtp_clAddr addr;
+
+        // Is the address virtual? When false, the original addr is returned
+        // as the response. The ability to send untranslated requests through
+        // the pipeline may simplify AFU logic, allowing it to keep requests
+        // ordered.
+        logic addrIsVirtual;
+
+        // Is the request speculative? No hard errors are generated on
+        // speculative translations. Failed translations raise the response
+        // error bit.
+        logic isSpeculative;
+
+        // Is the request ordered (e.g. a write fence)? If so, the channel
+        // logic will wait for all earlier requests to drain from the VTP
+        // pipelines. It is illegal to set both reqAddrIsVirtual and
+        // isOrdered.
+        logic isOrdered;
+    }
+    t_mpf_vtp_port_wrapper_req;
+
+    typedef struct packed
+    {
+        // Translated physical address (or original address if request's
+        // addrIsVirtual was false).
+        t_vtp_clAddr addr;
+
+        // Translation error?
+        logic error;
+    }
+    t_mpf_vtp_port_wrapper_rsp;
+
+
+    // ====================================================================
+    //
     // Interface from a VTP shim to the VTP translation service.  A single
     // service instance is shared by all VTP shims, even when multiple VTP
     // pipeline shims are allocated.
