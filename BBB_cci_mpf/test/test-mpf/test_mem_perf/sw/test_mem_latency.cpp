@@ -40,6 +40,7 @@ void testConfigOptions(po::options_description &desc)
     desc.add_options()
         ("vc", po::value<int>()->default_value(0), "Channel (0=VA, 1=VL0, 2=VH0, 3=VH1)")
         ("mcl", po::value<int>()->default_value(1), "Multi-line request size")
+        ("buffer-size-radix", po::value<int>()->default_value(21), "Radix of buffer size")
         ;
 }
 
@@ -96,6 +97,16 @@ int TEST_MEM_PERF::test()
         }
     }
 
+    uint64_t buffer_use_bytes = (1LL << uint64_t(vm["buffer-size-radix"].as<int>()));
+    if (buffer_use_bytes >= (1024 * 1024))
+    {
+        cout << "# Buffer size: " << buffer_use_bytes / (1024 * 1024) << "MB" << endl;
+    }
+    else
+    {
+        cout << "# Buffer size: " << buffer_use_bytes << " bytes" << endl;
+    }
+
     // How big is the line credits counter?
     uint64_t max_line_credits = 2 * uint16_t(readTestCSR(0) >> 16);
     if (max_line_credits > 1024) max_line_credits = 1024;
@@ -138,7 +149,7 @@ int TEST_MEM_PERF::test()
 
 
         // Cache miss
-        config.buf_lines = 32768;
+        config.buf_lines = buffer_use_bytes / CL(1);
         config.rdline_s = false;
         config.wrline_m = false;
         cout << endl << endl

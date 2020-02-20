@@ -90,6 +90,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-shims
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-shims/cci_mpf_shim_wro/cci_mpf_shim_wro_epoch_order.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/mpf-services-if/mpf_services_gen_csr_if.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/vtp/mpf_svc_vtp.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/vtp/mpf_svc_vtp_port_wrapper.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/vtp/mpf-vtp-csr/mpf_vtp_csr.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/vtp/mpf-vtp-if/mpf_vtp_csrs_if.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/mpf-services/vtp/mpf-vtp-if/mpf_vtp_l2_if.sv

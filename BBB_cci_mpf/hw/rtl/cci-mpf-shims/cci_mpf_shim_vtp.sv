@@ -111,6 +111,8 @@ module cci_mpf_shim_vtp
     t_if_cci_mpf_c0_Tx c0chan_outTx;
     logic error_fifo_almostFull;
     logic c0chan_deq_en;
+    t_mpf_vtp_req_tag c0chan_reqIdx;
+    t_mpf_vtp_req_tag c0chan_rspIdx;
 
     assign deqC0Tx = cci_mpf_c0TxIsValid(afu_buf.c0Tx) && c0chan_notFull;
 
@@ -123,23 +125,41 @@ module cci_mpf_shim_vtp
     end
 
     mpf_svc_vtp_port_wrapper_unordered
-      #(
-        .N_OPAQUE_BITS($bits(afu_buf.c0Tx))
-        )
       tr_c0
        (
         .clk,
         .reset,
+
         .vtp_port(vtp_ports[0]),
         .reqEn(deqC0Tx),
         .req(c0chan_req),
-        .reqOpaque(afu_buf.c0Tx),
         .notFull(c0chan_notFull),
+        .reqIdx(c0chan_reqIdx),
 
         .rspValid(c0chan_outValid),
         .rsp(c0chan_rsp),
         .rspDeqEn(c0chan_deq_en),
-        .rspOpaque(c0chan_outTx)
+        .rspIdx(c0chan_rspIdx)
+        );
+
+    // Hold the full c0Tx request during lookup. The VTP port wrapper provides
+    // up to MPF_VTP_MAX_SVC_REQS indices.
+    cci_mpf_prim_lutram
+      #(
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(afu_buf.c0Tx))
+        )
+      tr_c0_meta
+       (
+        .clk,
+        .reset,
+
+        .raddr(c0chan_rspIdx),
+        .rdata(c0chan_outTx),
+
+        .wen(deqC0Tx),
+        .waddr(c0chan_reqIdx),
+        .wdata(afu_buf.c0Tx)
         );
 
     assign c0chan_deq_en = c0chan_outValid && !fiu.c0TxAlmFull && !error_fifo_almostFull;
@@ -288,6 +308,8 @@ module cci_mpf_shim_vtp
     logic c1chan_outValid;
     t_if_cci_mpf_c1_Tx c1chan_outTx;
     logic c1chan_deq_en;
+    t_mpf_vtp_req_tag c1chan_reqIdx;
+    t_mpf_vtp_req_tag c1chan_rspIdx;
 
     assign deqC1Tx = cci_mpf_c1TxIsValid(afu_buf.c1Tx) && c1chan_notFull;
 
@@ -305,23 +327,41 @@ module cci_mpf_shim_vtp
     end
 
     mpf_svc_vtp_port_wrapper_unordered
-      #(
-        .N_OPAQUE_BITS($bits(afu_buf.c1Tx))
-        )
       tr_c1
        (
         .clk,
         .reset,
+
         .vtp_port(vtp_ports[1]),
         .reqEn(deqC1Tx),
         .req(c1chan_req),
-        .reqOpaque(afu_buf.c1Tx),
         .notFull(c1chan_notFull),
+        .reqIdx(c1chan_reqIdx),
 
         .rspValid(c1chan_outValid),
         .rsp(c1chan_rsp),
         .rspDeqEn(c1chan_deq_en),
-        .rspOpaque(c1chan_outTx)
+        .rspIdx(c1chan_rspIdx)
+        );
+
+    // Hold the full c1Tx request during lookup. The VTP port wrapper provides
+    // up to MPF_VTP_MAX_SVC_REQS indices.
+    cci_mpf_prim_lutram
+      #(
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .N_DATA_BITS($bits(afu_buf.c1Tx))
+        )
+      tr_c1_meta
+       (
+        .clk,
+        .reset,
+
+        .raddr(c1chan_rspIdx),
+        .rdata(c1chan_outTx),
+
+        .wen(deqC1Tx),
+        .waddr(c1chan_reqIdx),
+        .wdata(afu_buf.c1Tx)
         );
 
     assign c1chan_deq_en = c1chan_outValid && !fiu.c1TxAlmFull;
@@ -366,197 +406,3 @@ module cci_mpf_shim_vtp
     assign fiu.c2Tx = afu_buf.c2Tx;
 
 endmodule // cci_mpf_shim_vtp
-
-module mpf_svc_vtp_port_wrapper_unordered
-  #(
-    // This module maintains an index space with a unique ID for every lookup
-    // request in flight. The module offers optional storage to the parent.
-    // reqOpaque values are returned as rspOpaque along with translation
-    // responses. Parent modules will typically use this to store the full
-    // request.
-    parameter N_OPAQUE_BITS = 0
-    )
-   (
-    input  logic clk,
-    input  logic reset,
-
-    // Translation port
-    mpf_vtp_port_if.to_slave vtp_port,
-
-    //
-    // Lookup requests
-    //
-    input  logic reqEn,
-    input  t_mpf_vtp_port_wrapper_req req,
-    // Opaque state to be returned in rspOpaque.
-    input  logic [N_OPAQUE_BITS-1 : 0] reqOpaque,
-    output logic notFull,
-
-    //
-    // Responses
-    //
-    // A response is ready
-    output logic rspValid,
-    output t_mpf_vtp_port_wrapper_rsp rsp,
-    // Opaque state from reqOpaque
-    output logic [N_OPAQUE_BITS-1 : 0] rspOpaque,
-    // Parent accepts the response
-    input  logic rspDeqEn
-    );
-
-
-    // ====================================================================
-    //
-    //  Allocate a unique transaction ID and store request state
-    //
-    // ====================================================================
-
-    t_mpf_vtp_req_tag alloc_idx;
-    logic heap_notFull;
-
-    t_mpf_vtp_req_tag free_idx;
-    logic free_en;
-
-    always_ff @(posedge clk)
-    begin
-        notFull <= heap_notFull && ! vtp_port.almostFullToAFU;
-    end
-
-    //
-    // Heap index manager
-    //
-    cci_mpf_prim_heap_ctrl
-      #(
-        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        // Reserve a slot so notFull can be registered
-        .MIN_FREE_SLOTS(2)
-        )
-      heap_ctrl
-       (
-        .clk,
-        .reset,
-
-        .enq(reqEn),
-        .notFull(heap_notFull),
-        .allocIdx(alloc_idx),
-
-        .free(free_en),
-        .freeIdx(free_idx)
-        );
-
-    //
-    // Heap data
-    //
-
-    logic req_en_q;
-    t_mpf_vtp_req_tag alloc_idx_q;
-    t_mpf_vtp_port_wrapper_req req_q;
-    logic [N_OPAQUE_BITS-1 : 0] req_opaque_q;
-
-    always_ff @(posedge clk)
-    begin
-        req_en_q <= reqEn;
-        alloc_idx_q <= alloc_idx;
-        req_q <= req;
-        req_opaque_q <= reqOpaque;
-    end
-
-    t_mpf_vtp_req_tag read_idx;
-    t_mpf_vtp_port_wrapper_req orig_req;
-
-    cci_mpf_prim_lutram
-      #(
-        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS(N_OPAQUE_BITS + $bits(t_mpf_vtp_port_wrapper_req))
-        )
-      heap_data
-       (
-        .clk,
-        .reset,
-
-        .raddr(read_idx),
-        .rdata({ rspOpaque, orig_req }),
-
-        .wen(req_en_q),
-        .waddr(alloc_idx_q),
-        .wdata({ req_opaque_q, req_q })
-        );
-
-    always_ff @(posedge clk)
-    begin
-        free_en <= rspDeqEn;
-        free_idx <= read_idx;
-    end
-
-
-    // ====================================================================
-    //
-    //  Send translation requests to the VTP service. Responses may be
-    //  out of order. The unique alloc_idx tag will be used to associate
-    //  requests and responses.
-    //
-    // ====================================================================
-
-    assign vtp_port.reqEn = reqEn;
-    assign vtp_port.req.tag = alloc_idx;
-    assign vtp_port.req.pageVA = vtp4kbPageIdxFromVA(req.addr);
-    assign vtp_port.req.isSpeculative = req.isSpeculative;
-    assign vtp_port.reqAddrIsVirtual = req.addrIsVirtual;
-    assign vtp_port.reqIsOrdered = req.isOrdered;
-
-
-    // ====================================================================
-    //
-    //  Responses
-    //
-    // ====================================================================
-
-    t_mpf_vtp_lookup_rsp lookup_rsp;
-
-    cci_mpf_prim_fifo_lutram
-      #(
-        .N_DATA_BITS($bits(t_mpf_vtp_lookup_rsp)),
-        .N_ENTRIES(8),
-        .THRESHOLD(4),
-        .REGISTER_OUTPUT(1)
-        )
-      tlb_fifo_out
-       (
-        .clk,
-        .reset,
-
-        .enq_data(vtp_port.rsp),
-        .enq_en(vtp_port.rspValid),
-        .notFull(),
-        .almostFull(vtp_port.almostFullFromFIU),
-
-        .first(lookup_rsp),
-        .deq_en(rspDeqEn),
-        .notEmpty(rspValid)
-        );
-
-    assign read_idx = lookup_rsp.tag;
-    assign rsp.error = lookup_rsp.error;
-
-    always_comb
-    begin
-        if (! orig_req.addrIsVirtual)
-        begin
-            // The incoming address wasn't virtual. Keep the original address.
-            rsp.addr = orig_req.addr;
-        end
-        else if (lookup_rsp.isBigPage)
-        begin
-            // 2MB page
-            rsp.addr = t_vtp_clAddr'({ vtp4kbTo2mbPA(lookup_rsp.pagePA),
-                                       vtp2mbPageOffsetFromVA(orig_req.addr) });
-        end
-        else
-        begin
-            // 4KB page
-            rsp.addr = t_vtp_clAddr'({ lookup_rsp.pagePA,
-                                       vtp4kbPageOffsetFromVA(orig_req.addr) });
-        end
-    end
-
-endmodule // mpf_svc_vtp_port_wrapper_unordered

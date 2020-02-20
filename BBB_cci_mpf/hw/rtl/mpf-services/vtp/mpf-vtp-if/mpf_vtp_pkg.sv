@@ -214,6 +214,8 @@ package mpf_vtp_pkg;
 
     // Multiple translation requests may be outstanding and they may be
     // returned out of order.  A tag matches responses to requests.
+    // MPF_VTP_MAX_SVC_REQS sets the maximum number of requests that may
+    // be in flight in a single VTP port.
     localparam MPF_VTP_MAX_SVC_REQS = 32;
     typedef logic [$clog2(MPF_VTP_MAX_SVC_REQS)-1 : 0] t_mpf_vtp_req_tag;
 

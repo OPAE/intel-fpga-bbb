@@ -79,6 +79,130 @@ module cci_mpf_prim_rob
     );
 
     typedef logic [$clog2(N_ENTRIES)-1 : 0] t_idx;
+    t_idx oldest;
+
+    //
+    // Instantiate ROB controller
+    //
+    cci_mpf_prim_rob_ctrl
+      #(
+        .N_ENTRIES(N_ENTRIES),
+        .MIN_FREE_SLOTS(MIN_FREE_SLOTS),
+        .MAX_ALLOC_PER_CYCLE(MAX_ALLOC_PER_CYCLE)
+        )
+      ctrl
+       (
+        .clk,
+        .reset,
+        .alloc,
+        .notFull,
+        .allocIdx,
+        .enqData_en,
+        .enqDataIdx,
+        .deq_en,
+        .notEmpty,
+        .deqIdx(oldest)
+        );
+
+
+    // ====================================================================
+    //
+    //  Storage.
+    //
+    // ====================================================================
+
+    //
+    // Data
+    //
+    cci_mpf_prim_ram_simple
+      #(
+        .N_ENTRIES(N_ENTRIES),
+        .N_DATA_BITS(N_DATA_BITS),
+        .N_OUTPUT_REG_STAGES(1),
+        .REGISTER_WRITES(1),
+        .BYPASS_REGISTERED_WRITES(0)
+        )
+      memData
+       (
+        .clk,
+
+        .waddr(enqDataIdx),
+        .wen(enqData_en),
+        .wdata(enqData),
+
+        .raddr(oldest),
+        .rdata(T2_first)
+        );
+
+    //
+    // Meta-data memory.
+    //
+    generate
+        if (N_META_BITS != 0)
+        begin : genMeta
+            cci_mpf_prim_ram_simple
+              #(
+                .N_ENTRIES(N_ENTRIES),
+                .N_DATA_BITS(N_META_BITS),
+                .N_OUTPUT_REG_STAGES(1)
+                )
+              memMeta
+               (
+                .clk(clk),
+
+                .waddr(allocIdx),
+                .wen(alloc != 0),
+                .wdata(allocMeta),
+
+                .raddr(oldest),
+                .rdata(T2_firstMeta)
+                );
+        end
+        else
+        begin : noMeta
+            assign T2_firstMeta = 'x;
+        end
+    endgenerate
+
+endmodule // cci_mpf_prim_rob
+
+
+//
+// Control logic for a ROB
+//
+module cci_mpf_prim_rob_ctrl
+  #(
+    parameter N_ENTRIES = 32,
+    // Threshold below which heap asserts "full"
+    parameter MIN_FREE_SLOTS = 1,
+    // Maximum number of entries that can be allocated in a single cycle.
+    // This is used for multi-line requests.
+    parameter MAX_ALLOC_PER_CYCLE = 1
+    )
+   (
+    input  logic clk,
+    input  logic reset,
+
+    // Add one or more new entries in the ROB.  No payload, just control.
+    // The ROB returns a handle -- the index where the payload should
+    // be written.  When allocating multiple entries the indices are
+    // sequential.
+    input  logic [$clog2(MAX_ALLOC_PER_CYCLE) : 0] alloc,
+    output logic notFull,                            // Is ROB full?
+    output logic [$clog2(N_ENTRIES)-1 : 0] allocIdx, // Index of new entry
+
+    // Payload write.  No ready signal.  The ROB must always be ready
+    // to receive data.
+    input  logic enqData_en,                        // Store data for existing entry
+    input  logic [$clog2(N_ENTRIES)-1 : 0] enqDataIdx,
+
+    // Ordered output
+    input  logic deq_en,                            // Deq oldest entry
+    output logic notEmpty,                          // Is oldest entry ready?
+    output logic [$clog2(N_ENTRIES)-1 : 0] deqIdx
+    );
+
+    typedef logic [$clog2(N_ENTRIES)-1 : 0] t_idx;
 
     // Count that can include both 0 and N_ENTRIES.
     typedef logic [$clog2(N_ENTRIES) : 0] t_idx_nowrap;
@@ -98,6 +222,7 @@ module cci_mpf_prim_rob
 
     // enq allocates a slot and returns the index of the slot.
     assign allocIdx = newest;
+    assign deqIdx = oldest;
 
     always_ff @(posedge clk)
     begin
@@ -267,44 +392,88 @@ module cci_mpf_prim_rob
             logic p_wen, p_wen_q;
             logic [$clog2(N_ENTRIES)-2 : 0] p_waddr_q;
 
-            //
-            // Don't confuse the two banks of valid bits in the ROB with this
-            // banked implementation of a LUTRAM.  The banked LUTRAM exists
-            // for timing, breaking the deep MUX required for a large array
-            // into multiple cycles.  The ROB valid bits are in two banks,
-            // which are implemented as multi-bank LUTRAMs.
-            //
-            cci_mpf_prim_lutram_init_banked
-              #(
-                // Two ROB valid bit banks, each with half the entries
-                .N_ENTRIES(N_ENTRIES >> 1),
-                .N_DATA_BITS(1),
-                .INIT_VALUE(1'b0),
-                // Writes are delayed a cycle for timing so bypass new writes
-                // to reads in the same cycle.
-                .READ_DURING_WRITE("NEW_DATA"),
-                // LUTRAM banks -- could be any number.  This is not ROB
-                // valid bit banks.
-                .N_BANKS(4)
-                )
-              validBits
-               (
-                .clk,
-                .reset,
-                .rdy(validBits_rdy[p]),
+            if (N_ENTRIES < 128)
+            begin
+                //
+                // Small ROB. Just use a normal LUTRAM, but register the read response.
+                //
+                logic rdata;
 
-                .raddr(test_valid_idx[p]),
-                .T1_rdata(test_valid_value_q[p]),
+                cci_mpf_prim_lutram_init
+                  #(
+                    // Two ROB valid bit banks, each with half the entries
+                    .N_ENTRIES(N_ENTRIES >> 1),
+                    .N_DATA_BITS(1),
+                    .INIT_VALUE(1'b0),
+                    // Writes are delayed a cycle for timing so bypass new writes
+                    // to reads in the same cycle.
+                    .READ_DURING_WRITE("NEW_DATA")
+                    )
+                validBits
+                   (
+                    .clk,
+                    .reset,
+                    .rdy(validBits_rdy[p]),
 
-                .wen(p_wen_q),
-                .waddr(p_waddr_q),
-                // Indicate the entry is valid using the appropriate tag to
-                // mark validity.  Indices less than oldest are very young
-                // and have the tag for the next ring buffer loop.  Indicies
-                // greater than or equal to oldest use the tag for the current
-                // trip.
-                .wdata((enqDataIdx_q >= oldest_q) ? valid_tag_q : ~valid_tag_q)
-                );
+                    .raddr(test_valid_idx[p]),
+                    .rdata(rdata),
+
+                    .wen(p_wen_q),
+                    .waddr(p_waddr_q),
+                    // Indicate the entry is valid using the appropriate tag to
+                    // mark validity.  Indices less than oldest are very young
+                    // and have the tag for the next ring buffer loop.  Indicies
+                    // greater than or equal to oldest use the tag for the current
+                    // trip.
+                    .wdata((enqDataIdx_q >= oldest_q) ? valid_tag_q : ~valid_tag_q)
+                    );
+
+                always_ff @(posedge clk)
+                begin
+                    test_valid_value_q[p] <= rdata;
+                end
+            end
+            else
+            begin
+                //
+                // Don't confuse the two banks of valid bits in the ROB with this
+                // banked implementation of a LUTRAM.  The banked LUTRAM exists
+                // for timing, breaking the deep MUX required for a large array
+                // into multiple cycles.  The ROB valid bits are in two banks,
+                // which are implemented as multi-bank LUTRAMs.
+                //
+                cci_mpf_prim_lutram_init_banked
+                  #(
+                    // Two ROB valid bit banks, each with half the entries
+                    .N_ENTRIES(N_ENTRIES >> 1),
+                    .N_DATA_BITS(1),
+                    .INIT_VALUE(1'b0),
+                    // Writes are delayed a cycle for timing so bypass new writes
+                    // to reads in the same cycle.
+                    .READ_DURING_WRITE("NEW_DATA"),
+                    // LUTRAM banks -- could be any number.  This is not ROB
+                    // valid bit banks.
+                    .N_BANKS(4)
+                    )
+                validBits
+                   (
+                    .clk,
+                    .reset,
+                    .rdy(validBits_rdy[p]),
+
+                    .raddr(test_valid_idx[p]),
+                    .T1_rdata(test_valid_value_q[p]),
+
+                    .wen(p_wen_q),
+                    .waddr(p_waddr_q),
+                    // Indicate the entry is valid using the appropriate tag to
+                    // mark validity.  Indices less than oldest are very young
+                    // and have the tag for the next ring buffer loop.  Indicies
+                    // greater than or equal to oldest use the tag for the current
+                    // trip.
+                    .wdata((enqDataIdx_q >= oldest_q) ? valid_tag_q : ~valid_tag_q)
+                    );
+            end
 
             // Use the low bit of the data index as a bank select bit
             assign p_wen = enqData_en && (enqDataIdx[0] == p[0]);
@@ -321,64 +490,4 @@ module cci_mpf_prim_rob
         end
     endgenerate
 
-
-    // ====================================================================
-    //
-    //  Storage.
-    //
-    // ====================================================================
-
-    //
-    // Data
-    //
-    cci_mpf_prim_ram_simple
-      #(
-        .N_ENTRIES(N_ENTRIES),
-        .N_DATA_BITS(N_DATA_BITS),
-        .N_OUTPUT_REG_STAGES(1),
-        .REGISTER_WRITES(1),
-        .BYPASS_REGISTERED_WRITES(0)
-        )
-      memData
-       (
-        .clk,
-
-        .waddr(enqDataIdx),
-        .wen(enqData_en),
-        .wdata(enqData),
-
-        .raddr(oldest),
-        .rdata(T2_first)
-        );
-
-    //
-    // Meta-data memory.
-    //
-    generate
-        if (N_META_BITS != 0)
-        begin : genMeta
-            cci_mpf_prim_ram_simple
-              #(
-                .N_ENTRIES(N_ENTRIES),
-                .N_DATA_BITS(N_META_BITS),
-                .N_OUTPUT_REG_STAGES(1)
-                )
-              memMeta
-               (
-                .clk(clk),
-
-                .waddr(newest),
-                .wen(alloc != 0),
-                .wdata(allocMeta),
-
-                .raddr(oldest),
-                .rdata(T2_firstMeta)
-                );
-        end
-        else
-        begin : noMeta
-            assign T2_firstMeta = 'x;
-        end
-    endgenerate
-
-endmodule // cci_mpf_prim_rob
+endmodule // cci_mpf_prim_rob_ctrl
