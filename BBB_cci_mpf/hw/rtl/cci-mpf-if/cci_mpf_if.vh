@@ -126,6 +126,33 @@ interface cci_mpf_if
     //
     // ====================================================================
 
+    // synthesis translate_off
+
+    always_ff @(negedge clk)
+    begin
+        if (! reset)
+        begin
+            if (c0Tx.valid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c0Tx.valid is uninitialized!");
+            if (c1Tx.valid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c1Tx.valid is uninitialized!");
+            if (c2Tx.mmioRdValid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c2Tx.mmioRdValid is uninitialized!");
+
+            if (c0Rx.rspValid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c0Rx.rspValid is uninitialized!");
+            if (c0Rx.mmioRdValid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c0Rx.mmioRdValid is uninitialized!");
+            if (c0Rx.mmioWrValid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c0Rx.mmioWrValid is uninitialized!");
+
+            if (c1Rx.rspValid === 1'bx)
+                $fatal(2, "** ERROR ** %m: c1Rx.rspValid is uninitialized!");
+        end
+    end
+
+    // synthesis translate_on
+
 `ifdef CCI_SIMULATION
 
 `include "cci_mpf_if_dbg.vh"
