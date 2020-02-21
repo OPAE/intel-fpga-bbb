@@ -200,6 +200,16 @@ package mpf_vtp_pkg;
 
         // Translation error?
         logic error;
+
+        // Generally, addrIsVirtual will be false since the response
+        // is supposed to be translated. If error is set because
+        // translation failed and the original request set addrIsVirtual
+        // then the response addrIsVirtual will be true.
+        logic addrIsVirtual;
+
+        // These flags match the original request
+        logic isSpeculative;
+        logic isOrdered;
     }
     t_mpf_vtp_port_wrapper_rsp;
 

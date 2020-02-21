@@ -196,6 +196,13 @@ module mpf_svc_vtp_port_wrapper_unordered
     assign rspIdx = lookup_rsp.tag;
     assign rsp.error = lookup_rsp.error;
 
+    assign rsp.isSpeculative = orig_req.isSpeculative;
+    assign rsp.isOrdered = orig_req.isOrdered;
+
+    // The address on response is virtual iff it was virtual on input
+    // and translation failed.
+    assign rsp.addrIsVirtual = orig_req.addrIsVirtual && lookup_rsp.error;
+
     always_comb
     begin
         if (! orig_req.addrIsVirtual)
@@ -384,6 +391,13 @@ module mpf_svc_vtp_port_wrapper_ordered
 
 
     assign rsp.error = lookup_rsp.error;
+
+    assign rsp.isSpeculative = orig_req.isSpeculative;
+    assign rsp.isOrdered = orig_req.isOrdered;
+
+    // The address on response is virtual iff it was virtual on input
+    // and translation failed.
+    assign rsp.addrIsVirtual = orig_req.addrIsVirtual && lookup_rsp.error;
 
     always_comb
     begin
