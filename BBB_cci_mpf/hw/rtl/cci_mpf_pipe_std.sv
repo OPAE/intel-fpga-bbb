@@ -63,6 +63,7 @@ module cci_mpf_pipe_std
     parameter DFH_MMIO_BASE_ADDR = 0,
     parameter DFH_MMIO_NEXT_ADDR = 0,
     parameter ENABLE_VTP = 1,
+    parameter VTP_HALT_ON_FAILURE = 1,
     parameter ENABLE_VC_MAP = 0,
     parameter ENABLE_DYNAMIC_VC_MAPPING = 0,
     parameter ENFORCE_WR_ORDER = 0,
@@ -236,6 +237,9 @@ module cci_mpf_pipe_std
         if (ENABLE_VTP)
         begin : vtp
             cci_mpf_shim_vtp
+              #(
+                .VTP_HALT_ON_FAILURE(VTP_HALT_ON_FAILURE)
+                )
               v_to_p
                (
                 .clk,

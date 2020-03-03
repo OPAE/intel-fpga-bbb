@@ -205,7 +205,7 @@ module mpf_svc_vtp_port_wrapper_unordered
 
     always_comb
     begin
-        if (! orig_req.addrIsVirtual)
+        if (! orig_req.addrIsVirtual || lookup_rsp.error)
         begin
             // The incoming address wasn't virtual. Keep the original address.
             rsp.addr = orig_req.addr;
@@ -401,7 +401,7 @@ module mpf_svc_vtp_port_wrapper_ordered
 
     always_comb
     begin
-        if (! orig_req.addrIsVirtual)
+        if (! orig_req.addrIsVirtual || lookup_rsp.error)
         begin
             // The incoming address wasn't virtual. Keep the original address.
             rsp.addr = orig_req.addr;

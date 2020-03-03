@@ -76,6 +76,13 @@ module cci_mpf
     // pin all pages that may be touched by the FPGA. The SOFTWARE_SERVICE
     // mode may pin pages automatically on demand.
     parameter string VTP_PT_MODE = "HARDWARE_WALKER",
+    // In its default mode, VTP blocks a channel's request traffic following
+    // a translation failure. Some AFUs may need to handle translation
+    // failure on their own. When VTP_HALT_ON_FAILURE is 0, failed address
+    // translations emerge from MPF with the hdr.ext.addrIsVirtual bit still
+    // set. For successful translations, the addrIsVirtual bit is cleared to
+    // indicate that the address is now physical.
+    parameter VTP_HALT_ON_FAILURE = 1,
 
     // Enable mapping of eVC_VA to physical channels?  AFUs that both use
     // eVC_VA and read back memory locations written by the AFU must either
@@ -396,6 +403,7 @@ module cci_mpf
         .DFH_MMIO_BASE_ADDR(DFH_MMIO_BASE_ADDR),
         .DFH_MMIO_NEXT_ADDR(DFH_MMIO_NEXT_ADDR),
         .ENABLE_VTP(ENABLE_VTP),
+        .VTP_HALT_ON_FAILURE(VTP_HALT_ON_FAILURE),
         .ENABLE_VC_MAP(MPF_ENABLE_VC_MAP),
         .ENABLE_DYNAMIC_VC_MAPPING(ENABLE_DYNAMIC_VC_MAPPING),
         .ENFORCE_WR_ORDER(ENFORCE_WR_ORDER),

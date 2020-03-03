@@ -22,10 +22,10 @@ $(AFU_JSON_INFO): ../hw/rtl/$(TEST).json | objdir
 $(OBJS): $(AFU_JSON_INFO)
 
 $(TEST): $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS) $(FPGA_LIBS)
+	$(CC) -o $@ $^ $(LDFLAGS) $(FPGA_LIBS) -lrt
 
 $(TEST)_ase: $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS) $(ASE_LIBS)
+	$(CC) -o $@ $^ $(LDFLAGS) $(ASE_LIBS) -lrt
 
 $(OBJDIR)/%.o: %.c | objdir
 	$(CC) $(CFLAGS) -c $< -o $@

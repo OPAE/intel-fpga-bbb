@@ -538,11 +538,13 @@ module mpf_svc_vtp_pt_walk
                     // Non speculative fatal error. Terminal state.
                     state <= STATE_PT_WALK_HALT;
 
+                    // synthesis translate_off
                     if (! reset)
                     begin
-                        $fatal(2, "** ERROR ** %m: No translation found for VA 0x%x",
-                               { translate_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
+                        $display("** FAILURE ** %m: No translation found for VA 0x%x",
+                                 { translate_va, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0 });
                     end
+                    // synthesis translate_on
                 end
 
                 rsp_en <= 1'b1;

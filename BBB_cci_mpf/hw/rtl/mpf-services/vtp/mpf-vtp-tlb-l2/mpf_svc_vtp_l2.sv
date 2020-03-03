@@ -854,8 +854,8 @@ module mpf_svc_vtp_do_pt_walk
         if (! reset)
         begin
             assert (! pt_walk.rspEn || ! pt_walk.rspNotPresent || pt_walk.rspIsSpeculative) else
-                $fatal(2, "** ERROR ** %m: VA 0x%x not present in page table",
-                       {pt_walk.rspVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
+                $display("** FAILURE ** %m: VA 0x%x not present in page table",
+                         {pt_walk.rspVA, VTP_PT_4KB_PAGE_OFFSET_BITS'(0), 6'b0});
         end
     end
     // synthesis translate_on

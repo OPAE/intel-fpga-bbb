@@ -39,7 +39,8 @@
 
 module cci_mpf_shim_vtp
   #(
-    parameter AFU_BUF_THRESHOLD = CCI_TX_ALMOST_FULL_THRESHOLD + 4
+    parameter AFU_BUF_THRESHOLD = CCI_TX_ALMOST_FULL_THRESHOLD + 4,
+    parameter VTP_HALT_ON_FAILURE = 1
     )
    (
     input  logic clk,
@@ -121,7 +122,8 @@ module cci_mpf_shim_vtp
         c0chan_req = '0;
         c0chan_req.addr = cci_mpf_c0_getReqAddr(afu_buf.c0Tx.hdr);
         c0chan_req.addrIsVirtual = cci_mpf_c0_getReqAddrIsVirtual(afu_buf.c0Tx.hdr);
-        c0chan_req.isSpeculative = cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu_buf.c0Tx);
+        c0chan_req.isSpeculative = cci_mpf_c0TxIsSpecReadReq_noCheckValid(afu_buf.c0Tx) ||
+                                   (VTP_HALT_ON_FAILURE == 0);
     end
 
     mpf_svc_vtp_port_wrapper_unordered
@@ -164,15 +166,25 @@ module cci_mpf_shim_vtp
 
     assign c0chan_deq_en = c0chan_outValid && !fiu.c0TxAlmFull && !error_fifo_almostFull;
 
+    // Is the response an explicitly speculative load (e.g. a prefetch)?
+    logic c0chan_rsp_is_speculative;
+    assign c0chan_rsp_is_speculative = cci_mpf_c0TxIsSpecReadReq_noCheckValid(c0chan_outTx);
+
+    // Raise an error if translation fails and the AFU has no error handler
+    // or the request is explicitly speculative.
+    logic c0chan_raise_error;
+    assign c0chan_raise_error = c0chan_rsp.error &&
+                                (c0chan_rsp_is_speculative || (VTP_HALT_ON_FAILURE != 0));
+
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
         fiu.c0Tx <= cci_mpf_c0TxMaskValids(c0chan_outTx,
-                                           c0chan_deq_en && ! c0chan_rsp.error);
+                                           c0chan_deq_en && ! c0chan_raise_error);
 
-        // Set the physical address. The page comes from the TLB and the
-        // offset from the original memory request.
-        fiu.c0Tx.hdr.ext.addrIsVirtual <= 1'b0;
+        // Set the address to the translated result. The address might
+        // still be virtual if translation failed.
+        fiu.c0Tx.hdr.ext.addrIsVirtual <= c0chan_rsp.addrIsVirtual;
         fiu.c0Tx.hdr.base.address <= c0chan_rsp.addr;
 
 `ifdef CCIP_ENCODING_HAS_RDLSPEC
@@ -231,7 +243,7 @@ module cci_mpf_shim_vtp
         .clk,
         .reset(reset),
 
-        .enq_en(c0chan_deq_en && c0chan_rsp.error),
+        .enq_en(c0chan_deq_en && c0chan_raise_error && c0chan_rsp_is_speculative),
         .enq_data(c0_error_hdr_in),
         .notFull(),
         .almostFull(error_fifo_almostFull),
@@ -318,7 +330,7 @@ module cci_mpf_shim_vtp
         c1chan_req = '0;
         c1chan_req.addr = cci_mpf_c1_getReqAddr(afu_buf.c1Tx.hdr);
         c1chan_req.addrIsVirtual = cci_mpf_c1_getReqAddrIsVirtual(afu_buf.c1Tx.hdr);
-        c1chan_req.isSpeculative = 1'b0;
+        c1chan_req.isSpeculative = (VTP_HALT_ON_FAILURE == 0);
 
         // Block order-sensitive requests until all previous translations are
         // complete so that they aren't reordered in the VTP channel pipeline.
@@ -366,14 +378,19 @@ module cci_mpf_shim_vtp
 
     assign c1chan_deq_en = c1chan_outValid && !fiu.c1TxAlmFull;
 
+    // Raise an error if translation fails and the AFU has no error handler.
+    logic c1chan_raise_error;
+    assign c1chan_raise_error = c1chan_rsp.error && (VTP_HALT_ON_FAILURE != 0);
+
     // Route translated requests to the FIU
     always_ff @(posedge clk)
     begin
-        fiu.c1Tx <= cci_mpf_c1TxMaskValids(c1chan_outTx, c1chan_deq_en);
+        fiu.c1Tx <= cci_mpf_c1TxMaskValids(c1chan_outTx,
+                                           c1chan_deq_en && ! c1chan_raise_error);
 
-        // Set the physical address. The page comes from the TLB and the
-        // offset from the original memory request.
-        fiu.c1Tx.hdr.ext.addrIsVirtual <= 1'b0;
+        // Set the address to the translated result. The address might
+        // still be virtual if translation failed.
+        fiu.c1Tx.hdr.ext.addrIsVirtual <= c1chan_rsp.addrIsVirtual;
         fiu.c1Tx.hdr.base.address <= c1chan_rsp.addr;
     end
 
@@ -387,14 +404,17 @@ module cci_mpf_shim_vtp
     //
     // Assertions
     //
-    always_ff @(posedge clk)
+
+    // synthesis translate_off
+    always_ff @(negedge clk)
     begin
         if (! reset)
         begin
-            assert((c1chan_outValid == 1'b0) || (c1chan_rsp.error == 1'b0)) else
-                $fatal(2, "cci_mpf_shim_vtp.sv: Store channel should never raise a speculative translation error");
+            assert((c1chan_outValid == 1'b0) || ! c1chan_raise_error) else
+                $fatal(2, "** ERROR ** %m: Store channel should never raise a speculative translation error");
         end
     end
+    // synthesis translate_on
 
 
     // ====================================================================
