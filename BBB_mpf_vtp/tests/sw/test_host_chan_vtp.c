@@ -1,0 +1,720 @@
+//
+// Copyright (c) 2019, Intel Corporation
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// Redistributions of source code must retain the above copyright notice, this
+// list of conditions and the following disclaimer.
+//
+// Redistributions in binary form must reproduce the above copyright notice,
+// this list of conditions and the following disclaimer in the documentation
+// and/or other materials provided with the distribution.
+//
+// Neither the name of the Intel Corporation nor the names of its contributors
+// may be used to endorse or promote products derived from this software
+// without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+
+//
+// Test one or more host memory interfaces, varying address alignment and
+// burst sizes.
+//
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <assert.h>
+#include <inttypes.h>
+#include <uuid/uuid.h>
+#include <time.h>
+
+#include <opae/fpga.h>
+#include <opae/mpf/mpf.h>
+
+// State from the AFU's JSON file, extracted using OPAE's afu_json_mgr script
+#include "afu_json_info.h"
+#include "test_host_chan_vtp.h"
+
+#define CACHELINE_BYTES 64
+#ifndef CL
+#define CL(x) ((x) * CACHELINE_BYTES)
+#endif
+#ifndef MB
+#define MB(x) ((x) * 1048576)
+#endif
+#ifndef KB
+#define KB(x) ((x) * 1024)
+#endif
+
+//
+// Hold shared memory buffer details for one engine
+//
+typedef struct
+{
+    volatile uint64_t *rd_buf;
+    size_t rd_buf_size;
+
+    volatile uint64_t *wr_buf;
+    size_t wr_buf_size;
+
+    uint32_t max_burst_size;
+    bool natural_bursts;
+    bool ordered_read_responses;
+}
+t_engine_buf;
+
+static fpga_handle s_accel_handle;
+static t_csr_handle_p s_csr_handle;
+static bool s_is_ase;
+static t_engine_buf* s_eng_bufs;
+static double s_afu_mhz;
+
+static char *engine_type[] = 
+{
+    "CCI-P",
+    "Avalon",
+    NULL
+};
+
+
+//
+// Allocate a buffer in I/O memory, shared with the FPGA.
+//
+static void*
+allocSharedBuffer(
+    mpf_handle_t mpf_handle,
+    size_t size)
+{
+    fpga_result r;
+    void* buf;
+
+    r = mpfVtpPrepareBuffer(mpf_handle, size, (void*)&buf, 0);
+    if (FPGA_OK != r) return NULL;
+
+    return buf;
+}
+
+
+static void
+initReadBuf(
+    volatile uint64_t *buf,
+    size_t n_bytes)
+{
+    uint64_t cnt = 1;
+
+    // The data in the read buffers doesn't really matter as long as there are
+    // unique values in each line. Reads will be checked with a hash (CRC).
+    while (n_bytes -= sizeof(uint64_t))
+    {
+        *buf++ = cnt++;
+    }
+}
+
+
+// The same hash is implemented in the read path in the hardware.
+static uint32_t
+computeExpectedReadHash(
+    uint16_t *buf,
+    uint32_t num_bursts,
+    uint32_t burst_size)
+{
+    uint32_t hash = HASH32_DEFAULT_INIT;
+
+    while (num_bursts--)
+    {
+        uint32_t num_lines = burst_size;
+        while (num_lines--)
+        {
+            // Hash the low and high 16 bits of each line
+            hash = hash32(hash, ((buf[31]) << 16) | buf[0]);
+            buf += 32;
+        }
+    }
+
+    return hash;
+}
+
+
+// Checksum is used when hardware reads may arrive out of order.
+static uint32_t
+computeExpectedReadSum(
+    uint16_t *buf,
+    uint32_t num_bursts,
+    uint32_t burst_size)
+{
+    uint32_t sum = 0;
+
+    while (num_bursts--)
+    {
+        uint32_t num_lines = burst_size;
+        while (num_lines--)
+        {
+            // Hash the low and high 16 bits of each line
+            sum += ((buf[31] << 16) | buf[0]);
+            buf += 32;
+        }
+    }
+
+    return sum;
+}
+
+
+// Check a write buffer to confirm that the FPGA engine wrote the
+// expected values.
+static bool
+testExpectedWrites(
+    uint64_t *buf,
+    uint32_t num_bursts,
+    uint32_t burst_size,
+    uint32_t *line_index)
+{
+    *line_index = 0;
+    uint64_t line_addr = (intptr_t)buf / CL(1);
+
+    while (num_bursts--)
+    {
+        uint32_t num_lines = burst_size;
+        while (num_lines--)
+        {
+            // The low word is the line address
+            if (buf[0] != line_addr++) return false;
+            // The high word is 0xdeadbeef
+            if (buf[7] != 0xdeadbeef) return false;
+
+            *line_index += 1;
+            buf += 8;
+        }
+    }
+
+    // Confirm that the next line is 0. This is the first line not
+    // written by the FPGA.
+    if (buf[0] != 0) return false;
+    if (buf[7] != 0) return false;
+
+    return true;
+}
+
+
+static int
+testSmallRegions(
+    uint32_t num_engines,
+    uint64_t emask
+)
+{
+    int num_errors = 0;
+
+    // What is the maximum burst size for the engines? It is encoded in CSR 0.
+    uint64_t max_burst_size = 1024;
+    bool natural_bursts = false;
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        if (emask & ((uint64_t)1 << e))
+        {
+            if (max_burst_size > s_eng_bufs[e].max_burst_size)
+                max_burst_size = s_eng_bufs[e].max_burst_size;
+
+            natural_bursts |= s_eng_bufs[e].natural_bursts;
+        }
+    }
+
+    printf("Testing emask 0x%lx, maximum burst size %ld:\n", emask, max_burst_size);
+
+    uint64_t burst_size = 1;
+    while (burst_size <= max_burst_size)
+    {
+        uint64_t num_bursts = 1;
+        while (num_bursts < 20)
+        {
+            //
+            // Test only reads (mode 1), only writes (mode 2) and
+            // read+write (mode 3).
+            //
+            for (int mode = 1; mode <= 3; mode += 1)
+            {
+                for (uint32_t e = 0; e < num_engines; e += 1)
+                {
+                    if (emask & ((uint64_t)1 << e))
+                    {
+                        // Read buffer base address (0 disables reads)
+                        if (mode & 1)
+                            csrEngWrite(s_csr_handle, e, 0,
+                                        (intptr_t)s_eng_bufs[e].rd_buf / CL(1));
+                        else
+                            csrEngWrite(s_csr_handle, e, 0, 0);
+
+                        // Write buffer base address (0 disables writes)
+                        if (mode & 2)
+                            csrEngWrite(s_csr_handle, e, 1,
+                                        (intptr_t)s_eng_bufs[e].wr_buf / CL(1));
+                        else
+                            csrEngWrite(s_csr_handle, e, 1, 0);
+
+                        // Clear the write buffer
+                        memset((void*)s_eng_bufs[e].wr_buf, 0,
+                               s_eng_bufs[e].wr_buf_size);
+
+                        // Configure engine burst details
+                        csrEngWrite(s_csr_handle, e, 2,
+                                    (num_bursts << 32) | burst_size);
+                        csrEngWrite(s_csr_handle, e, 3,
+                                    (num_bursts << 32) | burst_size);
+                    }
+                }
+
+                char *mode_str = "R+W:  ";
+                if (mode == 1)
+                    mode_str = "Read: ";
+                if (mode == 2)
+                {
+                    mode_str = "Write:";
+                }
+
+                printf("  %s %2ld bursts of %2ld lines", mode_str,
+                       num_bursts, burst_size);
+
+                // Start your engines
+                csrEnableEngines(s_csr_handle, emask);
+
+                // Wait for engine to complete. Checking csrGetEnginesEnabled()
+                // resolves a race between the request to start an engine
+                // and the engine active flag going high. Execution is done when
+                // the engine is enabled and the active flag goes low.
+                struct timespec wait_time;
+                // Poll less often in simulation
+                wait_time.tv_sec = (s_is_ase ? 1 : 0);
+                wait_time.tv_nsec = 1000000;
+                while ((csrGetEnginesEnabled(s_csr_handle) == 0) ||
+                       csrGetEnginesActive(s_csr_handle))
+                {
+                    nanosleep(&wait_time, NULL);
+                }
+
+                // Stop the engine
+                csrDisableEngines(s_csr_handle, emask);
+
+                bool pass = true;
+                for (uint32_t e = 0; e < num_engines; e += 1)
+                {
+                    if (emask & ((uint64_t)1 << e))
+                    {
+                        // Compute the expected hash and sum
+                        uint32_t expected_hash = 0;
+                        uint32_t expected_sum = 0;
+                        if (mode & 1)
+                        {
+                            expected_hash = computeExpectedReadHash(
+                                (uint16_t*)s_eng_bufs[e].rd_buf,
+                                num_bursts, burst_size);
+
+                            expected_sum = computeExpectedReadSum(
+                                (uint16_t*)s_eng_bufs[e].rd_buf,
+                                num_bursts, burst_size);
+                        }
+
+                        // Get the actual hash
+                        uint32_t actual_hash = 0;
+                        uint32_t actual_sum = 0;
+                        if (mode & 1)
+                        {
+                            uint64_t check_val = csrEngRead(s_csr_handle, e, 5);
+                            actual_hash = (uint32_t)check_val;
+                            actual_sum = check_val >> 32;
+                        }
+
+                        // Test that writes arrived
+                        bool writes_ok = true;
+                        uint32_t write_error_line;
+                        if (mode & 2)
+                        {
+                            writes_ok = testExpectedWrites(
+                                (uint64_t*)s_eng_bufs[e].wr_buf,
+                                num_bursts, burst_size, &write_error_line);
+                        }
+
+                        if (expected_sum != actual_sum)
+                        {
+                            pass = false;
+                            num_errors += 1;
+                            printf("\n - FAIL %d: read ERROR expected sum 0x%08x found 0x%08x\n",
+                                   e, expected_sum, actual_sum);
+                        }
+                        else if ((expected_hash != actual_hash) &&
+                                 s_eng_bufs[e].ordered_read_responses)
+                        {
+                            pass = false;
+                            num_errors += 1;
+                            printf("\n - FAIL %d: read ERROR expected hash 0x%08x found 0x%08x\n",
+                                   e, expected_hash, actual_hash);
+                        }
+                        else if (! writes_ok)
+                        {
+                            pass = false;
+                            num_errors += 1;
+                            printf("\n - FAIL %d: write ERROR line index 0x%x\n", e, write_error_line);
+                        }
+                    }
+                }
+
+                if (pass) printf(" - PASS\n");
+            }
+
+            num_bursts = (num_bursts * 2) + 1;
+        }
+
+        if (natural_bursts)
+        {
+            // Natural burst sizes -- test powers of 2
+            burst_size <<= 1;
+        }
+        else
+        {
+            // Test every burst size up to 4 and then sparsely after that
+            if ((burst_size < 4) || (burst_size == max_burst_size))
+                burst_size += 1;
+            else
+            {
+                burst_size = burst_size * 3 + 1;
+                if (burst_size > max_burst_size) burst_size = max_burst_size;
+            }
+        }
+    }
+
+    return num_errors;
+}
+
+
+//
+// Configure (but don't start) a continuous bandwidth test on one engine.
+//
+static int
+configBandwidth(
+    uint32_t e,
+    uint32_t burst_size,
+    uint32_t mode            // 1 - read, 2 - write, 3 - read+write
+)
+{
+    // Read buffer base address (0 disables reads)
+    if (mode & 1)
+    {
+        csrEngWrite(s_csr_handle, e, 0,
+                    (intptr_t)s_eng_bufs[e].rd_buf / CL(1));
+    }
+    else
+    {
+        csrEngWrite(s_csr_handle, e, 0, 0);
+    }
+
+    // Write buffer base address (0 disables writes)
+    if (mode & 2)
+    {
+        csrEngWrite(s_csr_handle, e, 1,
+                    (intptr_t)s_eng_bufs[e].wr_buf / CL(1));
+    }
+    else
+    {
+        csrEngWrite(s_csr_handle, e, 1, 0);
+    }
+
+    // Configure engine burst details
+    csrEngWrite(s_csr_handle, e, 2, burst_size);
+    csrEngWrite(s_csr_handle, e, 3, burst_size);
+
+    return 0;
+}
+
+
+//
+// Run a bandwidth test (configured already with configBandwidth) on the set
+// of engines indicated by emask.
+//
+static int
+runBandwidth(
+    uint32_t num_engines,
+    uint64_t emask
+)
+{
+    assert(emask != 0);
+
+    csrEnableEngines(s_csr_handle, emask);
+
+    // Wait for them to start
+    struct timespec wait_time;
+    wait_time.tv_sec = (s_is_ase ? 1 : 0);
+    wait_time.tv_nsec = 1000000;
+    while (csrGetEnginesEnabled(s_csr_handle) == 0)
+    {
+        nanosleep(&wait_time, NULL);
+    }
+
+    // Let them run for a while
+    sleep(s_is_ase ? 10 : 1);
+    
+    csrDisableEngines(s_csr_handle, emask);
+
+    // Wait for them to stop
+    while (csrGetEnginesActive(s_csr_handle))
+    {
+        nanosleep(&wait_time, NULL);
+    }
+
+    if (s_afu_mhz == 0)
+    {
+        s_afu_mhz = csrGetClockMHz(s_csr_handle);
+        printf("  AFU clock is %.1f MHz\n", s_afu_mhz);
+    }
+
+    uint64_t cycles = csrGetClockCycles(s_csr_handle);
+    uint64_t read_lines = 0;
+    uint64_t write_lines = 0;
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        if (emask & ((uint64_t)1 << e))
+        {
+            read_lines += csrEngRead(s_csr_handle, e, 2);
+            write_lines += csrEngRead(s_csr_handle, e, 3);
+        }
+    }
+
+    if (!read_lines && !write_lines)
+    {
+        printf("  FAIL: no memory traffic detected!\n");
+        return 1;
+    }
+
+    double read_bw = 64 * read_lines * s_afu_mhz / (1000.0 * cycles);
+    double write_bw = 64 * write_lines * s_afu_mhz / (1000.0 * cycles);
+
+    if (! write_lines)
+    {
+        printf("  Read GB/s:  %f\n", read_bw);
+    }
+    else if (! read_lines)
+    {
+        printf("  Write GB/s: %f\n", write_bw);
+    }
+    else
+    {
+        printf("  R+W GB/s:   %f (read %f, write %f)\n",
+               read_bw + write_bw, read_bw, write_bw);
+    }
+
+    return 0;
+}
+
+
+static void
+printVtpStats(
+    mpf_handle_t mpf_handle,
+    uint32_t group_id
+)
+{
+    if (! mpfVtpIsAvailable(mpf_handle)) return;
+
+    mpf_vtp_stats vtp_stats;
+    mpfVtpGetStats(mpf_handle, &vtp_stats);
+
+    printf("\n# VTP group %d statistics:\n", group_id);
+    printf("#   VTP failed:            %ld\n", vtp_stats.numFailedTranslations);
+    if (vtp_stats.numFailedTranslations)
+    {
+        printf("#   VTP failed addr:       0x%lx\n", (uint64_t)vtp_stats.ptWalkLastVAddr);
+    }
+    printf("#   VTP PT walk cycles:    %ld\n", vtp_stats.numPTWalkBusyCycles);
+    printf("#   VTP L2 4KB hit / miss: %ld / %ld\n",
+           vtp_stats.numTLBHits4KB, vtp_stats.numTLBMisses4KB);
+    printf("#   VTP L2 2MB hit / miss: %ld / %ld\n",
+           vtp_stats.numTLBHits2MB, vtp_stats.numTLBMisses2MB);
+
+    double cycles_per_pt = (double)vtp_stats.numPTWalkBusyCycles /
+                           (double)(vtp_stats.numTLBMisses4KB + vtp_stats.numTLBMisses2MB);
+
+    double usec_per_cycle = 0;
+    if (s_afu_mhz) usec_per_cycle = 1.0 / (double)s_afu_mhz;
+    printf("#   VTP usec / PT walk:    %f\n\n", cycles_per_pt * usec_per_cycle);
+}
+
+
+int
+testHostChanVtp(
+    int argc,
+    char *argv[],
+    fpga_handle accel_handle,
+    t_csr_handle_p csr_handle,
+    bool is_ase)
+{
+    fpga_result r;
+    int result = 0;
+    s_accel_handle = accel_handle;
+    s_csr_handle = csr_handle;
+    s_is_ase = is_ase;
+
+    printf("Test ID: %016" PRIx64 " %016" PRIx64 "\n",
+           csrEngGlobRead(csr_handle, 1),
+           csrEngGlobRead(csr_handle, 0));
+
+    uint32_t num_engines = csrGetNumEngines(csr_handle);
+    uint32_t num_grp_engines[2];
+    uint32_t engine_groups = csrEngGlobRead(csr_handle, 2);
+    num_grp_engines[0] = (uint8_t)engine_groups;
+    num_grp_engines[1] = (uint8_t)(engine_groups >> 8);
+    printf("Engines: %d (g0 %d, g1 %d)\n", num_engines,
+           num_grp_engines[0], num_grp_engines[1]);
+    assert(0 != num_grp_engines[0]);
+
+    //
+    // There may be two separate MPF instances. The first manages the
+    // primary interface. The second is a VTP instance for translating
+    // the group 1 ports using what may be a separate physical address
+    // space. MPF buffers must be managed using the MPF handle corresponding
+    // to the proper instance!
+    //
+    mpf_handle_t mpf_handle[2];
+    r = mpfConnect(accel_handle, 0, 0, &mpf_handle[0], MPF_FLAG_FEATURE_ID, 1);
+    assert(FPGA_OK == r);
+    if (num_grp_engines[1])
+    {
+        r = mpfConnect(accel_handle, 0, 0, &mpf_handle[1], MPF_FLAG_FEATURE_ID, 2);
+        assert(FPGA_OK == r);
+    }
+
+    // Allocate memory buffers for each engine
+    s_eng_bufs = malloc(num_engines * sizeof(t_engine_buf));
+    assert(NULL != s_eng_bufs);
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        // Pick the proper MPF handle
+        uint32_t mpf_idx = (e >= num_grp_engines[0]) ? 1 : 0;
+
+        // Separate read and write buffers. The memory will be translatable
+        // in the FPGA only by the VTP instance associated with mpf_idx.
+        // (Buffers could be made visible on both by managing the same
+        // virtual buffer in both MPF instances.)
+        s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle[mpf_idx], MB(2));
+        assert(NULL != s_eng_bufs[e].rd_buf);
+        s_eng_bufs[e].rd_buf_size = MB(2);
+        initReadBuf(s_eng_bufs[e].rd_buf, s_eng_bufs[e].rd_buf_size);
+
+        s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle[mpf_idx], MB(2));
+        assert(NULL != s_eng_bufs[e].wr_buf);
+        s_eng_bufs[e].wr_buf_size = MB(2);
+
+        // Set the buffer size mask. The buffer is 2MB but the mask covers
+        // only 1MB. This allows bursts to flow a bit beyond the mask
+        // without concern for overflow.
+        csrEngWrite(csr_handle, e, 4, (MB(1) / CL(1)) - 1);
+
+        // Get the maximum burst size for the engine.
+        uint64_t r = csrEngRead(s_csr_handle, e, 0);
+        s_eng_bufs[e].max_burst_size = r & 0x7fff;
+        s_eng_bufs[e].natural_bursts = (r >> 15) & 1;
+        s_eng_bufs[e].ordered_read_responses = (r >> 39) & 1;
+        printf("  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
+        printf("  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
+        printf("  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
+        printf("  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
+    }
+    printf("\n");
+    
+    // Test each engine separately
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        if (testSmallRegions(num_engines, (uint64_t)1 << e))
+        {
+            // Quit on error
+            result = 1;
+            goto done;
+        }
+    }
+
+    // Test all the engines at once
+    if (num_engines > 1)
+    {
+        if (testSmallRegions(num_engines, ((uint64_t)1 << num_engines) - 1))
+        {
+            // Quit on error
+            result = 1;
+            goto done;
+        }
+    }
+
+    // Bandwidth test each engine individually
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        uint64_t burst_size = 1;
+        while (burst_size <= s_eng_bufs[e].max_burst_size)
+        {
+            printf("\nTesting engine %d, burst size %ld:\n", e, burst_size);
+
+            for (int mode = 1; mode <= 3; mode += 1)
+            {
+                configBandwidth(e, burst_size, mode);
+                runBandwidth(num_engines, (uint64_t)1 << e);
+            }
+
+            if (s_eng_bufs[e].natural_bursts)
+            {
+                // Natural burst sizes -- test powers of 2
+                burst_size <<= 1;
+            }
+            else
+            {
+                burst_size += 1;
+                if ((burst_size < s_eng_bufs[e].max_burst_size) && (burst_size == 5))
+                {
+                    burst_size = s_eng_bufs[e].max_burst_size;
+                }
+            }
+        }
+    }
+
+    // Bandwidth test all engines together
+    if (num_engines > 1)
+    {
+        printf("\nTesting all engines, max burst size:\n");
+
+        for (int mode = 1; mode <= 3; mode += 1)
+        {
+            for (uint32_t e = 0; e < num_engines; e += 1)
+            {
+                configBandwidth(e, s_eng_bufs[e].max_burst_size, mode);
+            }
+            runBandwidth(num_engines, ((uint64_t)1 << num_engines) - 1);
+        }
+    }
+
+    // Release buffers
+  done:
+    for (uint32_t e = 0; e < num_engines; e += 1)
+    {
+        // Pick the proper MPF handle
+        uint32_t mpf_idx = (e >= num_grp_engines[0]) ? 1 : 0;
+
+        mpfVtpReleaseBuffer(mpf_handle[mpf_idx], (void*)s_eng_bufs[e].rd_buf);
+        mpfVtpReleaseBuffer(mpf_handle[mpf_idx], (void*)s_eng_bufs[e].wr_buf);
+    }
+
+    printVtpStats(mpf_handle[0], 0);
+    mpfDisconnect(mpf_handle[0]);
+
+    if (num_grp_engines[1])
+    {
+        printVtpStats(mpf_handle[1], 1);
+        mpfDisconnect(mpf_handle[1]);
+    }
+
+    return result;
+}

@@ -1,0 +1,11 @@
+host_chan_vtp.json
+
+# MPF sources
+C:../../../../../BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt
+
+# VTP sources
+C:../../../../hw/rtl/mpf_vtp_sources.txt
+
+# Share sources with OFS platform tests. The ofs-platform-afu-bbb repository
+# must be checked out in the same directory as this intel-fpga-bbb repository.
+C:../../../../../../ofs-platform-afu-bbb/plat_if_tests/host_chan_params/hw/rtl/sources_base.txt

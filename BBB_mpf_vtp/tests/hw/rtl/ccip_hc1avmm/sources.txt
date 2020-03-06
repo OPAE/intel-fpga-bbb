@@ -1,0 +1,4 @@
+C:../common/sources_common.txt
+
+ofs_plat_afu.sv
+afu.sv
