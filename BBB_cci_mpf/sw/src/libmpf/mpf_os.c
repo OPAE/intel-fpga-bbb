@@ -56,8 +56,6 @@
 #include "mmu_monitor.h"
 #endif
 
-#include <safe_string/safe_string.h>
-
 
 // MAP_HUGE_SHIFT is defined since Linux 3.8
 #ifndef MAP_HUGE_SHIFT
@@ -414,7 +412,7 @@ fpga_result mpfOsGetPageSize(
         {
             // Look for KernelPageSize
             unsigned page_kb;
-            int ret = sscanf_s_u(line, "KernelPageSize: %d kB", &page_kb);
+            int ret = sscanf(line, "KernelPageSize: %d kB", &page_kb);
             if (ret == 0)
                 continue;
 
