@@ -43,6 +43,8 @@ set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci_mpf_pipe_
 ## Map CCI wires to MPF's primary interface
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ccip_wires_to_mpf.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ccis_wires_to_mpf.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/mpf_if_split_mmio.sv
+set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/mpf_if_to_ofs_plat_ccip.sv
 set_global_assignment -name SYSTEMVERILOG_FILE $CCI_MPF_SRC/hw/rtl/cci-mpf-if/ofs_plat_ccip_if_to_mpf.sv
 
 ## Primitives used by MPF shims

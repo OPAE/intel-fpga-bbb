@@ -271,8 +271,9 @@ static void _mpf_find_features(
             }
         }
 
-        // End of the list?
-        eol = _mpf_feature_eol(dfh);
+        // End of the list? Give up if DFH is 0, which is clearly an error since
+        // it will loop back through the AFU's root feature header.
+        eol = _mpf_feature_eol(dfh) || (dfh == 0);
 
         // Move to the next feature header
         offset = offset + _mpf_feature_next(dfh);

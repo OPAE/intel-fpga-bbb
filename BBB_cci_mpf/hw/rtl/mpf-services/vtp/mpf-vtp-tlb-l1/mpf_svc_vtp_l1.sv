@@ -201,7 +201,20 @@ module mpf_svc_vtp_l1
     always_ff @(posedge clk)
     begin
         vtp_port.rspValid <= l1_rspValid || l2_rspValid;
-        vtp_port.rsp <= l1_rspValid ? l1_rsp : l2_rsp;
+
+        if (l1_rspValid)
+        begin
+            vtp_port.rsp <= l1_rsp;
+            if (! l1_reqAddrIsVirtual_out)
+            begin
+                // Not an error if the input address requires no translation
+                vtp_port.rsp.error <= 1'b0;
+            end
+        end
+        else
+        begin
+            vtp_port.rsp <= l2_rsp;
+        end
 
         if (reset)
         begin

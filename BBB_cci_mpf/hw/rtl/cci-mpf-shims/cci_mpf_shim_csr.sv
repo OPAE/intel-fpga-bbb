@@ -95,7 +95,6 @@ module cci_mpf_shim_csr
     assign fiu.c1Tx = afu.c1Tx;
     assign afu.c1TxAlmFull = fiu.c1TxAlmFull;
 
-    assign afu.c0Rx = fiu.c0Rx;
     assign afu.c1Rx = fiu.c1Rx;
 
     // MMIO address range of MPF CSRs
@@ -190,6 +189,19 @@ module cci_mpf_shim_csr
         end
 
         c0_rx[1] <= c0_rx[0];
+    end
+
+    // Forward all c0Rx traffic that isn't MPF MMIO traffic
+    always_comb
+    begin
+        afu.c0Rx = fiu.c0Rx;
+
+        if ((cci_csr_getAddress(fiu.c0Rx) >= t_cci_mmioAddr'(DFH_MMIO_BASE_ADDR >> 2)) &&
+            (cci_csr_getAddress(fiu.c0Rx) < t_cci_mmioAddr'(CCI_MPF_CSR_LAST >> 2)))
+        begin
+            afu.c0Rx.mmioRdValid = 1'b0;
+            afu.c0Rx.mmioWrValid = 1'b0;
+        end
     end
 
 

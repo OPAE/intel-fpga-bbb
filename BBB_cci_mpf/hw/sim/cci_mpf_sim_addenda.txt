@@ -44,6 +44,8 @@
 ../rtl/cci_mpf_pipe_std.sv
 ../rtl/cci-mpf-if/ccip_wires_to_mpf.sv
 ../rtl/cci-mpf-if/ccis_wires_to_mpf.sv
+../rtl/cci-mpf-if/mpf_if_split_mmio.sv
+../rtl/cci-mpf-if/mpf_if_to_ofs_plat_ccip.sv
 ../rtl/cci-mpf-if/ofs_plat_ccip_if_to_mpf.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_arb_rr.sv
 ../rtl/cci-mpf-prims/cci_mpf_prim_counter_multicycle.sv
