@@ -106,10 +106,10 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
 
     logic rd_rsp_valid;
     logic rd_deq_en;
+    logic rd_rsp_used_vtp;
 
     mpf_vtp_translate_chan
       #(
-        .ORDERED(1),
         .N_OPAQUE_BITS(RD_OPAQUE_BITS)
         )
       rd
@@ -131,12 +131,14 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
 
         .vtp_req(vtp_rd_req),
         .vtp_rsp(vtp_rd_rsp),
+        .rsp_used_vtp(rd_rsp_used_vtp),
+
         .vtp_port(vtp_ports[0])
         );
 
     assign rd_deq_en = rd_rsp_valid && ! host_mem_if.rd_waitrequest;
-    assign host_mem_if.rd_read = rd_rsp_valid && ! vtp_rd_rsp.error;
-    assign host_mem_if.rd_address = vtp_rd_rsp.addr;
+    assign host_mem_if.rd_read = rd_rsp_valid && (rd_rsp_used_vtp ? ! vtp_rd_rsp.error : 1'b1);
+    assign host_mem_if.rd_address = (rd_rsp_used_vtp ? vtp_rd_rsp.addr : '0);
 
 
     // ====================================================================
@@ -178,11 +180,12 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
 
     logic wr_rsp_valid;
     logic wr_deq_en;
+    logic wr_rsp_used_vtp;
 
     mpf_vtp_translate_chan
       #(
-        .ORDERED(1),
-        .N_OPAQUE_BITS(WR_OPAQUE_BITS)
+        .N_OPAQUE_BITS(WR_OPAQUE_BITS),
+        .USE_LARGE_FIFO(1)
         )
       wr
        (
@@ -205,11 +208,13 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
 
         .vtp_req(vtp_wr_req),
         .vtp_rsp(vtp_wr_rsp),
+        .rsp_used_vtp(wr_rsp_used_vtp),
+
         .vtp_port(vtp_ports[1])
         );
 
     assign wr_deq_en = wr_rsp_valid && ! host_mem_if.wr_waitrequest;
-    assign host_mem_if.wr_write = wr_rsp_valid && ! vtp_wr_rsp.error;
-    assign host_mem_if.wr_address = vtp_wr_rsp.addr;
+    assign host_mem_if.wr_write = wr_rsp_valid && (wr_rsp_used_vtp ? ! vtp_wr_rsp.error : 1'b1);
+    assign host_mem_if.wr_address = (wr_rsp_used_vtp ? vtp_wr_rsp.addr : '0);
 
 endmodule // mpf_vtp_translate_ofs_avalon_mem_rdwr
