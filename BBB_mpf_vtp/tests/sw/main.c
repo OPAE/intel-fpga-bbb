@@ -44,6 +44,7 @@
 #include "test_host_chan_vtp.h"
 
 static t_target_bdf target;
+static bool test_vtp_fail;
 
 //
 // Print help
@@ -61,6 +62,8 @@ help(void)
            "        -F,--function       Set target function number\n"
            "        -S,--socket-id      Set target socket number\n"
            "        --segment           Set target segment number\n"
+           "\n"
+           "        --test-vtp-fail     Test the VTP failure path\n"
            "\n");
 }
 
@@ -73,12 +76,13 @@ static int
 parse_args(int argc, char *argv[])
 {
     struct option longopts[] = {
-        {"help",      no_argument,       NULL, 'h'},
-        {"bus",       required_argument, NULL, 'B'},
-        {"device",    required_argument, NULL, 'D'},
-        {"function",  required_argument, NULL, 'F'},
-        {"socket-id", required_argument, NULL, 'S'},
-        {"segment",   required_argument, NULL, 0xe},
+        {"help",          no_argument,       NULL, 'h'},
+        {"bus",           required_argument, NULL, 'B'},
+        {"device",        required_argument, NULL, 'D'},
+        {"function",      required_argument, NULL, 'F'},
+        {"socket-id",     required_argument, NULL, 'S'},
+        {"segment",       required_argument, NULL, 0xe},
+        {"test-vtp-fail", no_argument,       NULL, 0xf},
         {0, 0, 0, 0}
     };
 
@@ -111,6 +115,10 @@ parse_args(int argc, char *argv[])
                     tmp_optarg);
                 return -1;
             }
+            break;
+
+        case 0xf: /* test-vtp-fail */
+            test_vtp_fail = true;
             break;
 
         case 'B': /* bus */
@@ -211,7 +219,8 @@ int main(int argc, char *argv[])
            csrRead(csr_handle, CSR_AFU_ID_L));
 
     // Run tests
-    int status = testHostChanVtp(argc, argv, accel_handle, csr_handle, is_ase);
+    int status = testHostChanVtp(argc, argv, accel_handle, csr_handle, is_ase,
+                                 test_vtp_fail);
 
     // Done
     csrReleaseHandle(csr_handle);

@@ -40,6 +40,7 @@ testHostChanVtp(
     char *argv[],
     fpga_handle accel_handle,
     t_csr_handle_p csr_handle,
-    bool is_ase);
+    bool is_ase,
+    bool test_vtp_fail);
 
 #endif // __TEST_HOST_CHAN_VTP_H__

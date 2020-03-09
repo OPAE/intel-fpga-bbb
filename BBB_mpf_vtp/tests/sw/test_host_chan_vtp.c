@@ -209,6 +209,146 @@ testExpectedWrites(
 }
 
 
+//
+// Test that virtual address translation failures are handled properly.
+//
+static int
+testVtpFailurePath(
+    uint32_t num_engines,
+    uint32_t num_g0_engines
+)
+{
+    // The test only runs when there are multiple port groups
+    if (num_g0_engines == num_engines)
+    {
+        printf("VTP translation error test required multiple engines.\n");
+        return 0;
+    }
+
+    int n_errors = 0;
+
+    // Use two engines for the test: 0 and the last.
+    const uint32_t eg0 = 0;
+    const uint32_t eg1 = num_engines - 1;
+    const uint64_t emask = ((uint64_t)1 << eg1) | 1;
+
+    printf("Testing VTP translation error path:\n");
+
+    // Use the wrong buffers for the two engines by swapping them.
+    // Different VTP instances are managing the two groups, so translation
+    // should fail. The VTP page tables will not know about each
+    // other's pinned buffers.
+    csrEngWrite(s_csr_handle, eg0, 0, (intptr_t)s_eng_bufs[eg1].rd_buf / CL(1));
+    csrEngWrite(s_csr_handle, eg0, 1, (intptr_t)s_eng_bufs[eg1].wr_buf / CL(1));
+    csrEngWrite(s_csr_handle, eg1, 0, (intptr_t)s_eng_bufs[eg0].rd_buf / CL(1));
+    csrEngWrite(s_csr_handle, eg1, 1, (intptr_t)s_eng_bufs[eg0].wr_buf / CL(1));
+
+    // Set the maximum burst size to the smaller of the two engines
+    uint64_t max_burst_size = s_eng_bufs[eg0].max_burst_size;
+    if (max_burst_size > s_eng_bufs[eg1].max_burst_size)
+        max_burst_size = s_eng_bufs[eg1].max_burst_size;
+
+    uint64_t burst_size = 1;
+    while (1)
+    {
+        uint64_t num_bursts = 1;
+        while (num_bursts <= 2)
+        {
+            printf("  Testing %ld bursts of %ld flits:\n", num_bursts, burst_size);
+
+            // Configure engine burst details
+            csrEngWrite(s_csr_handle, eg0, 2, (num_bursts << 32) | burst_size);
+            csrEngWrite(s_csr_handle, eg0, 3, (num_bursts << 32) | burst_size);
+            csrEngWrite(s_csr_handle, eg1, 2, (num_bursts << 32) | burst_size);
+            csrEngWrite(s_csr_handle, eg1, 3, (num_bursts << 32) | burst_size);
+
+            // Since this is a failure test, we can't wait for the engines
+            // to finish. Instead, we will wait for the translation error count
+            // to change. Get the current counts.
+            uint64_t err_cnt_csr_orig = csrEngGlobRead(s_csr_handle, 7);
+
+            // Start your engines
+            csrEnableEngines(s_csr_handle, emask);
+
+            struct timespec wait_time;
+            // Poll less often in simulation
+            wait_time.tv_sec = (s_is_ase ? 1 : 0);
+            wait_time.tv_nsec = 1000000;
+
+            // Loop until the test starts
+            while (csrGetEnginesEnabled(s_csr_handle) == 0)
+            {
+                nanosleep(&wait_time, NULL);
+            }
+
+            // Loop until the CSRs change
+            while (csrEngGlobRead(s_csr_handle, 7) == err_cnt_csr_orig)
+            {
+                nanosleep(&wait_time, NULL);
+            }
+
+            // Sleep a little more to let the bursts complete. There is a race
+            // here, but we're just testing the error path. Building a more
+            // complicated protocol is of questionable value.
+            nanosleep(&wait_time, NULL);
+
+            // Stop the engines
+            csrDisableEngines(s_csr_handle, emask);
+
+            // The error counter CSR has 4 16 bit counters for failed flits
+            // seen. From the low bits, the order is group 0 read, group 0 write,
+            // group 1 read, group 1 write.
+            uint64_t err_cnt_csr = csrEngGlobRead(s_csr_handle, 7);
+
+            for (int i = 0; i < 4; i += 1)
+            {
+                uint32_t n_flits = (uint16_t)(err_cnt_csr >> (16 * i)) -
+                                   (uint16_t)(err_cnt_csr_orig >> (16 * i));
+                if (i & 1)
+                {
+                    printf("    G%d write -- ", i >> 1);
+
+                    // Writes -- flits is burst_size * num_bursts
+                    if (n_flits != (burst_size * num_bursts))
+                    {
+                        printf("ERROR (expected %ld flits, found %d)\n",
+                               burst_size * num_bursts, n_flits);
+                        n_errors += 1;
+                    }
+                    else
+                    {
+                        printf("PASS  (%d flits)\n", n_flits);
+                    }
+                }
+                else
+                {
+                    printf("    G%d read  -- ", i >> 1);
+
+                    // Reads -- flits is num_bursts
+                    if (n_flits != num_bursts)
+                    {
+                        printf("ERROR (expected %ld flits, found %d)\n",
+                               num_bursts, n_flits);
+                        n_errors += 1;
+                    }
+                    else
+                    {
+                        printf("PASS  (%d flits)\n", n_flits);
+                    }
+                }
+            }
+
+            num_bursts += 1;
+        }
+
+        if (burst_size == max_burst_size) break;
+        burst_size = max_burst_size;
+    }
+
+    return n_errors;
+}
+
+
 static int
 testSmallRegions(
     uint32_t num_engines,
@@ -554,7 +694,8 @@ testHostChanVtp(
     char *argv[],
     fpga_handle accel_handle,
     t_csr_handle_p csr_handle,
-    bool is_ase)
+    bool is_ase,
+    bool test_vtp_fail)
 {
     fpga_result r;
     int result = 0;
@@ -629,6 +770,12 @@ testHostChanVtp(
     }
     printf("\n");
     
+    if (test_vtp_fail)
+    {
+        result = testVtpFailurePath(num_engines, num_grp_engines[0]);
+        goto done;
+    }
+
     // Test each engine separately
     for (uint32_t e = 0; e < num_engines; e += 1)
     {

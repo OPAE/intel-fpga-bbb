@@ -152,6 +152,32 @@ module afu
         .mpf_ccip(mpf_to_fiu)
         );
 
+
+    // Intermediate MPF interface to manage VTP failures on the primary
+    // CCI-P port. If VTP is expected to succeed for every translation
+    // request then keep VTP_HALT_ON_FAILURE at its default (1) and
+    // mpf_xlate_if is not needed. cci_mpf below could connect directly
+    // to mpf_to_fiu instead of mpf_xlate_if.
+    cci_mpf_if mpf_xlate_if(.clk);
+    logic [63:0] csr_mpf_c0_vtp_fail_va;
+    logic [15:0] csr_mpf_c0_vtp_fail_cnt;
+    logic [63:0] csr_mpf_c1_vtp_fail_va;
+    logic [15:0] csr_mpf_c1_vtp_fail_cnt;
+
+    dummy_failed_mpf_ccip_shim ccip_failed_shim
+       (
+        .clk,
+        .to_fiu(mpf_to_fiu),
+        .to_afu(mpf_xlate_if),
+
+        // Statistics
+        .csr_mpf_c0_vtp_fail_va,
+        .csr_mpf_c0_vtp_fail_cnt,
+        .csr_mpf_c1_vtp_fail_va,
+        .csr_mpf_c1_vtp_fail_cnt
+        );
+
+
     cci_mpf
       #(
         .DFH_MMIO_BASE_ADDR(PRIMARY_MPF_MMIO_BASE_ADDR),
@@ -181,7 +207,7 @@ module afu
       mpf_primary
        (
         .clk,
-        .fiu(mpf_to_fiu),
+        .fiu(mpf_xlate_if),
         .afu(mpf_to_afu),
         .c0NotEmpty(),
         .c1NotEmpty()
@@ -219,13 +245,34 @@ module afu
     // Unique ID for this test
     logic [127:0] test_id = 128'h9dcf6fcd_3699_4979_956a_666f7cff59d6;
 
+    logic [63:0] csr_g1_rd_vtp_fail_va;
+    logic [15:0] csr_g1_rd_vtp_fail_cnt;
+    logic [63:0] csr_g1_wr_vtp_fail_va;
+    logic [15:0] csr_g1_wr_vtp_fail_cnt;
+
     always_comb
     begin
         eng_csr_glob.rd_data[0] = test_id[63:0];
         eng_csr_glob.rd_data[1] = test_id[127:64];
         eng_csr_glob.rd_data[2] = { 48'd0, 8'(NUM_PORTS_G1), 8'(NUM_PORTS_G0) };
 
-        for (int e = 3; e < eng_csr_glob.NUM_CSRS; e = e + 1)
+        // Store the most recent VTP translation failure address on the primary
+        // CCI-P port in global CSRs 3 (read) and 4 (write).
+        eng_csr_glob.rd_data[3] = csr_mpf_c0_vtp_fail_va;
+        eng_csr_glob.rd_data[4] = csr_mpf_c1_vtp_fail_va;
+
+        // Store the most recent VTP translation failure address on group 1
+        // ports in global CSRs 5 (read) and 6 (write). All ports share the
+        // same two registers.
+        eng_csr_glob.rd_data[5] = csr_g1_rd_vtp_fail_va;
+        eng_csr_glob.rd_data[6] = csr_g1_wr_vtp_fail_va;
+
+        // Count of VTP failure flits. Group 1 counts at most one per cycle,
+        // so could undercount.
+        eng_csr_glob.rd_data[7] = { csr_g1_wr_vtp_fail_cnt, csr_g1_rd_vtp_fail_cnt,
+                                    csr_mpf_c1_vtp_fail_cnt, csr_mpf_c0_vtp_fail_cnt };
+
+        for (int e = 8; e < eng_csr_glob.NUM_CSRS; e = e + 1)
         begin
             eng_csr_glob.rd_data[e] = 64'(0);
         end
@@ -242,7 +289,12 @@ module afu
     // ====================================================================
 
     // Convert the MPF interface to a normal OFS CCI-P interface
-    ofs_plat_host_ccip_if host_mem_va_if();
+    ofs_plat_host_ccip_if
+      #(
+        .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
+        )
+      host_mem_va_if();
+
     t_cci_mpf_ReqMemHdrExt cTx_ext;
 
     // MPF extension header, used for things like requesting virtual to
@@ -276,6 +328,18 @@ module afu
         .csrs(eng_csr[0])
         );
 
+    // Successfully translated requests will be routed to host_mem_g1_if.
+    // Here, we add a separate Avalon interface to which failed translations
+    // will be routed. The code here only detects the failure and routes it
+    // to host_mem_failed_if, where it is noted and dumped on the floor.
+    // A real handler would route the requests somewhere, perhaps to
+    // an interface with a different memory space.
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_g1_if[0]),
+        .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
+        )
+      host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1]();
 
     genvar p;
     generate
@@ -289,12 +353,36 @@ module afu
               wrk
                (
                 .host_mem_if(host_mem_g1_if[p]),
+                .host_mem_failed_if(host_mem_g1_failed_if[p]),
                 .csrs(eng_csr[NUM_PORTS_G0 + p]),
 
                 .vtp_ports(vtp_ports[p*2 : p*2+1])
                 );
+
+            assign host_mem_g1_failed_if[p].clk = host_mem_g1_if[p].clk;
+            assign host_mem_g1_failed_if[p].reset = host_mem_g1_if[p].reset;
+            assign host_mem_g1_failed_if[p].instance_number = host_mem_g1_if[p].instance_number;
         end
     endgenerate
+
+    //
+    // Note VTP translation failures. A real implementation that handles
+    // translation failures would have to be much smarter than this.
+    //
+    dummy_failed_g1_slaves
+      #(
+        .NUM_PORTS_G1(NUM_PORTS_G1)
+        )
+      g1_failed_slaves
+       (
+        .host_mem_g1_failed_if,
+
+        // Statistics
+        .csr_g1_rd_vtp_fail_va,
+        .csr_g1_rd_vtp_fail_cnt,
+        .csr_g1_wr_vtp_fail_va,
+        .csr_g1_wr_vtp_fail_cnt
+        );
 
 
     // ====================================================================
@@ -347,6 +435,8 @@ module g1_worker
     )
    (
     ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_if,
+    // Failed translations are routed here
+    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_failed_if,
     engine_csr_if.engine csrs,
 
     mpf_vtp_port_if.to_slave vtp_ports[2]
@@ -356,6 +446,42 @@ module g1_worker
     assign clk = host_mem_if.clk;
     logic reset;
     assign reset = host_mem_if.reset;
+
+    logic rd_error;
+    logic wr_error;
+
+    // Translated requests, both successful and failed, go first to this
+    // host_mem_xlate_if. They will then be routed either to host_mem_if
+    // or host_mem_failed_if.
+    //
+    // NOTE:
+    //  This interface and pick_path below are not required if
+    //  FAIL_ON_ERROR(1) is set below (the default). In that case, all
+    //  translations would have to succeed.
+    //  mpf_vtp_translate_ofs_avalon_mem_rdwr below could then connect
+    //  directly to host_mem_if.
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_if)
+        )
+      host_mem_xlate_if();
+
+    assign host_mem_xlate_if.clk = host_mem_if.clk;
+    assign host_mem_xlate_if.reset = host_mem_if.reset;
+    assign host_mem_xlate_if.instance_number = host_mem_if.instance_number;
+
+    // For translations, successful to host_mem_if and failed to
+    // host_mem_failed_if. In this toy example, failed translations will
+    // be printed and dropped and no responses are expected from
+    // host_mem_failed_if.
+    fork_avalon_mem_rdwr pick_path
+       (
+        .slave0(host_mem_if),
+        .slave1(host_mem_failed_if),
+        .master(host_mem_xlate_if),
+        .rd_picker(rd_error),
+        .wr_picker(wr_error)
+        );
 
     // Generate a host memory interface that accepts virtual addresses.
     // The code below will connect it to the host_mem_if, which expects
@@ -371,12 +497,16 @@ module g1_worker
     assign host_mem_va_if.reset = host_mem_if.reset;
     assign host_mem_va_if.instance_number = host_mem_if.instance_number;
 
-    mpf_vtp_translate_ofs_avalon_mem_rdwr vtp
+    mpf_vtp_translate_ofs_avalon_mem_rdwr
+      #(
+        .FAIL_ON_ERROR(0)
+        )
+      vtp
        (
-        .host_mem_if,
+        .host_mem_if(host_mem_xlate_if),
         .host_mem_va_if,
-        .error_c0(),
-        .error_c1(),
+        .rd_error,
+        .wr_error,
         .vtp_ports
         );
 

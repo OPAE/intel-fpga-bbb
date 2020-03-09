@@ -2,3 +2,4 @@ C:../common/sources_common.txt
 
 ofs_plat_afu.sv
 afu.sv
+afu_translate_fail_template.sv
