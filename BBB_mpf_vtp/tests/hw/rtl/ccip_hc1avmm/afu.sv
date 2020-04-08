@@ -221,8 +221,8 @@ module afu
     //
     // ====================================================================
 
-    cci_mpf_if mpf_host_mem(.clk);
-    cci_mpf_if mpf_mmio(.clk);
+    cci_mpf_if#(.ENABLE_LOG(1)) mpf_host_mem(.clk);
+    cci_mpf_if#(.ENABLE_LOG(1)) mpf_mmio(.clk);
 
     mpf_if_split_mmio split_mmio
        (
