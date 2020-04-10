@@ -348,6 +348,10 @@ module afu
         begin : g1
             g1_worker
               #(
+`ifdef OFS_PLAT_PARAM_HOST_CHAN_G1_IS_NATIVE_AVALON
+                // Simple Avalon ports don't support write fences
+                .WRITE_FENCE_SUPPORTED(0),
+`endif
                 .ENGINE_NUMBER(NUM_PORTS_G0 + p)
                 )
               wrk
@@ -431,7 +435,8 @@ endmodule // afu
 
 module g1_worker
   #(
-    parameter ENGINE_NUMBER = 0
+    parameter ENGINE_NUMBER = 0,
+    parameter WRITE_FENCE_SUPPORTED = 1
     )
    (
     ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_if,
@@ -512,7 +517,8 @@ module g1_worker
 
     host_mem_rdwr_engine_avalon
       #(
-        .ENGINE_NUMBER(ENGINE_NUMBER)
+        .ENGINE_NUMBER(ENGINE_NUMBER),
+        .WRITE_FENCE_SUPPORTED(WRITE_FENCE_SUPPORTED)
         )
       eng
        (

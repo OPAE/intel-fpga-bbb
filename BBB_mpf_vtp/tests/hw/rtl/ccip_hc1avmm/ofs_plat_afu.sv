@@ -83,7 +83,7 @@ module ofs_plat_afu
     localparam NUM_PORTS_G1 = 0;
     ofs_plat_avalon_mem_rdwr_if
       #(
-        `HOST_CHAN_AVALON_MEM_PARAMS,
+        `HOST_CHAN_AVALON_MEM_RDWR_PARAMS,
         .BURST_CNT_WIDTH(3)
         )
         host_mem_g1_to_afu[1]();
@@ -103,7 +103,7 @@ module ofs_plat_afu
     generate
         for (p = 0; p < NUM_PORTS_G1; p = p + 1)
         begin : hc_g1
-            ofs_plat_host_chan_g1_as_avalon_mem
+            ofs_plat_host_chan_g1_as_avalon_mem_rdwr
               #(
                 // Cross to the same clock domain as the CCI-P port
                 .ADD_CLOCK_CROSSING(1)
