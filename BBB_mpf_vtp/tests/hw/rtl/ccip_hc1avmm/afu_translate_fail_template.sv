@@ -51,7 +51,7 @@ module dummy_failed_g1_slaves
     parameter NUM_PORTS_G1 = 0
     )
    (
-    ofs_plat_avalon_mem_rdwr_if.to_master host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
+    ofs_plat_avalon_mem_if.to_master host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
 
     // Record recent failures that will be exported as CSRs
     output logic [63:0] csr_g1_rd_vtp_fail_va,
@@ -81,7 +81,7 @@ module dummy_failed_g1_slaves
             // tie off the response wires.
             always_comb
             begin
-                `OFS_PLAT_AVALON_MEM_RDWR_IF_INIT_SLAVE_COMB(host_mem_g1_failed_if[p]);
+                `OFS_PLAT_AVALON_MEM_IF_INIT_SLAVE_COMB(host_mem_g1_failed_if[p]);
             end
 
             // Track SOP
@@ -94,8 +94,8 @@ module dummy_failed_g1_slaves
                (
                 .clk,
                 .reset,
-                .flit_valid(host_mem_g1_failed_if[p].wr_write && ! host_mem_g1_failed_if[p].wr_waitrequest),
-                .burstcount(host_mem_g1_failed_if[p].wr_burstcount),
+                .flit_valid(host_mem_g1_failed_if[p].write && ! host_mem_g1_failed_if[p].waitrequest),
+                .burstcount(host_mem_g1_failed_if[p].burstcount),
                 .sop(wr_sop),
                 .eop()
                 );
@@ -103,30 +103,30 @@ module dummy_failed_g1_slaves
             // Track translation failures for the port
             always_ff @(posedge clk)
             begin
-                g1_rd_vtp_failed[p] <= host_mem_g1_failed_if[p].rd_read;
-                g1_wr_vtp_failed[p] <= host_mem_g1_failed_if[p].wr_write;
+                g1_rd_vtp_failed[p] <= host_mem_g1_failed_if[p].read;
+                g1_wr_vtp_failed[p] <= host_mem_g1_failed_if[p].write;
 
-                if (host_mem_g1_failed_if[p].rd_read)
+                if (host_mem_g1_failed_if[p].read)
                 begin
-                    g1_rd_vtp_failed_addr[p] <= 64'({ host_mem_g1_failed_if[p].rd_address,
+                    g1_rd_vtp_failed_addr[p] <= 64'({ host_mem_g1_failed_if[p].address,
                                                       6'(p) });
 
                     // synthesis translate_off
                     $display("%m: VTP translation error AVMM port %0d RD, VA 0x%x", p,
-                             { host_mem_g1_failed_if[p].rd_address, 6'b0 });
+                             { host_mem_g1_failed_if[p].address, 6'b0 });
                     // synthesis translate_on
                 end
 
-                if (host_mem_g1_failed_if[p].wr_write)
+                if (host_mem_g1_failed_if[p].write)
                 begin
                     if (wr_sop)
                     begin
-                        g1_wr_vtp_failed_addr[p] <= 64'({ host_mem_g1_failed_if[p].wr_address,
+                        g1_wr_vtp_failed_addr[p] <= 64'({ host_mem_g1_failed_if[p].address,
                                                           6'(p) });
 
                         // synthesis translate_off
                         $display("%m: VTP translation error AVMM port %0d WR, VA 0x%x", p,
-                                 { host_mem_g1_failed_if[p].wr_address, 6'b0 });
+                                 { host_mem_g1_failed_if[p].address, 6'b0 });
                         // synthesis translate_on
                     end
                     else
@@ -179,32 +179,31 @@ endmodule // dummy_failed_g1_slaves
 // to_slave1 responses are ignored. Requests from master are routed either
 // to slave0 or slave1 depending on the picker inputs.
 //
-module fork_avalon_mem_rdwr
+module fork_avalon_mem
    (
-    ofs_plat_avalon_mem_rdwr_if.to_slave slave0,
-    ofs_plat_avalon_mem_rdwr_if.to_slave slave1,
-    ofs_plat_avalon_mem_rdwr_if.to_master master,
+    ofs_plat_avalon_mem_if.to_slave slave0,
+    ofs_plat_avalon_mem_if.to_slave slave1,
+    ofs_plat_avalon_mem_if.to_master master,
 
-    // Pickers direct requests
-    input  logic rd_picker,
-    input  logic wr_picker
+    // Picker directs requests
+    input  logic pick_path
     );
 
     // Internal picker interfaces
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(slave0)
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(slave0)
         )
       picker_mem_if[2]();
 
     // Connect internal interfaces to the slave ports
-    ofs_plat_avalon_mem_rdwr_if_reg_slave_clk reg0
+    ofs_plat_avalon_mem_if_reg_slave_clk reg0
        (
         .mem_slave(slave0),
         .mem_master(picker_mem_if[0])
         );
 
-    ofs_plat_avalon_mem_rdwr_if_reg_slave_clk reg1
+    ofs_plat_avalon_mem_if_reg_slave_clk reg1
        (
         .mem_slave(slave1),
         .mem_master(picker_mem_if[1])
@@ -213,27 +212,25 @@ module fork_avalon_mem_rdwr
     always_comb
     begin
         // Only slave0 (picker_mem_if[0]) responses reach master
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_SLAVE_TO_MASTER_COMB(master, picker_mem_if[0]);
+        `OFS_PLAT_AVALON_MEM_IF_FROM_SLAVE_TO_MASTER_COMB(master, picker_mem_if[0]);
 
         // Send requests from master to both slaves (control signals will be
         // cleaned up below so only one slave fires).
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[0], master);
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[1], master);
+        `OFS_PLAT_AVALON_MEM_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[0], master);
+        `OFS_PLAT_AVALON_MEM_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[1], master);
 
         // Choose which slave gets the request
-        picker_mem_if[0].rd_read = master.rd_read && ~rd_picker;
-        picker_mem_if[1].rd_read = master.rd_read && rd_picker;
-        picker_mem_if[0].wr_write = master.wr_write && ~wr_picker;
-        picker_mem_if[1].wr_write = master.wr_write && wr_picker;
+        picker_mem_if[0].read = master.read && ~pick_path;
+        picker_mem_if[1].read = master.read && pick_path;
+        picker_mem_if[0].write = master.write && ~pick_path;
+        picker_mem_if[1].write = master.write && pick_path;
 
         // Use only waitrequest from the chosen slave
-        master.rd_waitrequest = (rd_picker ? picker_mem_if[1].rd_waitrequest :
-                                             picker_mem_if[0].rd_waitrequest);
-        master.wr_waitrequest = (wr_picker ? picker_mem_if[1].wr_waitrequest :
-                                             picker_mem_if[0].wr_waitrequest);
+        master.waitrequest = (pick_path ? picker_mem_if[1].waitrequest :
+                                          picker_mem_if[0].waitrequest);
     end
 
-endmodule // fork_avalon_mem_rdwr
+endmodule // fork_avalon_mem
 
 
 //

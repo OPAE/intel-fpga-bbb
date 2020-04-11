@@ -30,7 +30,7 @@
 
 //
 // Export the primary host interface as CCI-P. If present, export a secondary
-// group of host interfaces as Avalon split read/write ports.
+// group of host interfaces as Avalon ports.
 //
 
 `include "ofs_plat_if.vh"
@@ -81,9 +81,9 @@ module ofs_plat_afu
 
     // Dummy entry -- no group 1 ports on this platform
     localparam NUM_PORTS_G1 = 0;
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
-        `HOST_CHAN_AVALON_MEM_RDWR_PARAMS,
+        `HOST_CHAN_AVALON_MEM_PARAMS,
         .BURST_CNT_WIDTH(3)
         )
         host_mem_g1_to_afu[1]();
@@ -91,7 +91,7 @@ module ofs_plat_afu
 `else
 
     localparam NUM_PORTS_G1 = `OFS_PLAT_PARAM_HOST_CHAN_G1_NUM_PORTS;
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
         `HOST_CHAN_G1_AVALON_MEM_PARAMS,
         .BURST_CNT_WIDTH(7),
@@ -103,7 +103,7 @@ module ofs_plat_afu
     generate
         for (p = 0; p < NUM_PORTS_G1; p = p + 1)
         begin : hc_g1
-            ofs_plat_host_chan_g1_as_avalon_mem_rdwr
+            ofs_plat_host_chan_g1_as_avalon_mem
               #(
                 // Cross to the same clock domain as the CCI-P port
                 .ADD_CLOCK_CROSSING(1)

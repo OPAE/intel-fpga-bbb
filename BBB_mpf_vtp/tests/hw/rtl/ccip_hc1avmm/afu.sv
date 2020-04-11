@@ -47,7 +47,7 @@ module afu
 
     // Secondary host memory interface (as Avalon). Zero length vectors are illegal.
     // Force minimum size 1 dummy entry in case no secondary ports exist.
-    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_g1_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
+    ofs_plat_avalon_mem_if.to_slave host_mem_g1_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
 
     // pClk is used to compute the frequency of the AFU's clk, since pClk
     // is a known frequency.
@@ -334,9 +334,9 @@ module afu
     // to host_mem_failed_if, where it is noted and dumped on the floor.
     // A real handler would route the requests somewhere, perhaps to
     // an interface with a different memory space.
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_g1_if[0]),
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(host_mem_g1_if[0]),
         .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
         )
       host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1]();
@@ -439,9 +439,9 @@ module g1_worker
     parameter WRITE_FENCE_SUPPORTED = 1
     )
    (
-    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_if,
+    ofs_plat_avalon_mem_if.to_slave host_mem_if,
     // Failed translations are routed here
-    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_failed_if,
+    ofs_plat_avalon_mem_if.to_slave host_mem_failed_if,
     engine_csr_if.engine csrs,
 
     mpf_vtp_port_if.to_slave vtp_ports[2]
@@ -452,8 +452,7 @@ module g1_worker
     logic reset;
     assign reset = host_mem_if.reset;
 
-    logic rd_error;
-    logic wr_error;
+    logic vtp_xlate_error;
 
     // Translated requests, both successful and failed, go first to this
     // host_mem_xlate_if. They will then be routed either to host_mem_if
@@ -463,11 +462,11 @@ module g1_worker
     //  This interface and pick_path below are not required if
     //  FAIL_ON_ERROR(1) is set below (the default). In that case, all
     //  translations would have to succeed.
-    //  mpf_vtp_translate_ofs_avalon_mem_rdwr below could then connect
+    //  mpf_vtp_translate_ofs_avalon_mem below could then connect
     //  directly to host_mem_if.
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_if)
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(host_mem_if)
         )
       host_mem_xlate_if();
 
@@ -479,21 +478,20 @@ module g1_worker
     // host_mem_failed_if. In this toy example, failed translations will
     // be printed and dropped and no responses are expected from
     // host_mem_failed_if.
-    fork_avalon_mem_rdwr pick_path
+    fork_avalon_mem pick_path
        (
         .slave0(host_mem_if),
         .slave1(host_mem_failed_if),
         .master(host_mem_xlate_if),
-        .rd_picker(rd_error),
-        .wr_picker(wr_error)
+        .pick_path(vtp_xlate_error)
         );
 
     // Generate a host memory interface that accepts virtual addresses.
     // The code below will connect it to the host_mem_if, which expects
     // IOVAs, performing the translation using the two VTP ports.
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_avalon_mem_if
       #(
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_if),
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(host_mem_if),
         .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
         )
       host_mem_va_if();
@@ -502,7 +500,7 @@ module g1_worker
     assign host_mem_va_if.reset = host_mem_if.reset;
     assign host_mem_va_if.instance_number = host_mem_if.instance_number;
 
-    mpf_vtp_translate_ofs_avalon_mem_rdwr
+    mpf_vtp_translate_ofs_avalon_mem
       #(
         .FAIL_ON_ERROR(0)
         )
@@ -510,9 +508,27 @@ module g1_worker
        (
         .host_mem_if(host_mem_xlate_if),
         .host_mem_va_if,
-        .rd_error,
-        .wr_error,
+        .error(vtp_xlate_error),
         .vtp_ports
+        );
+
+    // The traffic generator expects a split-bus interface. Promote the
+    // interface to ofs_plat_avalon_mem_rdwr_if. This is required only for
+    // the test and only because host_mem_rdwr_engine_avalon requires it.
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(host_mem_if)
+        )
+      host_mem_engine_if();
+
+    assign host_mem_engine_if.clk = host_mem_if.clk;
+    assign host_mem_engine_if.reset = host_mem_if.reset;
+    assign host_mem_engine_if.instance_number = host_mem_if.instance_number;
+
+    ofs_plat_avalon_mem_rdwr_if_to_mem_if conn_engine
+       (
+        .mem_slave(host_mem_va_if),
+        .mem_master(host_mem_engine_if)
         );
 
     host_mem_rdwr_engine_avalon
@@ -522,7 +538,7 @@ module g1_worker
         )
       eng
        (
-        .host_mem_if(host_mem_va_if),
+        .host_mem_if(host_mem_engine_if),
         .csrs
         );
 
