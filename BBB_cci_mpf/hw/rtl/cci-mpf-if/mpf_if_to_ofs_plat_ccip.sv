@@ -58,10 +58,7 @@ module mpf_if_to_ofs_plat_ccip
     );
 
     assign ofs_ccip.clk = clk;
-
-    logic reset;
-    assign reset = mpf_ccip.reset;
-    assign ofs_ccip.reset = mpf_ccip.reset;
+    assign ofs_ccip.reset_n = !mpf_ccip.reset;
 
     assign ofs_ccip.error = error;
     assign ofs_ccip.instance_number = INSTANCE_NUMBER;

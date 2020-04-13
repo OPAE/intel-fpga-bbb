@@ -64,11 +64,11 @@ module mpf_vtp_translate_ofs_ccip
 
     logic clk;
     assign clk = host_mem_if.clk;
-    logic reset;
-    assign reset = host_mem_if.reset;
+    logic reset_n;
+    assign reset_n = host_mem_if.reset_n;
 
     assign host_mem_va_if.clk = host_mem_if.clk;
-    assign host_mem_va_if.reset = host_mem_if.reset;
+    assign host_mem_va_if.reset_n = host_mem_if.reset_n;
     assign host_mem_va_if.error = host_mem_if.error;
     assign host_mem_va_if.instance_number = host_mem_if.instance_number;
     assign host_mem_va_if.sRx = host_mem_if.sRx;
@@ -94,7 +94,7 @@ module mpf_vtp_translate_ofs_ccip
     mpf_vtp_translate_ofs_ccip_c0 c0
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         .c0_host,
         .c0_host_almostFull(host_mem_if.sRx.c0TxAlmFull),
@@ -134,7 +134,7 @@ module mpf_vtp_translate_ofs_ccip
     mpf_vtp_translate_ofs_ccip_c1 c1
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         .c1_host,
         .c1_host_almostFull(host_mem_if.sRx.c1TxAlmFull),

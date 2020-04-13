@@ -67,7 +67,8 @@ module ofs_plat_afu
         .to_fiu(plat_ifc.host_chan.ports[0]),
         .to_afu(host_ccip_if),
 
-        .afu_clk()
+        .afu_clk(),
+        .afu_reset_n()
         );
 
 
@@ -113,7 +114,8 @@ module ofs_plat_afu
                 .to_fiu(plat_ifc.host_chan_g1.ports[p]),
                 .host_mem_to_afu(host_mem_g1_to_afu[p]),
 
-                .afu_clk(host_ccip_if.clk)
+                .afu_clk(host_ccip_if.clk),
+                .afu_reset_n(host_ccip_if.reset_n)
                 );
         end
     endgenerate

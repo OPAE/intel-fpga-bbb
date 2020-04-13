@@ -110,11 +110,11 @@ module mpf_vtp_svc_ofs_ccip
 
     logic clk;
     assign clk = to_fiu.clk;
-    logic reset;
-    assign reset = to_fiu.reset;
+    logic reset_n;
+    assign reset_n = to_fiu.reset_n;
 
     assign to_afu.clk = to_fiu.clk;
-    assign to_afu.reset = to_fiu.reset;
+    assign to_afu.reset_n = to_fiu.reset_n;
     assign to_afu.error = to_fiu.error;
     assign to_afu.instance_number = to_fiu.instance_number;
 
@@ -150,7 +150,7 @@ module mpf_vtp_svc_ofs_ccip
       vtp
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
         .vtp_ports,
         .pt_fim,
         .gen_csr_if(vtp_csrs)
@@ -178,7 +178,7 @@ module mpf_vtp_svc_ofs_ccip
     //
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
             pt_walk_read_req <= 1'b0;
         end
@@ -255,7 +255,7 @@ module mpf_vtp_svc_ofs_ccip
     //
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
             pt_mgr_write_req <= 1'b0;
         end
@@ -281,7 +281,7 @@ module mpf_vtp_svc_ofs_ccip
     ofs_plat_utils_ccip_track_multi_write pkt_track
        (
         .clk,
-        .reset,
+        .reset_n,
         .c1Tx(to_afu.sTx.c1),
         .c1Tx_en(1'b1),
         .eop(),
@@ -354,7 +354,7 @@ module mpf_vtp_svc_ofs_ccip
             // synthesis translate_on
         end
 
-        if (reset)
+        if (!reset_n)
         begin
             error <= 1'b0;
 
@@ -398,7 +398,7 @@ module mpf_vtp_svc_ofs_ccip
       mmio
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         // Drop the low bit from the MMIO address to convert from 32 bit data
         // to 64 bit data offsets.

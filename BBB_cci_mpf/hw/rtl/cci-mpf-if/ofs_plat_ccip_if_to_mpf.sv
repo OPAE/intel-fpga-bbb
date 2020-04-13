@@ -52,9 +52,9 @@ module ofs_plat_ccip_if_to_mpf
     logic clk;
     assign clk = ofs_ccip.clk;
     logic reset;
-    assign reset = ofs_ccip.reset;
+    assign reset = !ofs_ccip.reset_n;
 
-    assign mpf_ccip.reset = ofs_ccip.reset;
+    assign mpf_ccip.reset = reset;
 
     genvar s;
     generate

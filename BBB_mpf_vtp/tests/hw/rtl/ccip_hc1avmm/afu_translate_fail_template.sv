@@ -62,8 +62,8 @@ module dummy_failed_g1_slaves
 
     logic clk;
     assign clk = host_mem_g1_failed_if[0].clk;
-    logic reset;
-    assign reset = host_mem_g1_failed_if[0].reset;
+    logic reset_n;
+    assign reset_n = host_mem_g1_failed_if[0].reset_n;
 
     localparam BURST_CNT_WIDTH = host_mem_g1_failed_if[0].BURST_CNT_WIDTH_;
 
@@ -93,7 +93,7 @@ module dummy_failed_g1_slaves
               sop
                (
                 .clk,
-                .reset,
+                .reset_n,
                 .flit_valid(host_mem_g1_failed_if[p].write && ! host_mem_g1_failed_if[p].waitrequest),
                 .burstcount(host_mem_g1_failed_if[p].burstcount),
                 .sop(wr_sop),
@@ -144,7 +144,7 @@ module dummy_failed_g1_slaves
     // it's just a demonstration.
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
             csr_g1_rd_vtp_fail_va <= '0;
             csr_g1_rd_vtp_fail_cnt <= '0;
@@ -275,7 +275,7 @@ module dummy_failed_mpf_ccip_shim
             csr_mpf_c0_vtp_fail_cnt <= csr_mpf_c0_vtp_fail_cnt + 1;
             csr_mpf_c0_vtp_fail_va <= { cci_mpf_c0_getReqAddr(to_afu.c0Tx.hdr), 6'b0 };
 
-            if (! reset)
+            if (!reset)
             begin
                 // synthesis translate_off
                 $display("%m: VTP translation error CCI-P port RD, VA 0x%x",
@@ -292,7 +292,7 @@ module dummy_failed_mpf_ccip_shim
             csr_mpf_c1_vtp_fail_cnt <= csr_mpf_c1_vtp_fail_cnt + 1;
             csr_mpf_c1_vtp_fail_va <= { cci_mpf_c1_getReqAddr(to_afu.c1Tx.hdr), 6'b0 };
 
-            if (! reset)
+            if (!reset)
             begin
                 // synthesis translate_off
                 $display("%m: VTP translation error CCI-P port WR, VA 0x%x",

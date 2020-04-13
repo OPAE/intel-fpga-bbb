@@ -59,8 +59,8 @@ module afu
 
     logic clk;
     assign clk = host_ccip_if.clk;
-    logic reset;
-    assign reset = host_ccip_if.reset;
+    logic reset_n;
+    assign reset_n = host_ccip_if.reset_n;
 
     localparam NUM_PORTS_G0 = 1;
     localparam NUM_ENGINES = NUM_PORTS_G0 + NUM_PORTS_G1;
@@ -364,7 +364,7 @@ module afu
                 );
 
             assign host_mem_g1_failed_if[p].clk = host_mem_g1_if[p].clk;
-            assign host_mem_g1_failed_if[p].reset = host_mem_g1_if[p].reset;
+            assign host_mem_g1_failed_if[p].reset_n = host_mem_g1_if[p].reset_n;
             assign host_mem_g1_failed_if[p].instance_number = host_mem_g1_if[p].instance_number;
         end
     endgenerate
@@ -412,7 +412,7 @@ module afu
       csr_mgr
        (
         .clk(mpf_mmio.clk),
-        .reset(mpf_mmio.reset),
+        .reset_n(!mpf_mmio.reset),
         .pClk,
 
         .wr_write(mpf_mmio.c0Rx.mmioWrValid),
@@ -449,8 +449,8 @@ module g1_worker
 
     logic clk;
     assign clk = host_mem_if.clk;
-    logic reset;
-    assign reset = host_mem_if.reset;
+    logic reset_n;
+    assign reset_n = host_mem_if.reset_n;
 
     logic vtp_xlate_error;
 
@@ -471,7 +471,7 @@ module g1_worker
       host_mem_xlate_if();
 
     assign host_mem_xlate_if.clk = host_mem_if.clk;
-    assign host_mem_xlate_if.reset = host_mem_if.reset;
+    assign host_mem_xlate_if.reset_n = host_mem_if.reset_n;
     assign host_mem_xlate_if.instance_number = host_mem_if.instance_number;
 
     // For translations, successful to host_mem_if and failed to
@@ -497,7 +497,7 @@ module g1_worker
       host_mem_va_if();
 
     assign host_mem_va_if.clk = host_mem_if.clk;
-    assign host_mem_va_if.reset = host_mem_if.reset;
+    assign host_mem_va_if.reset_n = host_mem_if.reset_n;
     assign host_mem_va_if.instance_number = host_mem_if.instance_number;
 
     mpf_vtp_translate_ofs_avalon_mem
@@ -522,7 +522,7 @@ module g1_worker
       host_mem_engine_if();
 
     assign host_mem_engine_if.clk = host_mem_if.clk;
-    assign host_mem_engine_if.reset = host_mem_if.reset;
+    assign host_mem_engine_if.reset_n = host_mem_if.reset_n;
     assign host_mem_engine_if.instance_number = host_mem_if.instance_number;
 
     ofs_plat_avalon_mem_rdwr_if_to_mem_if conn_engine

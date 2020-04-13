@@ -33,6 +33,8 @@
 `include "cci_mpf_test_conf_default.vh"
 `include "cci_test_csrs.vh"
 
+`define RESET_FROM_CLK(clk) clk``_reset_n
+
 module ofs_plat_afu
    (
     // All platform wires, wrapped in one interface.
@@ -64,16 +66,16 @@ module ofs_plat_afu
         .to_afu(ccip_fiu_if),
 
 `ifdef TEST_PARAM_AFU_CLK
-        .afu_clk(`TEST_PARAM_AFU_CLK)
+        .afu_clk(`TEST_PARAM_AFU_CLK),
+        .afu_reset_n(`RESET_FROM_CLK(`TEST_PARAM_AFU_CLK))
 `else
-        .afu_clk()
+        .afu_clk(),
+        .afu_reset_n()
 `endif
         );
 
     logic afu_clk;
     assign afu_clk = ccip_fiu_if.clk;
-    logic afu_reset;
-    assign afu_reset = ccip_fiu_if.reset;
 
     // pwrState in afu_clk domain
     logic [1:0] pwrState;

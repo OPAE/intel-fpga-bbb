@@ -51,8 +51,8 @@ module afu
 
     logic clk;
     assign clk = host_ccip_if.clk;
-    logic reset;
-    assign reset = host_ccip_if.reset;
+    logic reset_n;
+    assign reset_n = host_ccip_if.reset_n;
 
     localparam NUM_ENGINES = 1;
 
@@ -198,7 +198,7 @@ module afu
       csr_mgr
        (
         .clk(host_mmio_if.clk),
-        .reset(host_mmio_if.reset),
+        .reset_n(host_mmio_if.reset_n),
         .pClk,
 
         .wr_write(host_mmio_if.sRx.c0.mmioWrValid),

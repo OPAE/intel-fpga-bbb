@@ -68,8 +68,8 @@ module mpf_vtp_translate_ofs_avalon_mem
 
     logic clk;
     assign clk = host_mem_if.clk;
-    logic reset;
-    assign reset = host_mem_if.reset;
+    logic reset_n;
+    assign reset_n = host_mem_if.reset_n;
 
     localparam ADDR_WIDTH = host_mem_va_if.ADDR_WIDTH_;
     localparam DATA_WIDTH = host_mem_va_if.DATA_WIDTH_;
@@ -117,7 +117,7 @@ module mpf_vtp_translate_ofs_avalon_mem
       rd_wr_order
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         .enq_data(host_mem_va_if.read),
         .enq_en((host_mem_va_if.read || host_mem_va_if.write) && !host_mem_va_if.waitrequest),
@@ -162,7 +162,7 @@ module mpf_vtp_translate_ofs_avalon_mem
       rd
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         .rsp_valid(rd_rsp_valid),
         .opaque_rsp({ rd_rsp_burstcount,
@@ -218,7 +218,7 @@ module mpf_vtp_translate_ofs_avalon_mem
       sop
        (
         .clk,
-        .reset,
+        .reset_n,
         .flit_valid(host_mem_va_if.write && ! host_mem_va_if.waitrequest),
         .burstcount(host_mem_va_if.burstcount),
         .sop(wr_sop),
@@ -256,7 +256,7 @@ module mpf_vtp_translate_ofs_avalon_mem
       wr
        (
         .clk,
-        .reset,
+        .reset(!reset_n),
 
         .rsp_valid(wr_rsp_valid),
         .opaque_rsp({ wr_rsp_burstcount,
@@ -299,7 +299,7 @@ module mpf_vtp_translate_ofs_avalon_mem
             wr_rsp_reg_error <= 1'b0;
         end
 
-        if (reset)
+        if (!reset_n)
         begin
             wr_rsp_reg_error <= 1'b0;
         end
@@ -354,7 +354,7 @@ module mpf_vtp_translate_ofs_avalon_mem
     // synthesis translate_off
     always_ff @(negedge clk)
     begin
-        if (! reset && (FAIL_ON_ERROR != 0))
+        if (reset_n && (FAIL_ON_ERROR != 0))
         begin
             if (rd_deq_en && rd_rsp_used_vtp && vtp_rd_rsp.error)
             begin
