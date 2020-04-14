@@ -149,8 +149,9 @@ module cci_mpf_shim_detect_eop
 
     always_ff @(posedge clk)
     begin
-        afu.c0Rx <= cci_mpf_c0Rx_updEOP(c0Rx[1],
-                                        (rd_rsp_is_tracked[1] && rd_rsp_pkt_eop));
+        afu.c0Rx <= cci_mpf_c0Rx_condUpdEOP(c0Rx[1],
+                                            rd_rsp_is_tracked[1],
+                                            rd_rsp_pkt_eop);
     end
 
 

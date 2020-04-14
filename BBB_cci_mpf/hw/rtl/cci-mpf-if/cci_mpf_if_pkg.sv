@@ -963,4 +963,17 @@ package cci_mpf_if_pkg;
         return r_out;
     endfunction
 
+    function automatic t_if_cci_c0_Rx cci_mpf_c0Rx_condUpdEOP(input t_if_cci_c0_Rx r,
+                                                              input logic do_update,
+                                                              input logic eop);
+        t_if_cci_c0_Rx r_out = r;
+
+        if (do_update)
+        begin
+            r_out.hdr.rsvd1 = eop;
+        end
+
+        return r_out;
+    endfunction
+
 endpackage // cci_mpf_if
