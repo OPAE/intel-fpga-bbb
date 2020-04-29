@@ -86,7 +86,7 @@ module dummy_failed_g1_slaves
 
             // Track SOP
             logic wr_sop;
-            ofs_plat_prim_burstcount_sop_tracker
+            ofs_plat_prim_burstcount1_sop_tracker
               #(
                 .BURST_CNT_WIDTH(BURST_CNT_WIDTH)
                 )

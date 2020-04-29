@@ -107,9 +107,7 @@ module afu
                 // CCIP_MDATA_WIDTH-2 to signal internal DMA requests, but
                 // guarantees never to set both CCIP_MDATA_WIDTH-2 and -3.
                 // This VTP instance uses those two bits together to mark
-                // internal DMA requests. (The top mdata bit is reserved for
-                // use by the CCI-P MUX that is used for tests that emulate
-                // multiple host channel groups, so can't be used here.)
+                // internal DMA requests.
                 .MDATA_TAG_MASK('b11 << (CCIP_MDATA_WIDTH-3))
                 )
               vtp_svc

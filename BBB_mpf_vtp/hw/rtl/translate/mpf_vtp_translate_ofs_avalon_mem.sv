@@ -211,7 +211,7 @@ module mpf_vtp_translate_ofs_avalon_mem
     logic wr_sop;
     logic wr_eop;
 
-    ofs_plat_prim_burstcount_sop_tracker
+    ofs_plat_prim_burstcount1_sop_tracker
       #(
         .BURST_CNT_WIDTH(BURST_CNT_WIDTH)
         )
