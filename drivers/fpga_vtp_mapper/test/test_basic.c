@@ -88,6 +88,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    struct fpga_vtp_mapper_base_phys_addr base_info;
+    base_info.argsz = sizeof(base_info);
+    base_info.flags = 0;
+    ret = ioctl(mfd, FPGA_VTP_BASE_PHYS_ADDR, &base_info);
+    assert(0 == ret);
+    printf("Base address: 0x%llx\n", base_info.base_phys);
+
     // Allocate two page buffers of each size
     uint8_t* buffers[6] = { MAP_FAILED };
     buffers[0] = mmap(NULL, 4096 * 2, (PROT_READ | PROT_WRITE), FLAGS_4K, -1, 0);

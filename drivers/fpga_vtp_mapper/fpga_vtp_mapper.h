@@ -57,4 +57,20 @@ struct fpga_vtp_mapper_page_vma_info {
 
 #define FPGA_VTP_PAGE_VMA_INFO	_IO(FPGA_VTP_MAGIC, 1)
 
+
+/*
+ * Return the base address of physical memory on the designated
+ * memory controller.
+ */
+struct fpga_vtp_mapper_base_phys_addr {
+	/* Input */
+	__u32 argsz;
+	__u32 flags;
+	__u32 ctrl_num;		/* reserved -- set to 0 */
+	/* Output */
+	__u64 base_phys;	/* base physical address */
+};
+
+#define FPGA_VTP_BASE_PHYS_ADDR	_IO(FPGA_VTP_MAGIC, 10)
+
 #endif

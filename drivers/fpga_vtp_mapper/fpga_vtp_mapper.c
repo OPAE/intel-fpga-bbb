@@ -44,6 +44,18 @@ static struct miscdevice vtp_miscdev = {
 	.mode = 0644
 };
 
+// Address of PCIe MMCFG area
+unsigned long physaddr_param = 0;
+MODULE_PARM_DESC(physaddr_param, "MMCFG physical address to map");
+module_param(physaddr_param, ulong, 0440);
+
+unsigned long csr_num_param = 0x43;
+MODULE_PARM_DESC(csr_num_param, "MMCFG 32-bit CSR index to read");
+module_param(csr_num_param, ulong, 0440);
+
+// Mapped page at physaddr_param
+static void __iomem *ha_mem_ctrl_p;
+
 static int fpga_vtp_mapper_open(struct inode *inode, struct file *file)
 {
 	struct device *dev = vtp_miscdev.this_device;
@@ -216,6 +228,38 @@ static long fpga_vtp_mapper_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
 	return ret;
 }
 
+static long fpga_vtp_mapper_ioctl_base_phys_addr(void *arg)
+{
+	struct fpga_vtp_mapper_base_phys_addr req;
+	unsigned long minsz;
+	struct device *dev = vtp_miscdev.this_device;
+	u32 *csraddress;
+
+	minsz = offsetofend(struct fpga_vtp_mapper_base_phys_addr, base_phys);
+
+	if (copy_from_user(&req, (void __user *)arg, minsz))
+		return -EFAULT;
+
+	if (req.argsz < minsz || req.flags)
+		return -EINVAL;
+
+	req.flags = 0;
+	req.base_phys = 0;
+
+	if (physaddr_param) {
+		csraddress = (u32 *)ha_mem_ctrl_p + csr_num_param;
+		req.base_phys = ((u64)*csraddress << 32) | *(csraddress + 1);
+	}
+
+	dev_dbg(dev, "%s: pid %d, base_phys 0x%llx\n", __func__,
+		task_pid_nr(current), req.base_phys);
+
+	if (copy_to_user(arg, &req, minsz))
+		return -EFAULT;
+
+	return 0;
+}
+
 static long fpga_vtp_mapper_ioctl(struct file *file, unsigned int cmd,
 			      unsigned long arg)
 {
@@ -228,6 +272,9 @@ static long fpga_vtp_mapper_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case FPGA_VTP_PAGE_VMA_INFO:
 		ret = fpga_vtp_mapper_ioctl_page_vma_info(current->mm, (void *)arg);
+		break;
+	case FPGA_VTP_BASE_PHYS_ADDR:
+		ret = fpga_vtp_mapper_ioctl_base_phys_addr((void *)arg);
 		break;
 	default:
 		dev_dbg(dev, "%x cmd not handled", cmd);
@@ -244,8 +291,34 @@ static const struct file_operations ops = {
 	.owner		= THIS_MODULE,
 };
 
+#define dprintf(l, m...) \
+	printk("%s:%d ", __func__, __LINE__); \
+	printk(m)
+
 static int __init fpga_vtp_mapper_init(void)
 {
+	if (physaddr_param) {
+		/* perform sanity checking and fixups */
+		if (physaddr_param % PAGE_SIZE) {
+			dprintf(0, "address not aligned (page size 0x%lx), bombing out\n",
+				PAGE_SIZE);
+			return -1;
+		}
+
+		if ((4 * (csr_num_param + 1)) >= PAGE_SIZE) {
+			dprintf(0, "csr number (0x%lx) exceeds page size, bombing out\n",
+				csr_num_param);
+			return -1;
+		}
+
+		/* create the memory mapping */
+		ha_mem_ctrl_p = ioremap(physaddr_param, PAGE_SIZE);
+		if (NULL == ha_mem_ctrl_p) {
+			dprintf(0, "ioremap failed\n");
+			return -1;
+		}
+	}
+
 	return misc_register(&vtp_miscdev);
 }
 module_init(fpga_vtp_mapper_init);
@@ -253,6 +326,9 @@ module_init(fpga_vtp_mapper_init);
 static void __exit fpga_vtp_mapper_exit(void)
 {
 	misc_deregister(&vtp_miscdev);
+
+	if (physaddr_param)
+		iounmap(ha_mem_ctrl_p);
 }
 module_exit(fpga_vtp_mapper_exit);
 
