@@ -41,6 +41,10 @@
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
+#ifdef FPGA_VTP_MAPPER
+#include <opae/fpga_vtp_mapper.h>
+#endif
+
 // Try for 1GB pages for requests above 75% of the page
 static const size_t CCI_MPF_VTP_1GB_PAGE_THRESHOLD = 805306368;
 // The threshold for using 2MB pages is lower since the performance gain
@@ -313,6 +317,62 @@ static inline int vtpReportReadOnly(
 // ========================================================================
 
 
+fpga_result vtpGetDMAAddress(
+    _mpf_handle_p _mpf_handle,
+    uint64_t wsid,
+    mpf_vtp_pt_vaddr va,
+    mpf_vtp_pt_paddr* dma_addr
+)
+{
+    fpga_result r;
+
+    if (!_mpf_handle->vtp.use_phys_addrs || _mpf_handle->simulated_fpga)
+    {
+        // Normal mode. Ask OPAE for the I/O address. ASE always emulates an IOMMU,
+        // so we always follow this path in simulation even when the hardware uses
+        // physical addresses.
+        r = fpgaGetIOAddress(_mpf_handle->handle, wsid, dma_addr);
+    }
+    else
+    {
+#ifndef FPGA_VTP_MAPPER
+        // Physical addresses are expected but MPF was built without
+        // the required library.
+        MPF_FPGA_MSG(
+            "MPF error: FPGA requires physical addresses but the BBB sources\n"
+            "were built without FPGA_VTP_MAPPER. Rebuild intel-fpga-bbb software\n"
+            "and pass -DBUILD_FPGA_VTP_MAPPER=ON to the CMake command\n");
+        MPF_FPGA_MSG("MPF unable to translate VA %p", va);
+        return FPGA_INVALID_PARAM;
+#else
+        // Translate the VA
+        fpga_vtp_buf_info buf_info;
+        r = fpgaGetPageAddrInfo(va, &buf_info);
+        if (FPGA_OK != r)
+        {
+            MPF_FPGA_MSG("Failed to translate VA %p to physical address using fpga_vtp_mapper!", va);
+            return r;
+        }
+
+        // Some DMA spaces have a constant offset, stored in phys_space_base.
+        *dma_addr = buf_info.phys_addr - buf_info.phys_space_base;
+
+        if (_mpf_handle->vtp.numa_memory_domains)
+        {
+            // Check the NUMA domain
+            if (0 == (_mpf_handle->vtp.numa_memory_domains & (1LL << buf_info.numa_id)))
+            {
+                MPF_FPGA_MSG("VA %p in unsupported NUMA domain %d", va, buf_info.numa_id);
+                return FPGA_NO_MEMORY;
+            }
+        }
+#endif
+    }
+
+    return r;
+}
+
+
 fpga_result mpfVtpPinAndInsertPage(
     _mpf_handle_p _mpf_handle,
     bool pt_locked,
@@ -385,7 +445,7 @@ fpga_result mpfVtpPinAndInsertPage(
 
     // Get the physical address of the buffer
     mpf_vtp_pt_paddr alloc_pa;
-    r = fpgaGetIOAddress(_mpf_handle->handle, wsid, &alloc_pa);
+    r = vtpGetDMAAddress(_mpf_handle, wsid, va, &alloc_pa);
     if (FPGA_OK != r) return r;
 
     if (pinned_pa)
@@ -464,10 +524,38 @@ fpga_result mpfVtpInit(
 
     if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
     {
+        uint64_t vtp_mode;
+
         _mpf_handle->vtp.is_hw_vtp_available = true;
 
         // VTP hardware can't deal with 1GB pages yet
         _mpf_handle->vtp.max_physical_page_size = MPF_VTP_PAGE_2MB;
+
+        // See CCI_MPF_VTP_CSR_MODE in cci_mpf_csrs.h
+        vtp_mode = mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, NULL);
+        _mpf_handle->vtp.use_phys_addrs = (7 & (vtp_mode >> 4)) == 1;
+        _mpf_handle->vtp.numa_memory_domains = 0;
+        if (vtp_mode & 0x80)
+        {
+            _mpf_handle->vtp.numa_memory_domains =
+                mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_NUMA_DOMAINS, NULL);
+        }
+
+        if (_mpf_handle->dbg_mode)
+        {
+            MPF_FPGA_MSG("Address mode: %s",
+                         (_mpf_handle->vtp.use_phys_addrs ? "HPA (host physical)" :
+                                                            "IOADDR (fpgaGetIOAddress)"));
+            if (0 == _mpf_handle->vtp.numa_memory_domains)
+            {
+                MPF_FPGA_MSG("NUMA memory domains: unrestricted");
+            }
+            else
+            {
+                MPF_FPGA_MSG("NUMA memory domains: 0x%" PRIx64,
+                             _mpf_handle->vtp.numa_memory_domains);
+            }
+        }
 
         // Reset the HW TLB
         r = mpfVtpInvalHWTLB(_mpf_handle);

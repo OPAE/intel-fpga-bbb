@@ -83,6 +83,10 @@ if (WIN32)
 endif(WIN32)
 
 
+if(BUILD_FPGA_VTP_MAPPER)
+    include_directories(${PROJECT_SOURCE_DIR}/../../drivers/fpga_vtp_mapper/lib/include)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR}/include ${OPAELIB_INC_PATH})
 
 ## Add install directory to include path in case OPAE has been installed there

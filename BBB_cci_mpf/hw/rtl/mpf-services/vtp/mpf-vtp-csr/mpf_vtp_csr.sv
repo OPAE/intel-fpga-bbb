@@ -128,6 +128,8 @@ module mpf_vtp_csr
             // CSRs
           `VTP_CSR_IDX(CCI_MPF_VTP_CSR_MODE):
             gen_csr_if.rd_data <= 64'(csrs.vtp_out_mode);
+          `VTP_CSR_IDX(CCI_MPF_VTP_CSR_NUMA_DOMAINS):
+            gen_csr_if.rd_data <= 64'(csrs.vtp_numa_mask);
           `VTP_CSR_IDX(CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_HITS):
             gen_csr_if.rd_data <= 64'(vtp_tlb_events_hit_4kb_accum);
           `VTP_CSR_IDX(CCI_MPF_VTP_CSR_STAT_4KB_TLB_NUM_MISSES):

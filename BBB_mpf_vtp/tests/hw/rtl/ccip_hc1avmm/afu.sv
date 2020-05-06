@@ -39,7 +39,9 @@
 
 module afu
   #(
-    parameter NUM_PORTS_G1 = 0
+    parameter NUM_PORTS_G1 = 0,
+    parameter string HOST_MEM_G1_ADDRESS_SPACE = "IOADDR",
+    parameter HOST_MEM_G1_NUMA_MASK = 0
     )
    (
     // Primary host interface
@@ -98,6 +100,8 @@ module afu
                 // Use a unique MPF instance ID for the group 1 VTP service.
                 // The primary MPF instance ID on the main CCI-P port is 1.
                 .MPF_INSTANCE_ID(2),
+                .VTP_ADDR_MODE(HOST_MEM_G1_ADDRESS_SPACE),
+                .VTP_NUMA_MASK(HOST_MEM_G1_NUMA_MASK),
                 // VTP's CSR byte address. The AFU will add this address to
                 // the feature list.
                 .DFH_MMIO_BASE_ADDR(VTP_MMIO_BASE_ADDR),
@@ -350,6 +354,7 @@ module afu
                 // Simple Avalon ports don't support write fences
                 .WRITE_FENCE_SUPPORTED(0),
 `endif
+                .NUMA_MASK(HOST_MEM_G1_NUMA_MASK),
                 .ENGINE_NUMBER(NUM_PORTS_G0 + p)
                 )
               wrk
@@ -434,6 +439,7 @@ endmodule // afu
 module g1_worker
   #(
     parameter ENGINE_NUMBER = 0,
+    parameter NUMA_MASK = 0,
     parameter WRITE_FENCE_SUPPORTED = 1
     )
    (
@@ -532,6 +538,8 @@ module g1_worker
     host_mem_rdwr_engine_avalon
       #(
         .ENGINE_NUMBER(ENGINE_NUMBER),
+        .ADDRESS_SPACE("VA"),
+        .NUMA_MASK(NUMA_MASK),
         .WRITE_FENCE_SUPPORTED(WRITE_FENCE_SUPPORTED)
         )
       eng

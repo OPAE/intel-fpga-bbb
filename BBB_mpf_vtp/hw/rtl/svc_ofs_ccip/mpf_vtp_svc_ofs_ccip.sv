@@ -94,6 +94,16 @@ module mpf_vtp_svc_ofs_ccip
     // mode may pin pages automatically on demand.
     parameter string VTP_PT_MODE = "HARDWARE_WALKER",
 
+    // Address mode. Normally, this is "IOADDR", indicating that the FPGA
+    // DMA uses IO addresses from fpgaGetIOAddress(). When set to "HPA",
+    // the FPGA uses host physical addresses.
+    parameter string VTP_ADDR_MODE = "IOADDR",
+
+    // NUMA domain restrictions. Normally this is 0, indicating no
+    // restrictions. When non-zero it is a mask of NUMA domains the FPGA
+    // can reach.
+    parameter mpf_vtp_pkg::t_mpf_vtp_csr_numa_mask VTP_NUMA_MASK = 0,
+
     // Enable simulation debug messages?
     parameter VTP_DEBUG_MESSAGES = 0
     )
@@ -145,6 +155,8 @@ module mpf_vtp_svc_ofs_ccip
         .ENABLE_VTP(1),
         .N_VTP_PORTS(N_VTP_PORTS),
         .VTP_PT_MODE(VTP_PT_MODE),
+        .VTP_ADDR_MODE(VTP_ADDR_MODE),
+        .VTP_NUMA_MASK(VTP_NUMA_MASK),
         .DEBUG_MESSAGES(VTP_DEBUG_MESSAGES)
         )
       vtp

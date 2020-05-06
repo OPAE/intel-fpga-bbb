@@ -84,6 +84,11 @@ fpga_result __MPF_API__ mpfConnect(
         _mpf_handle->mmio_ptr = NULL;
     }
 
+    // There isn't currently a flag indicating simulation. Infer it
+    // from an ASE environment variable and the lack of MMIO.
+    _mpf_handle->simulated_fpga = (_mpf_handle->mmio_ptr == NULL) &&
+                                  getenv("ASE_WORKDIR");
+
     // Debugging can also be enabled by defining an environment
     // variable named MPF_ENABLE_DEBUG (any value).
     if (getenv("MPF_ENABLE_DEBUG"))
@@ -95,7 +100,8 @@ fpga_result __MPF_API__ mpfConnect(
     {
         MPF_FPGA_MSG("MPF using MMIO %s",
                      (_mpf_handle->mmio_ptr ? "directly" : "with functions"));
-
+        MPF_FPGA_MSG("MPF execution mode: %s",
+                     (_mpf_handle->simulated_fpga ? "simulated RTL" : "FPGA hardware"));
     }
 
     // set handle return value

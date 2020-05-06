@@ -108,6 +108,9 @@ struct _mpf_handle_t
 
     // Debug mode requested in mpf_flags?
     bool dbg_mode;
+
+    // Simulating the FPGA?
+    bool simulated_fpga;
 };
 
 

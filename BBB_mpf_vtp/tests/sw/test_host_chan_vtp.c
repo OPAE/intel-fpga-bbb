@@ -41,6 +41,8 @@
 #include <inttypes.h>
 #include <uuid/uuid.h>
 #include <time.h>
+#include <immintrin.h>
+#include <numa.h>
 
 #include <opae/fpga.h>
 #include <opae/mpf/mpf.h>
@@ -60,6 +62,25 @@
 #define KB(x) ((x) * 1024)
 #endif
 
+
+// Engine's address mode
+typedef enum
+{
+    ADDR_MODE_IOADDR = 0,
+    ADDR_MODE_HOST_PHYSICAL = 1,
+    ADDR_MODE_VIRTUAL = 3
+}
+t_fpga_addr_mode;
+
+const char* addr_mode_str[] =
+{
+    "IOADDR",
+    "Host physical",
+    "reserved",
+    "Virtual"
+};
+
+
 //
 // Hold shared memory buffer details for one engine
 //
@@ -71,7 +92,9 @@ typedef struct
     volatile uint64_t *wr_buf;
     size_t wr_buf_size;
 
+    struct bitmask* numa_mem_mask;
     uint32_t max_burst_size;
+    t_fpga_addr_mode addr_mode;
     bool natural_bursts;
     bool ordered_read_responses;
 }
@@ -92,18 +115,62 @@ static char *engine_type[] =
 
 
 //
+// Taken from https://github.com/pmem/pmdk/blob/master/src/libpmem2/x86_64/flush.h.
+// The clflushopt instruction was added for Skylake and isn't in <immintrin.h>
+// _mm_clflushopt() in many of the compilers currently in use.
+//
+static inline void
+asm_clflushopt(const void *addr)
+{
+	asm volatile(".byte 0x66; clflush %0" : "+m" \
+		(*(volatile char *)(addr)));
+}
+
+//
+// Flush a range of lines from the cache hierarchy in the entire coherence
+// domain. (All cores all sockets)
+//
+static void
+flushRange(void* start, size_t len)
+{
+    uint8_t* cl = start;
+    uint8_t* end = start + len;
+
+    while (cl < end)
+    {
+        asm_clflushopt(cl);
+        cl += CACHELINE_BYTES;
+    }
+
+    _mm_sfence();
+}
+
+
+//
 // Allocate a buffer in I/O memory, shared with the FPGA.
 //
 static void*
 allocSharedBuffer(
     mpf_handle_t mpf_handle,
-    size_t size)
+    size_t size,
+    struct bitmask *numa_mem_mask)
 {
     fpga_result r;
     void* buf;
 
+    // Preserve current NUMA configuration
+    struct bitmask *numa_mems_preserve;
+    numa_mems_preserve = numa_get_membind();
+
+    // Limit NUMA to what the port requests (except in simulation)
+    if (!s_is_ase) numa_set_membind(numa_mem_mask);
+
     r = mpfVtpPrepareBuffer(mpf_handle, size, (void*)&buf, 0);
     if (FPGA_OK != r) return NULL;
+
+    // Restore NUMA configuration
+    numa_set_membind(numa_mems_preserve);
+    numa_bitmask_free(numa_mems_preserve);
 
     return buf;
 }
@@ -122,6 +189,68 @@ initReadBuf(
     {
         *buf++ = cnt++;
     }
+}
+
+
+static void
+initEngine(
+    uint32_t e,
+    mpf_handle_t mpf_handle,
+    t_csr_handle_p csr_handle)
+{
+    // Get the maximum burst size for the engine.
+    uint64_t r = csrEngRead(s_csr_handle, e, 0);
+    s_eng_bufs[e].max_burst_size = r & 0x7fff;
+    s_eng_bufs[e].natural_bursts = (r >> 15) & 1;
+    s_eng_bufs[e].ordered_read_responses = (r >> 39) & 1;
+    s_eng_bufs[e].addr_mode = (r >> 40) & 3;
+    printf("  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
+    printf("  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
+    printf("  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
+    printf("  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
+    printf("  Engine %d addressing mode: %s\n", e, addr_mode_str[s_eng_bufs[e].addr_mode]);
+
+    // 64 bit mask of valid NUMA nodes, according to the FPGA configuration
+    uint64_t numa_mask = csrEngRead(s_csr_handle, e, 6);
+    if (numa_mask)
+    {
+        printf("  Engine %d NUMA membind mask: 0x%lx\n", e, numa_mask);
+
+        // Construct a NUMA struct bitmask to match the CSR
+        s_eng_bufs[e].numa_mem_mask = numa_bitmask_alloc(64);
+        int i = 0;
+        while (numa_mask)
+        {
+            if (numa_mask & 1)
+            {
+                numa_bitmask_setbit(s_eng_bufs[e].numa_mem_mask, i);
+            }
+
+            i += 1;
+            numa_mask >>= 1;
+        }
+    }
+    else
+    {
+        printf("  Engine %d NUMA membind mask: all\n", e);
+        s_eng_bufs[e].numa_mem_mask = numa_get_mems_allowed();
+    }
+
+    // Separate read and write buffers.
+    s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle, MB(2), s_eng_bufs[e].numa_mem_mask);
+    assert(NULL != s_eng_bufs[e].rd_buf);
+    s_eng_bufs[e].rd_buf_size = MB(2);
+    initReadBuf(s_eng_bufs[e].rd_buf, s_eng_bufs[e].rd_buf_size);
+    flushRange((void*)s_eng_bufs[e].rd_buf, MB(2));
+
+    s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle, MB(2), s_eng_bufs[e].numa_mem_mask);
+    assert(NULL != s_eng_bufs[e].wr_buf);
+    s_eng_bufs[e].wr_buf_size = MB(2);
+
+    // Set the buffer size mask. The buffer is 2MB but the mask covers
+    // only 1MB. This allows bursts to flow a bit beyond the mask
+    // without concern for overflow.
+    csrEngWrite(csr_handle, e, 4, (MB(1) / CL(1)) - 1);
 }
 
 
@@ -406,6 +535,7 @@ testSmallRegions(
                         // Clear the write buffer
                         memset((void*)s_eng_bufs[e].wr_buf, 0,
                                s_eng_bufs[e].wr_buf_size);
+                        flushRange((void*)s_eng_bufs[e].wr_buf, MB(2));
 
                         // Configure engine burst details
                         csrEngWrite(s_csr_handle, e, 2,
@@ -480,6 +610,8 @@ testSmallRegions(
                         uint32_t write_error_line;
                         if (mode & 2)
                         {
+                            flushRange((void*)s_eng_bufs[e].wr_buf, MB(2));
+
                             writes_ok = testExpectedWrites(
                                 (uint64_t*)s_eng_bufs[e].wr_buf,
                                 num_bursts, burst_size, &write_error_line);
@@ -737,36 +869,13 @@ testHostChanVtp(
     assert(NULL != s_eng_bufs);
     for (uint32_t e = 0; e < num_engines; e += 1)
     {
-        // Pick the proper MPF handle
-        uint32_t mpf_idx = (e >= num_grp_engines[0]) ? 1 : 0;
-
-        // Separate read and write buffers. The memory will be translatable
+        // Pick the proper MPF handle. The memory will be translatable
         // in the FPGA only by the VTP instance associated with mpf_idx.
         // (Buffers could be made visible on both by managing the same
         // virtual buffer in both MPF instances.)
-        s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle[mpf_idx], MB(2));
-        assert(NULL != s_eng_bufs[e].rd_buf);
-        s_eng_bufs[e].rd_buf_size = MB(2);
-        initReadBuf(s_eng_bufs[e].rd_buf, s_eng_bufs[e].rd_buf_size);
+        uint32_t mpf_idx = (e >= num_grp_engines[0]) ? 1 : 0;
 
-        s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle[mpf_idx], MB(2));
-        assert(NULL != s_eng_bufs[e].wr_buf);
-        s_eng_bufs[e].wr_buf_size = MB(2);
-
-        // Set the buffer size mask. The buffer is 2MB but the mask covers
-        // only 1MB. This allows bursts to flow a bit beyond the mask
-        // without concern for overflow.
-        csrEngWrite(csr_handle, e, 4, (MB(1) / CL(1)) - 1);
-
-        // Get the maximum burst size for the engine.
-        uint64_t r = csrEngRead(s_csr_handle, e, 0);
-        s_eng_bufs[e].max_burst_size = r & 0x7fff;
-        s_eng_bufs[e].natural_bursts = (r >> 15) & 1;
-        s_eng_bufs[e].ordered_read_responses = (r >> 39) & 1;
-        printf("  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
-        printf("  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
-        printf("  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
-        printf("  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
+        initEngine(e, mpf_handle[mpf_idx], csr_handle);
     }
     printf("\n");
     

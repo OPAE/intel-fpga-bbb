@@ -52,6 +52,7 @@ struct fpga_vtp_mapper_page_vma_info {
 	const void *vaddr;
 	/* Output */
 	__u64 page_phys;	/* physical address */
+	__u32 page_numa_id;	/* NUMA node ID */
 	__u32 page_shift;	/* page_size == (1L << page_shift) */
 };
 

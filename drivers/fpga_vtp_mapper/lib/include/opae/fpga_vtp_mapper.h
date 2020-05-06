@@ -28,59 +28,50 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-//
-// VTP CSR and event interface. This interface is internal to the VTP service.
-// The external interface, exposed to the AFU, is mpf_services_gen_csr_if.
-//
+#ifndef __FPGA_VTP_MAPPER_H__
+#define __FPGA_VTP_MAPPER_H__
 
-`include "cci_mpf_if.vh"
-`include "cci_mpf_csrs.vh"
+#include <opae/types.h>
 
-interface mpf_vtp_csrs_if();
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-    import mpf_vtp_pkg::*;
 
-    //
-    // VTP -- virtual to physical translation
-    //
+typedef struct
+{
+    uint64_t phys_addr;
+    uint64_t phys_space_base; /* Base address of physical space. In some
+                               * address spaces, the FPGA expects addresses
+                               * as: phys_addr-phys_space_base. */
+    uint32_t page_shift;      /* Page size: 1 << page_shift */
+    uint32_t numa_id;
+    bool may_read;
+    bool may_write;
+} fpga_vtp_buf_info;
+    
 
-    t_mpf_vtp_ctrl vtp_ctrl;
+/**
+ * Retrieve physical address and other buffer details
+ *
+ * This function is used on experimental systems when FPGA-side addressing
+ * is physical.
+ *
+ * @note This function will disappear once the APIs for secure sharing of
+ * buffer addresses is implemented.
+ *
+ * @param[in]  buf_addr Virtual address of buffer
+ * @param[out] buf_info Buffer information, including physical address and
+ *                      NUMA memory domain ID.
+ * @returns FPGA_OK on success. FPGA_INVALID_PARAM if invalid parameters were
+ * provided, or if the parameter combination is not valid. FPGA_EXCEPTION if an
+ * internal exception occurred while trying to access the handle.
+ */
+fpga_result fpgaGetPageAddrInfo(const void *buf_addr,
+                                fpga_vtp_buf_info *buf_info);
 
-    // Output: page table mode (see cci_mpf_csrs.h)
-    t_mpf_vtp_csr_out_mode vtp_out_mode;
+#ifdef __cplusplus
+} // extern "C"
+#endif // __cplusplus
 
-    // Output: NUMA mask (valid when vtp_out_mode.numa_mask_enabled is set)
-    t_mpf_vtp_csr_numa_mask vtp_numa_mask;
-
-    // Events: these wires fire to indicate an event. The CSR shim sums
-    // events into counters.
-    t_mpf_vtp_tlb_events vtp_tlb_events;
-    t_mpf_vtp_pt_walk_events vtp_pt_walk_events;
-
-    // CSR manager port
-    modport csr
-       (
-        output vtp_ctrl,
-        input  vtp_out_mode,
-        input  vtp_numa_mask
-        );
-    modport csr_events
-       (
-        input  vtp_tlb_events,
-        input  vtp_pt_walk_events
-        );
-
-    modport vtp
-       (
-        input  vtp_ctrl
-        );
-    modport vtp_events
-       (
-        output vtp_tlb_events
-        );
-    modport vtp_events_pt_walk
-       (
-        output vtp_pt_walk_events
-        );
-
-endinterface // mpf_vtp_csrs_if
+#endif // __FPGA_VTP_MAPPER_H__

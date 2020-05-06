@@ -128,10 +128,11 @@ int main(int argc, char *argv[])
         *buffers[b] = 0;
 
         ret = ioctl(mfd, FPGA_VTP_PAGE_VMA_INFO, &info);
-        printf("page_vma_info: buffer %d, va %p, ret %d (%d), pa 0x%llx, page shift %d, read %d, write %d\n",
+        printf("page_vma_info: buffer %d, va %p, ret %d (%d), pa 0x%llx, page shift %d, numa id %d, read %d, write %d\n",
                b, buffers[b], ret, errno,
                (uint64_t)info.page_phys,
                info.page_shift,
+               info.page_numa_id,
                (info.flags & FPGA_VTP_PAGE_READ) != 0,
                (info.flags & FPGA_VTP_PAGE_WRITE) != 0);
     }

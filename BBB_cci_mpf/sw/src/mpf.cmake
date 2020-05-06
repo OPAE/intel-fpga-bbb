@@ -81,3 +81,10 @@ if(OPAELIB_LIBS_PATH)
     target_link_libraries(MPF OpaeLib)
     target_link_libraries(MPF-cxx OpaeLib)
 endif()
+
+if(BUILD_FPGA_VTP_MAPPER)
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DFPGA_VTP_MAPPER=1")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DFPGA_VTP_MAPPER=1")
+
+    target_link_libraries(MPF fpga_vtp_mapper)
+endif()

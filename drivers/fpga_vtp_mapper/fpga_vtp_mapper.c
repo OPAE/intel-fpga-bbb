@@ -154,7 +154,7 @@ static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **pag
  */
 static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 				    u32 *page_shift, u64 *page_phys,
-				    unsigned long *vm_flags)
+				    u32 *page_nid, unsigned long *vm_flags)
 {
 	int level;
 	struct vm_area_struct *vma;
@@ -162,6 +162,7 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 
 	*page_shift = 0;
 	*page_phys = 0;
+	*page_nid = 0;
 	*vm_flags = 0;
 
 	/* Lock the mm */
@@ -186,8 +187,10 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 
 	page = NULL;
 	level = user_vaddr_to_page(mm, vaddr, &page);
-	if (level)
+	if (level) {
 		*page_phys = page_to_phys(page);
+		*page_nid = page_to_nid(page);
+	}
 
 	up_read(&mm->mmap_sem);
 	return 0;
@@ -210,7 +213,8 @@ static long fpga_vtp_mapper_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
 		return -EINVAL;
 
 	ret = get_vaddr_page_vma_info(mm, (u64)vma_info.vaddr, &vma_info.page_shift,
-				      &vma_info.page_phys, &vm_flags);
+				      &vma_info.page_phys, &vma_info.page_numa_id,
+				      &vm_flags);
 	vma_info.flags = 0;
 	if (vm_flags & VM_READ)
 		vma_info.flags |= FPGA_VTP_PAGE_READ;

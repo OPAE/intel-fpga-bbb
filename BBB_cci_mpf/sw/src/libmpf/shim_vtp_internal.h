@@ -126,6 +126,28 @@ fpga_result vtpInvalHWVAMapping(
 
 
 /**
+ * Get the DMA address of a buffer.
+ *
+ * On most FPGAs the DMA address is managed by an IOMMU and is exposed with
+ * the OPAE SDK call fpgaGetIOAddress(). Some FPGAs use other address spaces.
+ * This method picks the proper space and translates either a workspace ID
+ * or virtual address to the DMA address space.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  wsid        Workspace ID of the pinned buffer.
+ * @param[in]  va          Virtual address of the pinned buffer.
+ * @param[out] dma_addr    Buffer address in FPGA DMA space.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result vtpGetDMAAddress(
+    _mpf_handle_p _mpf_handle,
+    uint64_t wsid,
+    mpf_vtp_pt_vaddr va,
+    mpf_vtp_pt_paddr* dma_addr
+);
+
+
+/**
  * VTP persistent state.  An instance of this struct is stored in the
  * MPF handle.
  */
@@ -143,12 +165,19 @@ typedef struct
     // Maximum requested page size
     mpf_vtp_page_size max_physical_page_size;
 
+    // Restrict NUMA memory domains? If non-zero, this is a bit set of
+    // valid NUMA domains.
+    uint64_t numa_memory_domains;
+
     // Does libfpga support FPGA_PREALLOCATED?  The old AAL compatibility
     // version does not.
     bool use_fpga_buf_preallocated;
 
     // Is VTP available in the FPGA?
     bool is_hw_vtp_available;
+
+    // Use physical addresses instead of IOVA?
+    bool use_phys_addrs;
 }
 mpf_vtp_state;
 
