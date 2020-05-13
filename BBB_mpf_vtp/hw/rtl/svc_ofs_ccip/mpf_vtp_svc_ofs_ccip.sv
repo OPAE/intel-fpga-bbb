@@ -99,11 +99,6 @@ module mpf_vtp_svc_ofs_ccip
     // the FPGA uses host physical addresses.
     parameter string VTP_ADDR_MODE = "IOADDR",
 
-    // NUMA domain restrictions. Normally this is 0, indicating no
-    // restrictions. When non-zero it is a mask of NUMA domains the FPGA
-    // can reach.
-    parameter mpf_vtp_pkg::t_mpf_vtp_csr_numa_mask VTP_NUMA_MASK = 0,
-
     // Enable simulation debug messages?
     parameter VTP_DEBUG_MESSAGES = 0
     )
@@ -156,7 +151,6 @@ module mpf_vtp_svc_ofs_ccip
         .N_VTP_PORTS(N_VTP_PORTS),
         .VTP_PT_MODE(VTP_PT_MODE),
         .VTP_ADDR_MODE(VTP_ADDR_MODE),
-        .VTP_NUMA_MASK(VTP_NUMA_MASK),
         .DEBUG_MESSAGES(VTP_DEBUG_MESSAGES)
         )
       vtp

@@ -86,9 +86,6 @@ typedef enum
     //    000 - Use IO address from fpgaGetIOAddress.
     //    001 - Use host physical addresses.
     //    --- - Reserved (all other values reserved)
-    //   Bit 7 (read only):
-    //      0 - No NUMA domain restrictions.
-    //      1 - Limit NUMA domains to the value of CCI_MPF_VTP_CSR_NUMA_DOMAINS.
     CCI_MPF_VTP_CSR_MODE = 24,
 
     // Page table physical address (line address) (write)
@@ -118,9 +115,6 @@ typedef enum
     // Responses to software translation requests are returned to
     // the FPGA in this CSR when CCI_MPF_VTP_CSR_MODE bit 2 is 1.
     CCI_MPF_VTP_CSR_PAGE_TRANSLATION_RSP = 112,
-
-    // NUMA domain restrictions (read)
-    CCI_MPF_VTP_CSR_NUMA_DOMAINS = 120,
 
     // Must be last
     CCI_MPF_VTP_CSR_SIZE = 128

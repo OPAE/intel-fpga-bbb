@@ -82,9 +82,9 @@ if(OPAELIB_LIBS_PATH)
     target_link_libraries(MPF-cxx OpaeLib)
 endif()
 
-if(BUILD_FPGA_VTP_MAPPER)
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DFPGA_VTP_MAPPER=1")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DFPGA_VTP_MAPPER=1")
+if(BUILD_FPGA_NEAR_MEM_MAP)
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DFPGA_NEAR_MEM_MAP=1")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DFPGA_NEAR_MEM_MAP=1")
 
-    target_link_libraries(MPF fpga_vtp_mapper)
+    target_link_libraries(MPF fpga_near_mem_map)
 endif()

@@ -49,9 +49,6 @@ interface mpf_vtp_csrs_if();
     // Output: page table mode (see cci_mpf_csrs.h)
     t_mpf_vtp_csr_out_mode vtp_out_mode;
 
-    // Output: NUMA mask (valid when vtp_out_mode.numa_mask_enabled is set)
-    t_mpf_vtp_csr_numa_mask vtp_numa_mask;
-
     // Events: these wires fire to indicate an event. The CSR shim sums
     // events into counters.
     t_mpf_vtp_tlb_events vtp_tlb_events;
@@ -61,8 +58,7 @@ interface mpf_vtp_csrs_if();
     modport csr
        (
         output vtp_ctrl,
-        input  vtp_out_mode,
-        input  vtp_numa_mask
+        input  vtp_out_mode
         );
     modport csr_events
        (

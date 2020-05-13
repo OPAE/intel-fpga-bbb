@@ -33,10 +33,13 @@
 #ifndef __FPGA_MPF_SHIM_VTP_INTERNAL_H__
 #define __FPGA_MPF_SHIM_VTP_INTERNAL_H__
 
+#ifdef FPGA_NEAR_MEM_MAP
+#include <numa.h>
+#endif
+
 #include "shim_vtp_pt.h"
 #include "shim_vtp_srv.h"
 #include "shim_vtp_monitor.h"
-
 
 /**
  * Initialize VTP.
@@ -165,9 +168,11 @@ typedef struct
     // Maximum requested page size
     mpf_vtp_page_size max_physical_page_size;
 
-    // Restrict NUMA memory domains? If non-zero, this is a bit set of
+#ifdef FPGA_NEAR_MEM_MAP
+    // Restrict NUMA memory domains? If not NULL, this is a bit set of
     // valid NUMA domains.
-    uint64_t numa_memory_domains;
+    struct bitmask* numa_memory_domains;
+#endif
 
     // Does libfpga support FPGA_PREALLOCATED?  The old AAL compatibility
     // version does not.

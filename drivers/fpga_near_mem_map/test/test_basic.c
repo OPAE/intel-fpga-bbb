@@ -44,7 +44,7 @@
 #include <sys/ioctl.h>
 #include <assert.h>
 
-#include "fpga_vtp_mapper.h"
+#include "fpga_near_mem_map.h"
 
 #define FLAGS_4K (MAP_PRIVATE | MAP_ANONYMOUS)
 #define FLAGS_2M (FLAGS_4K | MAP_HUGE_2MB | MAP_HUGETLB)
@@ -72,14 +72,14 @@ int main(int argc, char *argv[])
 {
     int ret;
 
-    int mfd = open("/dev/fpga_vtp_mapper", O_RDONLY);
+    int mfd = open("/dev/fpga_near_mem_map", O_RDONLY);
     if (mfd == -1)
     {
-        fprintf(stderr, "Failed to open /dev/fpga_vtp_mapper\n");
+        fprintf(stderr, "Failed to open /dev/fpga_near_mem_map\n");
         return 1;
     }
 
-    ret = ioctl(mfd, FPGA_VTP_GET_API_VERSION);
+    ret = ioctl(mfd, FPGA_NEAR_MEM_MAP_GET_API_VERSION);
     printf("API version: %d\n", ret);
 
     if (ret != 1)
@@ -88,12 +88,14 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    struct fpga_vtp_mapper_base_phys_addr base_info;
+    struct fpga_near_mem_map_base_phys_addr base_info;
     base_info.argsz = sizeof(base_info);
     base_info.flags = 0;
-    ret = ioctl(mfd, FPGA_VTP_BASE_PHYS_ADDR, &base_info);
+    base_info.ctrl_num = 0;
+    ret = ioctl(mfd, FPGA_NEAR_MEM_MAP_BASE_PHYS_ADDR, &base_info);
     assert(0 == ret);
     printf("Base address: 0x%llx\n", base_info.base_phys);
+    printf("NUMA mask: 0x%llx\n", base_info.numa_mask);
 
     // Allocate two page buffers of each size
     uint8_t* buffers[6] = { MAP_FAILED };
@@ -119,7 +121,7 @@ int main(int argc, char *argv[])
     volatile int x;
     for (int b = 0; b < 6; b++)
     {
-        struct fpga_vtp_mapper_page_vma_info info;
+        struct fpga_near_mem_map_page_vma_info info;
         info.flags = 0;
         info.argsz = sizeof(info);
         info.vaddr = buffers[b];
@@ -127,14 +129,14 @@ int main(int argc, char *argv[])
         // Touch the page so it is allocated
         *buffers[b] = 0;
 
-        ret = ioctl(mfd, FPGA_VTP_PAGE_VMA_INFO, &info);
+        ret = ioctl(mfd, FPGA_NEAR_MEM_MAP_PAGE_VMA_INFO, &info);
         printf("page_vma_info: buffer %d, va %p, ret %d (%d), pa 0x%llx, page shift %d, numa id %d, read %d, write %d\n",
                b, buffers[b], ret, errno,
                (uint64_t)info.page_phys,
                info.page_shift,
                info.page_numa_id,
-               (info.flags & FPGA_VTP_PAGE_READ) != 0,
-               (info.flags & FPGA_VTP_PAGE_WRITE) != 0);
+               (info.flags & FPGA_NEAR_MEM_MAP_PAGE_READ) != 0,
+               (info.flags & FPGA_NEAR_MEM_MAP_PAGE_WRITE) != 0);
     }
 
     close(mfd);

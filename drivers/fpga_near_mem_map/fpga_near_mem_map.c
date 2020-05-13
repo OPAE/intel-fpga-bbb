@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
- * FPGA Virtual to Physical (VTP) Mapping Helper
+ * FPGA Virtual to Physical Near-Memory Mapping Helper
  *
  * Copyright 2020 Intel Corporation, Inc.
  *
@@ -9,7 +9,7 @@
  *
  * This driver may eventually provide the framework for managing virtual to
  * physical translation in an FPGA. For now it only exists to support the
- * MPF VTP building block on machines where the FPGA accesses memory directly
+ * building blocks on machines where the FPGA accesses memory directly
  * with host physical addresses instead of normal IOMMU-protected DMA.
  *
  * The driver opens a security hole by exposing the virtual to physical mapping
@@ -33,13 +33,13 @@
 #include <linux/sched.h>
 #include <linux/version.h>
 
-#include "fpga_vtp_mapper.h"
+#include "fpga_near_mem_map.h"
 
 static const struct file_operations ops;
 
-static struct miscdevice vtp_miscdev = {
+static struct miscdevice near_mem_map_miscdev = {
 	.minor = MISC_DYNAMIC_MINOR,
-	.name = "fpga_vtp_mapper",
+	.name = "fpga_near_mem_map",
 	.fops = &ops,
 	.mode = 0644
 };
@@ -49,16 +49,24 @@ unsigned long physaddr_param = 0;
 MODULE_PARM_DESC(physaddr_param, "MMCFG physical address to map");
 module_param(physaddr_param, ulong, 0440);
 
+// Ideally we would look up the NUMA mask given a memory controller.
+// For now, it's just a parameter that can be set when the driver
+// is loaded.
+unsigned long numa_mask_param = 0;
+MODULE_PARM_DESC(numa_mask_param, "MMCFG associated NUMA memory domains mask");
+module_param(numa_mask_param, ulong, 0440);
+
 unsigned long csr_num_param = 0x43;
 MODULE_PARM_DESC(csr_num_param, "MMCFG 32-bit CSR index to read");
 module_param(csr_num_param, ulong, 0440);
 
 // Mapped page at physaddr_param
 static void __iomem *ha_mem_ctrl_p;
+static u64 ctrl_base_phys;
 
-static int fpga_vtp_mapper_open(struct inode *inode, struct file *file)
+static int fpga_near_mem_map_open(struct inode *inode, struct file *file)
 {
-	struct device *dev = vtp_miscdev.this_device;
+	struct device *dev = near_mem_map_miscdev.this_device;
 	int ret = 0;
 
 	dev_dbg(dev, "%s: pid %d\n", __func__,
@@ -67,9 +75,9 @@ static int fpga_vtp_mapper_open(struct inode *inode, struct file *file)
 	return ret;
 }
 
-static int fpga_vtp_mapper_release(struct inode *inode, struct file *file)
+static int fpga_near_mem_map_release(struct inode *inode, struct file *file)
 {
-	struct device *dev = vtp_miscdev.this_device;
+	struct device *dev = near_mem_map_miscdev.this_device;
 
 	dev_dbg(dev, "%s: pid %d\n", __func__,
 		task_pid_nr(current));
@@ -153,6 +161,7 @@ static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **pag
  * Return information about vaddr by probing the vm_area_struct.
  */
 static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
+				    u64 *base_phys,
 				    u32 *page_shift, u64 *page_phys,
 				    u32 *page_nid, unsigned long *vm_flags)
 {
@@ -160,6 +169,7 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 	struct vm_area_struct *vma;
 	struct page *page;
 
+	*base_phys = ctrl_base_phys;
 	*page_shift = 0;
 	*page_phys = 0;
 	*page_nid = 0;
@@ -196,15 +206,15 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 	return 0;
 }
 
-static long fpga_vtp_mapper_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
+static long fpga_near_mem_map_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
 {
 	long ret;
-	struct fpga_vtp_mapper_page_vma_info vma_info;
+	struct fpga_near_mem_map_page_vma_info vma_info;
 	unsigned long minsz;
-	struct device *dev = vtp_miscdev.this_device;
+	struct device *dev = near_mem_map_miscdev.this_device;
 	unsigned long vm_flags;
 
-	minsz = offsetofend(struct fpga_vtp_mapper_page_vma_info, page_shift);
+	minsz = offsetofend(struct fpga_near_mem_map_page_vma_info, page_shift);
 
 	if (copy_from_user(&vma_info, (void __user *)arg, minsz))
 		return -EFAULT;
@@ -212,19 +222,20 @@ static long fpga_vtp_mapper_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
 	if (vma_info.argsz < minsz || vma_info.flags)
 		return -EINVAL;
 
-	ret = get_vaddr_page_vma_info(mm, (u64)vma_info.vaddr, &vma_info.page_shift,
+	ret = get_vaddr_page_vma_info(mm, (u64)vma_info.vaddr, &vma_info.base_phys,
+				      &vma_info.page_shift,
 				      &vma_info.page_phys, &vma_info.page_numa_id,
 				      &vm_flags);
 	vma_info.flags = 0;
 	if (vm_flags & VM_READ)
-		vma_info.flags |= FPGA_VTP_PAGE_READ;
+		vma_info.flags |= FPGA_NEAR_MEM_MAP_PAGE_READ;
 	if (vm_flags & VM_WRITE)
-		vma_info.flags |= FPGA_VTP_PAGE_WRITE;
+		vma_info.flags |= FPGA_NEAR_MEM_MAP_PAGE_WRITE;
 
 	dev_dbg(dev, "%s: pid %d, vaddr %p, shift %d, read %d, write %d\n", __func__,
 		task_pid_nr(current), vma_info.vaddr, vma_info.page_shift,
-		(vma_info.flags & FPGA_VTP_PAGE_READ) != 0,
-		(vma_info.flags & FPGA_VTP_PAGE_WRITE) != 0);
+		(vma_info.flags & FPGA_NEAR_MEM_MAP_PAGE_READ) != 0,
+		(vma_info.flags & FPGA_NEAR_MEM_MAP_PAGE_WRITE) != 0);
 
 	if (copy_to_user(arg, &vma_info, minsz))
 		return -EFAULT;
@@ -232,14 +243,13 @@ static long fpga_vtp_mapper_ioctl_page_vma_info(struct mm_struct *mm, void *arg)
 	return ret;
 }
 
-static long fpga_vtp_mapper_ioctl_base_phys_addr(void *arg)
+static long fpga_near_mem_map_ioctl_base_phys_addr(void *arg)
 {
-	struct fpga_vtp_mapper_base_phys_addr req;
+	struct fpga_near_mem_map_base_phys_addr req;
 	unsigned long minsz;
-	struct device *dev = vtp_miscdev.this_device;
-	u32 *csraddress;
+	struct device *dev = near_mem_map_miscdev.this_device;
 
-	minsz = offsetofend(struct fpga_vtp_mapper_base_phys_addr, base_phys);
+	minsz = offsetofend(struct fpga_near_mem_map_base_phys_addr, numa_mask);
 
 	if (copy_from_user(&req, (void __user *)arg, minsz))
 		return -EFAULT;
@@ -248,15 +258,11 @@ static long fpga_vtp_mapper_ioctl_base_phys_addr(void *arg)
 		return -EINVAL;
 
 	req.flags = 0;
-	req.base_phys = 0;
+	req.base_phys = ctrl_base_phys;
+	req.numa_mask = numa_mask_param;
 
-	if (physaddr_param) {
-		csraddress = (u32 *)ha_mem_ctrl_p + csr_num_param;
-		req.base_phys = ((u64)*csraddress << 32) | *(csraddress + 1);
-	}
-
-	dev_dbg(dev, "%s: pid %d, base_phys 0x%llx\n", __func__,
-		task_pid_nr(current), req.base_phys);
+	dev_dbg(dev, "%s: pid %d, base_phys 0x%llx, numa_mask 0x%llx\n", __func__,
+		task_pid_nr(current), req.base_phys, req.numa_mask);
 
 	if (copy_to_user(arg, &req, minsz))
 		return -EFAULT;
@@ -264,21 +270,21 @@ static long fpga_vtp_mapper_ioctl_base_phys_addr(void *arg)
 	return 0;
 }
 
-static long fpga_vtp_mapper_ioctl(struct file *file, unsigned int cmd,
+static long fpga_near_mem_map_ioctl(struct file *file, unsigned int cmd,
 			      unsigned long arg)
 {
-	struct device *dev = vtp_miscdev.this_device;
+	struct device *dev = near_mem_map_miscdev.this_device;
 	int ret;
 
 	switch (cmd) {
-	case FPGA_VTP_GET_API_VERSION:
-		ret = FPGA_VTP_API_VERSION;
+	case FPGA_NEAR_MEM_MAP_GET_API_VERSION:
+		ret = FPGA_NEAR_MEM_MAP_API_VERSION;
 		break;
-	case FPGA_VTP_PAGE_VMA_INFO:
-		ret = fpga_vtp_mapper_ioctl_page_vma_info(current->mm, (void *)arg);
+	case FPGA_NEAR_MEM_MAP_PAGE_VMA_INFO:
+		ret = fpga_near_mem_map_ioctl_page_vma_info(current->mm, (void *)arg);
 		break;
-	case FPGA_VTP_BASE_PHYS_ADDR:
-		ret = fpga_vtp_mapper_ioctl_base_phys_addr((void *)arg);
+	case FPGA_NEAR_MEM_MAP_BASE_PHYS_ADDR:
+		ret = fpga_near_mem_map_ioctl_base_phys_addr((void *)arg);
 		break;
 	default:
 		dev_dbg(dev, "%x cmd not handled", cmd);
@@ -289,9 +295,9 @@ static long fpga_vtp_mapper_ioctl(struct file *file, unsigned int cmd,
 }
 
 static const struct file_operations ops = {
-	.open		= fpga_vtp_mapper_open,
-	.release	= fpga_vtp_mapper_release,
-	.unlocked_ioctl = fpga_vtp_mapper_ioctl,
+	.open		= fpga_near_mem_map_open,
+	.release	= fpga_near_mem_map_release,
+	.unlocked_ioctl = fpga_near_mem_map_ioctl,
 	.owner		= THIS_MODULE,
 };
 
@@ -299,8 +305,9 @@ static const struct file_operations ops = {
 	printk("%s:%d ", __func__, __LINE__); \
 	printk(m)
 
-static int __init fpga_vtp_mapper_init(void)
+static int __init fpga_near_mem_map_init(void)
 {
+	ctrl_base_phys = 0;
 	if (physaddr_param) {
 		/* perform sanity checking and fixups */
 		if (physaddr_param % PAGE_SIZE) {
@@ -321,20 +328,27 @@ static int __init fpga_vtp_mapper_init(void)
 			dprintf(0, "ioremap failed\n");
 			return -1;
 		}
+
+
+		if (physaddr_param) {
+			u32 *csraddress;
+			csraddress = (u32 *)ha_mem_ctrl_p + csr_num_param;
+			ctrl_base_phys = ((u64)*csraddress << 32) | *(csraddress + 1);
+		}
 	}
 
-	return misc_register(&vtp_miscdev);
+	return misc_register(&near_mem_map_miscdev);
 }
-module_init(fpga_vtp_mapper_init);
+module_init(fpga_near_mem_map_init);
 
-static void __exit fpga_vtp_mapper_exit(void)
+static void __exit fpga_near_mem_map_exit(void)
 {
-	misc_deregister(&vtp_miscdev);
+	misc_deregister(&near_mem_map_miscdev);
 
 	if (physaddr_param)
 		iounmap(ha_mem_ctrl_p);
 }
-module_exit(fpga_vtp_mapper_exit);
+module_exit(fpga_near_mem_map_exit);
 
-MODULE_DESCRIPTION("FPGA VTP Mapper Driver");
+MODULE_DESCRIPTION("FPGA near-memory map driver");
 MODULE_LICENSE("GPL v2");

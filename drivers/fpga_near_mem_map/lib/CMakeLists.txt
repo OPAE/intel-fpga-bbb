@@ -24,7 +24,7 @@
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
 ## POSSIBILITY OF SUCH DAMAGE.
 
-project("fpga_vtp_mapper")
+project("fpga_near_mem_map")
 
 cmake_minimum_required(VERSION 2.8.12)
 
@@ -32,10 +32,16 @@ cmake_minimum_required(VERSION 2.8.12)
 ## Add 'versioning' library ################################################
 ############################################################################
 
-set(CMAKE_PROJECT "FPGA_VTP_MAPPER")
+set(CMAKE_PROJECT "FPGA_NEAR_MEM_MAP")
 set(CMAKE_VERSION_MAJOR "0")
 set(CMAKE_VERSION_MINOR "9")
 set(CMAKE_VERSION_PATCH "0")
+if (${CMAKE_VERSION} VERSION_GREATER "3.0")
+    cmake_policy(SET CMP0046 NEW)
+endif()
+
+set(FPGA_NEAR_MEM_LIBS_ROOT ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "Root directory of FPGA near-memory libs project" FORCE)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${FPGA_NEAR_MEM_LIBS_ROOT}/cmake/modules")
 
 ##
 ## Allow specification of an alternate path to the FPGA library include files
@@ -47,6 +53,7 @@ set (OPAELIB_INC_PATH "" CACHE STRING "OPAE include path")
 include_directories(${PROJECT_SOURCE_DIR}/include ${OPAELIB_INC_PATH})
 
 include(GNUInstallDirs)
+include(FindNuma)
 
 # Add a macro to detect debug builds in source
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -DDEBUG_BUILD=1")
@@ -59,13 +66,14 @@ file(
 
 aux_source_directory(
     ${PROJECT_SOURCE_DIR}/src
-    LIBFPGA_VTP_MAPPER
+    LIBFPGA_NEAR_MEM_MAP
     )
 
-add_library(fpga_vtp_mapper SHARED ${LIBFPGA_VTP_MAPPER})
+add_library(fpga_near_mem_map SHARED ${LIBFPGA_NEAR_MEM_MAP})
+target_link_libraries(fpga_near_mem_map ${NUMA_LIBRARIES})
 
 install(
-    TARGETS fpga_vtp_mapper
+    TARGETS fpga_near_mem_map
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

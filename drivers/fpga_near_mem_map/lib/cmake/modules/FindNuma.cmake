@@ -1,4 +1,5 @@
-## Copyright(c) 2017, Intel Corporation
+#!/usr/bin/cmake -P
+## Copyright(c) 2018-2020, Intel Corporation
 ##
 ## Redistribution  and  use  in source  and  binary  forms,  with  or  without
 ## modification, are permitted provided that the following conditions are met:
@@ -22,27 +23,20 @@
 ## INTERRUPTION)  HOWEVER CAUSED  AND ON ANY THEORY  OF LIABILITY,  WHETHER IN
 ## CONTRACT,  STRICT LIABILITY,  OR TORT  (INCLUDING NEGLIGENCE  OR OTHERWISE)
 ## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,  EVEN IF ADVISED OF THE
-## POSSIBILITY OF SUCH DAMAGE.
+## POSSIBILITY OF SUCH DAMAGE
 
-cmake_minimum_required(VERSION VERSION 2.8.12)
-project("BBB")
+find_package(PkgConfig)
+pkg_check_modules(PC_NUMA QUIET numa)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+find_library(NUMA_LIBRARIES
+    NAMES numa
+    HINTS ${PC_NUMA_LIBDIR}
+          ${PC_NUMA_LIBRARY_DIRS})
 
-## Companion library to experimental page info driver
-option(BUILD_FPGA_NEAR_MEM_MAP "Build the FPGA near-memory mapper driver interface library" OFF)
-mark_as_advanced(BUILD_FPGA_NEAR_MEM_MAP)
+find_path(NUMA_INCLUDE_DIRS
+    NAMES numa.h
+    HINTS ${PC_NUMA_INCLUDEDIR}
+          ${PC_NUMA_INCLUDE_DIRS})
 
-include(BBB)
-
-if(BUILD_FPGA_NEAR_MEM_MAP)
-    add_subdirectory(drivers/fpga_near_mem_map/lib)
-endif()
-
-## Add projects
-add_subdirectory(BBB_cci_mpf/sw)
-
-## Wrap all sources of documentation
-add_custom_target(doc)
-add_dependencies(doc mpf_doc)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(NUMA REQUIRED_VARS NUMA_INCLUDE_DIRS NUMA_LIBRARIES)

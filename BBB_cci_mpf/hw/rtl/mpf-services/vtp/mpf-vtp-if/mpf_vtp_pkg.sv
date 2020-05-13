@@ -336,14 +336,11 @@ package mpf_vtp_pkg;
     } t_mpf_vtp_addr_mode;
 
     typedef struct packed {
-        logic numa_mask_enabled;
         t_mpf_vtp_addr_mode addr_mode;
         logic sw_translation_service;
         logic no_hw_page_walker;
         logic [1:0] reserved;
     } t_mpf_vtp_csr_out_mode;
-
-    typedef logic [63:0] t_mpf_vtp_csr_numa_mask;
 
     // VTP control (host to FPGA)
     typedef struct packed {

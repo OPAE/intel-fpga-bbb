@@ -60,11 +60,6 @@ module mpf_svc_vtp
     // the FPGA uses host physical addresses.
     parameter string VTP_ADDR_MODE = "IOADDR",
 
-    // NUMA domain restrictions. Normally this is 0, indicating no
-    // restrictions. When non-zero it is a mask of NUMA domains the FPGA
-    // can reach.
-    parameter mpf_vtp_pkg::t_mpf_vtp_csr_numa_mask VTP_NUMA_MASK = 0,
-
     parameter DEBUG_MESSAGES = 0
     )
    (
@@ -93,12 +88,10 @@ module mpf_svc_vtp
                 vtp_csrs.vtp_out_mode = '0;
                 vtp_csrs.vtp_out_mode.no_hw_page_walker = (VTP_PT_MODE != "HARDWARE_WALKER");
                 vtp_csrs.vtp_out_mode.sw_translation_service = (VTP_PT_MODE == "SOFTWARE_SERVICE");
-                vtp_csrs.vtp_out_mode.numa_mask_enabled = (VTP_NUMA_MASK != 0);
 
                 vtp_csrs.vtp_out_mode.addr_mode = MPF_VTP_ADDR_MODE_IOADDR;
                 if (VTP_ADDR_MODE == "HPA")
                     vtp_csrs.vtp_out_mode.addr_mode = MPF_VTP_ADDR_MODE_HPA;
-                vtp_csrs.vtp_numa_mask = VTP_NUMA_MASK;
             end
 
             //

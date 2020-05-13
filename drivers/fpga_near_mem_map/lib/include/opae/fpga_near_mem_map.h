@@ -28,9 +28,10 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef __FPGA_VTP_MAPPER_H__
-#define __FPGA_VTP_MAPPER_H__
+#ifndef __FPGA_NEAR_MEM_MAP_H__
+#define __FPGA_NEAR_MEM_MAP_H__
 
+#include <numa.h>
 #include <opae/types.h>
 
 #ifdef __cplusplus
@@ -48,8 +49,8 @@ typedef struct
     uint32_t numa_id;
     bool may_read;
     bool may_write;
-} fpga_vtp_buf_info;
-    
+} fpga_near_mem_map_buf_info;
+
 
 /**
  * Retrieve physical address and other buffer details
@@ -67,11 +68,43 @@ typedef struct
  * provided, or if the parameter combination is not valid. FPGA_EXCEPTION if an
  * internal exception occurred while trying to access the handle.
  */
-fpga_result fpgaGetPageAddrInfo(const void *buf_addr,
-                                fpga_vtp_buf_info *buf_info);
+fpga_result fpgaNearMemGetPageAddrInfo(const void *buf_addr,
+                                       fpga_near_mem_map_buf_info *buf_info);
+
+
+/**
+ * Retrieve physical address and other buffer details
+ *
+ * This function is used on experimental systems when FPGA-side addressing
+ * is physical.
+ *
+ * @note This function will disappear once the APIs for secure sharing of
+ * buffer addresses is implemented.
+ *
+ * @param[in]  ctrl_num      Controller number (0 for now).
+ * @param[out] base_phys     Base physical address of controller-managed memory.
+ * @param[out] numa_mem_mask Mask of NUMA domain(s) associated with controller.
+ *                           Ignored if the pointer is NULL. Caller should pass
+ *                           in a pointer to an existing struct bitmask, e.g.
+ *                           from numa_allocate_nodemask().
+ * @returns FPGA_OK on success. FPGA_INVALID_PARAM if invalid parameters were
+ * provided, or if the parameter combination is not valid. FPGA_EXCEPTION if an
+ * internal exception occurred while trying to access the handle.
+ */
+fpga_result fpgaNearMemGetCtrlInfo(uint32_t ctrl_num,
+                                   uint64_t *base_phys,
+                                   struct bitmask *numa_mem_mask);
+
+
+/**
+ * Close connection to driver
+ *
+ * @returns FPGA_OK on success or FPGA_EXCEPTION on error.
+ */
+fpga_result fpgaNearMemClose(void);
 
 #ifdef __cplusplus
 } // extern "C"
 #endif // __cplusplus
 
-#endif // __FPGA_VTP_MAPPER_H__
+#endif // __FPGA_NEAR_MEM_MAP_H__

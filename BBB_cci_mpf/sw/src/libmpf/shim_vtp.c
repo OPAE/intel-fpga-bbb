@@ -41,8 +41,12 @@
 #include <opae/mpf/mpf.h>
 #include "mpf_internal.h"
 
-#ifdef FPGA_VTP_MAPPER
-#include <opae/fpga_vtp_mapper.h>
+#ifdef FPGA_NEAR_MEM_MAP
+#include <opae/fpga_near_mem_map.h>
+#endif
+
+#ifndef UNUSED_PARAM
+#define UNUSED_PARAM(x) ((void)x)
 #endif
 
 // Try for 1GB pages for requests above 75% of the page
@@ -276,8 +280,27 @@ static fpga_result vtpAllocBuffer(
 
     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
 
+#ifdef FPGA_NEAR_MEM_MAP
+    struct bitmask *numa_mems_preserve = NULL;
+
+    if (_mpf_handle->vtp.numa_memory_domains)
+    {
+        // Preserve current NUMA configuration
+        numa_mems_preserve = numa_get_membind();
+
+        // Allocate in constrained NUMA memory domains
+        numa_set_membind(_mpf_handle->vtp.numa_memory_domains);
+    }
+    else if (_mpf_handle->vtp.use_phys_addrs)
+    {
+        MPF_FPGA_MSG(
+            "MPF error: VTP region is marked physical. mpfVtpBindToNearMemCtrl()\n"
+            "           must be called before any buffers are pinned");
+        return FPGA_INVALID_PARAM;
+    }
+#endif
+
     r = mpfOsMapMemory(len, &page_size, buf_addr);
-    if (FPGA_OK != r) return FPGA_NO_MEMORY;
 
     // Share each page with the FPGA and insert them into the VTP page table.
     uint32_t pt_flags = MPF_VTP_PT_FLAG_ALLOC;
@@ -287,7 +310,20 @@ static fpga_result vtpAllocBuffer(
         pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
     }
 #endif
-    r = vtpPinRegion(_mpf_handle, len, *buf_addr, pt_flags);
+    if (FPGA_OK == r)
+    {
+        r = vtpPinRegion(_mpf_handle, len, *buf_addr, pt_flags);
+    }
+
+#ifdef FPGA_NEAR_MEM_MAP
+    // Restore NUMA configuration
+    if (numa_mems_preserve)
+    {
+        numa_set_membind(numa_mems_preserve);
+        free(numa_mems_preserve);
+    }
+#endif
+
     return r;
 }
 
@@ -335,36 +371,33 @@ fpga_result vtpGetDMAAddress(
     }
     else
     {
-#ifndef FPGA_VTP_MAPPER
+#ifndef FPGA_NEAR_MEM_MAP
         // Physical addresses are expected but MPF was built without
         // the required library.
         MPF_FPGA_MSG(
-            "MPF error: FPGA requires physical addresses but the BBB sources\n"
-            "were built without FPGA_VTP_MAPPER. Rebuild intel-fpga-bbb software\n"
-            "and pass -DBUILD_FPGA_VTP_MAPPER=ON to the CMake command\n");
+            "MPF error: FPGA requires physical addresses but the BBB sources were\n"
+            "           built without FPGA_NEAR_MEM_MAP. Rebuild intel-fpga-bbb software\n"
+            "           and pass -DBUILD_FPGA_NEAR_MEM_MAP=ON to the CMake command");
         MPF_FPGA_MSG("MPF unable to translate VA %p", va);
         return FPGA_INVALID_PARAM;
 #else
         // Translate the VA
-        fpga_vtp_buf_info buf_info;
-        r = fpgaGetPageAddrInfo(va, &buf_info);
+        fpga_near_mem_map_buf_info buf_info;
+        r = fpgaNearMemGetPageAddrInfo(va, &buf_info);
         if (FPGA_OK != r)
         {
-            MPF_FPGA_MSG("Failed to translate VA %p to physical address using fpga_vtp_mapper!", va);
+            MPF_FPGA_MSG("Failed to translate VA %p to physical address using fpga_near_mem_map!", va);
             return r;
         }
 
         // Some DMA spaces have a constant offset, stored in phys_space_base.
         *dma_addr = buf_info.phys_addr - buf_info.phys_space_base;
 
-        if (_mpf_handle->vtp.numa_memory_domains)
+        // Check the NUMA domain
+        if (!numa_bitmask_isbitset(_mpf_handle->vtp.numa_memory_domains, buf_info.numa_id))
         {
-            // Check the NUMA domain
-            if (0 == (_mpf_handle->vtp.numa_memory_domains & (1LL << buf_info.numa_id)))
-            {
-                MPF_FPGA_MSG("VA %p in unsupported NUMA domain %d", va, buf_info.numa_id);
-                return FPGA_NO_MEMORY;
-            }
+            MPF_FPGA_MSG("VA %p in unsupported NUMA domain %d", va, buf_info.numa_id);
+            return FPGA_NO_MEMORY;
         }
 #endif
     }
@@ -534,27 +567,12 @@ fpga_result mpfVtpInit(
         // See CCI_MPF_VTP_CSR_MODE in cci_mpf_csrs.h
         vtp_mode = mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_MODE, NULL);
         _mpf_handle->vtp.use_phys_addrs = (7 & (vtp_mode >> 4)) == 1;
-        _mpf_handle->vtp.numa_memory_domains = 0;
-        if (vtp_mode & 0x80)
-        {
-            _mpf_handle->vtp.numa_memory_domains =
-                mpfReadCsr(_mpf_handle, CCI_MPF_SHIM_VTP, CCI_MPF_VTP_CSR_NUMA_DOMAINS, NULL);
-        }
 
         if (_mpf_handle->dbg_mode)
         {
             MPF_FPGA_MSG("Address mode: %s",
                          (_mpf_handle->vtp.use_phys_addrs ? "HPA (host physical)" :
                                                             "IOADDR (fpgaGetIOAddress)"));
-            if (0 == _mpf_handle->vtp.numa_memory_domains)
-            {
-                MPF_FPGA_MSG("NUMA memory domains: unrestricted");
-            }
-            else
-            {
-                MPF_FPGA_MSG("NUMA memory domains: 0x%" PRIx64,
-                             _mpf_handle->vtp.numa_memory_domains);
-            }
         }
 
         // Reset the HW TLB
@@ -603,6 +621,14 @@ fpga_result mpfVtpTerm(
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
     if (FPGA_OK == r_ret) r_ret = r;
+
+#ifdef FPGA_NEAR_MEM_MAP
+    if (NULL != _mpf_handle->vtp.numa_memory_domains)
+    {
+        free(_mpf_handle->vtp.numa_memory_domains);
+        _mpf_handle->vtp.numa_memory_domains = NULL;
+    }
+#endif
 
     return r_ret;
 }
@@ -1048,6 +1074,62 @@ fpga_result __MPF_API__ mpfVtpSetMaxPhysPageSize(
 
     _mpf_handle->vtp.max_physical_page_size = max_psize;
     return FPGA_OK;
+}
+
+
+bool __MPF_API__ mpfVtpAddrModeIsPhysical(
+    mpf_handle_t mpf_handle
+)
+{
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+    return _mpf_handle->vtp.use_phys_addrs;
+}
+
+
+fpga_result __MPF_API__ mpfVtpBindToNearMemCtrl(
+    mpf_handle_t mpf_handle,
+    uint32_t ctrl_num
+)
+{
+#ifdef FPGA_NEAR_MEM_MAP
+    _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
+
+    if (!_mpf_handle->vtp.use_phys_addrs)
+    {
+        MPF_FPGA_MSG(
+            "MPF error: mpfVtpBindToNearMemCtrl() expects the VTP hardware to set\n"
+            "           the VTP_ADDR_MODE parameter to \"HPA\" (physical addresses)");
+    }
+
+    if (NULL == _mpf_handle->vtp.numa_memory_domains)
+    {
+        // Initialize either to an empty set (running with FPGA hardware)
+        // or the current NUMA binding (simulation).
+        _mpf_handle->vtp.numa_memory_domains =
+            (!_mpf_handle->simulated_fpga ? numa_allocate_nodemask() :
+                                            numa_get_membind());
+    }
+
+    fpga_result r = FPGA_OK;
+    if (!_mpf_handle->simulated_fpga)
+    {
+        uint64_t base_phys;
+        r = fpgaNearMemGetCtrlInfo(ctrl_num, &base_phys,
+                                   _mpf_handle->vtp.numa_memory_domains);
+    }
+
+    return r;
+#else
+    UNUSED_PARAM(mpf_handle);
+    UNUSED_PARAM(ctrl_num);
+
+    MPF_FPGA_MSG(
+        "MPF error: mpfVtpBindToNearMemCtrl() only works when the BBB software is\n"
+        "           built with FPGA_NEAR_MEM_MAP. Rebuild intel-fpga-bbb software\n"
+        "           and pass -DBUILD_FPGA_NEAR_MEM_MAP=ON to the CMake command");
+
+    return FPGA_EXCEPTION;
+#endif
 }
 
 

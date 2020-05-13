@@ -83,8 +83,8 @@ if (WIN32)
 endif(WIN32)
 
 
-if(BUILD_FPGA_VTP_MAPPER)
-    include_directories(${PROJECT_SOURCE_DIR}/../../drivers/fpga_vtp_mapper/lib/include)
+if(BUILD_FPGA_NEAR_MEM_MAP)
+    include_directories(${PROJECT_SOURCE_DIR}/../../drivers/fpga_near_mem_map/lib/include)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include ${OPAELIB_INC_PATH})

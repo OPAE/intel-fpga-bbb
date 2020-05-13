@@ -42,7 +42,6 @@
 #include <uuid/uuid.h>
 #include <time.h>
 #include <immintrin.h>
-#include <numa.h>
 
 #include <opae/fpga.h>
 #include <opae/mpf/mpf.h>
@@ -92,8 +91,8 @@ typedef struct
     volatile uint64_t *wr_buf;
     size_t wr_buf_size;
 
-    struct bitmask* numa_mem_mask;
     uint32_t max_burst_size;
+    uint32_t group;
     t_fpga_addr_mode addr_mode;
     bool natural_bursts;
     bool ordered_read_responses;
@@ -152,25 +151,13 @@ flushRange(void* start, size_t len)
 static void*
 allocSharedBuffer(
     mpf_handle_t mpf_handle,
-    size_t size,
-    struct bitmask *numa_mem_mask)
+    size_t size)
 {
     fpga_result r;
     void* buf;
 
-    // Preserve current NUMA configuration
-    struct bitmask *numa_mems_preserve;
-    numa_mems_preserve = numa_get_membind();
-
-    // Limit NUMA to what the port requests (except in simulation)
-    if (!s_is_ase) numa_set_membind(numa_mem_mask);
-
     r = mpfVtpPrepareBuffer(mpf_handle, size, (void*)&buf, 0);
     if (FPGA_OK != r) return NULL;
-
-    // Restore NUMA configuration
-    numa_set_membind(numa_mems_preserve);
-    numa_bitmask_free(numa_mems_preserve);
 
     return buf;
 }
@@ -204,46 +191,29 @@ initEngine(
     s_eng_bufs[e].natural_bursts = (r >> 15) & 1;
     s_eng_bufs[e].ordered_read_responses = (r >> 39) & 1;
     s_eng_bufs[e].addr_mode = (r >> 40) & 3;
+    s_eng_bufs[e].group = (r >> 47) & 7;
+    uint32_t eng_num = (r >> 42) & 31;
     printf("  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
     printf("  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
     printf("  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
     printf("  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
     printf("  Engine %d addressing mode: %s\n", e, addr_mode_str[s_eng_bufs[e].addr_mode]);
+    printf("  Engine %d group: %d\n", e, s_eng_bufs[e].group);
 
-    // 64 bit mask of valid NUMA nodes, according to the FPGA configuration
-    uint64_t numa_mask = csrEngRead(s_csr_handle, e, 6);
-    if (numa_mask)
+    if (eng_num != e)
     {
-        printf("  Engine %d NUMA membind mask: 0x%lx\n", e, numa_mask);
-
-        // Construct a NUMA struct bitmask to match the CSR
-        s_eng_bufs[e].numa_mem_mask = numa_bitmask_alloc(64);
-        int i = 0;
-        while (numa_mask)
-        {
-            if (numa_mask & 1)
-            {
-                numa_bitmask_setbit(s_eng_bufs[e].numa_mem_mask, i);
-            }
-
-            i += 1;
-            numa_mask >>= 1;
-        }
-    }
-    else
-    {
-        printf("  Engine %d NUMA membind mask: all\n", e);
-        s_eng_bufs[e].numa_mem_mask = numa_get_mems_allowed();
+        printf("  Engine %d internal numbering mismatch (%d)\n", e, eng_num);
+        exit(1);
     }
 
     // Separate read and write buffers.
-    s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle, MB(2), s_eng_bufs[e].numa_mem_mask);
+    s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle, MB(2));
     assert(NULL != s_eng_bufs[e].rd_buf);
     s_eng_bufs[e].rd_buf_size = MB(2);
     initReadBuf(s_eng_bufs[e].rd_buf, s_eng_bufs[e].rd_buf_size);
     flushRange((void*)s_eng_bufs[e].rd_buf, MB(2));
 
-    s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle, MB(2), s_eng_bufs[e].numa_mem_mask);
+    s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle, MB(2));
     assert(NULL != s_eng_bufs[e].wr_buf);
     s_eng_bufs[e].wr_buf_size = MB(2);
 
@@ -862,6 +832,16 @@ testHostChanVtp(
     {
         r = mpfConnect(accel_handle, 0, 0, &mpf_handle[1], MPF_FLAG_FEATURE_ID, 2);
         assert(FPGA_OK == r);
+        assert(mpfVtpIsAvailable(mpf_handle[1]));
+
+        // Is this VTP instance for a near-memory controller in physical mode?
+        if (mpfVtpAddrModeIsPhysical(mpf_handle[1]))
+        {
+            // Yes. Configure it. We will eventually have to pass in a memory
+            // controller number. For now, 0 works.
+            r = mpfVtpBindToNearMemCtrl(mpf_handle[1], 0);
+            assert(FPGA_OK == r);
+        }
     }
 
     // Allocate memory buffers for each engine

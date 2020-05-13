@@ -343,6 +343,35 @@ fpga_result __MPF_API__ mpfVtpSetMaxPhysPageSize(
 
 
 /**
+ * Test whether the VTP hardware is expecting physical addresses.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @returns                True if VTP the address mode is physical.
+ */
+bool __MPF_API__ mpfVtpAddrModeIsPhysical(
+    mpf_handle_t mpf_handle
+);
+
+
+/**
+ * Bind VTP to a near-memory controller.
+ *
+ * This is an experimental, platform-dependent method most applications
+ * will not use. It queries the fpga_near_mem_map driver (also in the
+ * BBB repository) to limit address translation to NUMA domains
+ * associated with a memory controller.
+ *
+ * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
+ * @param[in]  ctrl_num    Controller number.
+ * @returns                FPGA_OK on success.
+ */
+fpga_result __MPF_API__ mpfVtpBindToNearMemCtrl(
+    mpf_handle_t mpf_handle,
+    uint32_t ctrl_num
+);
+
+
+/**
  * Wait for VTP's state to be in sync with system state.
  *
  * This is a generic entry point for ensuring that all
