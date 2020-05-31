@@ -38,6 +38,7 @@
 ../rtl/cci-if/ccip_feature_list_pkg.sv
 ../rtl/cci_mpf_csrs_pkg.sv
 ../rtl/cci-mpf-shims/cci_mpf_shim_pkg.sv
+../rtl/cci-mpf-if/cci_mpf_if.sv
 ../rtl/cci_mpf.sv
 ../rtl/cci_mpf_csrs.sv
 ../rtl/cci_mpf_null.sv

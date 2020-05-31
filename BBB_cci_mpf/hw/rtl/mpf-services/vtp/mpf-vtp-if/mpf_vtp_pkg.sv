@@ -330,7 +330,7 @@ package mpf_vtp_pkg;
         logic enabled;
     } t_mpf_vtp_csr_in_mode;
 
-    typedef enum [2:0] {
+    typedef enum logic [2:0] {
         MPF_VTP_ADDR_MODE_IOADDR = 3'b0,
         MPF_VTP_ADDR_MODE_HPA = 3'b1
     } t_mpf_vtp_addr_mode;
