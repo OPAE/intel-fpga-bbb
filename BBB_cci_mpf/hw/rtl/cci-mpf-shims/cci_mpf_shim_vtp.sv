@@ -149,7 +149,7 @@ module cci_mpf_shim_vtp
     cci_mpf_prim_lutram
       #(
         .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS($bits(afu_buf.c0Tx))
+        .N_DATA_BITS($bits(t_if_cci_mpf_c0_Tx))
         )
       tr_c0_meta
        (
@@ -361,7 +361,7 @@ module cci_mpf_shim_vtp
     cci_mpf_prim_lutram
       #(
         .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS($bits(afu_buf.c1Tx))
+        .N_DATA_BITS($bits(t_if_cci_mpf_c1_Tx))
         )
       tr_c1_meta
        (

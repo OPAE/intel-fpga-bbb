@@ -5,6 +5,8 @@
 `ifndef CCI_MPF_IF_DBG_VH
 `define CCI_MPF_IF_DBG_VH
 
+    // Global log file handle
+    int cci_mpf_if_log_fd = -1;
 
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 //

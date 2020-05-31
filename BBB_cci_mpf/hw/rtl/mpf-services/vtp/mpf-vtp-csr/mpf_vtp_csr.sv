@@ -83,7 +83,7 @@ module mpf_vtp_csr
     import mpf_vtp_pkg::*;
 
     localparam MPF_ENABLE_SHIM = ENABLE_VTP;
-    localparam LOCAL_ADDR_BITS = $bits(gen_csr_if.csr_req_idx);
+    localparam LOCAL_ADDR_BITS = $clog2(gen_csr_if.N_ENTRIES);
 
     // synthesis translate_off
     initial
@@ -155,7 +155,7 @@ module mpf_vtp_csr
 
     // Address computation and buffering for CSR writes
     logic wr_req_en_q;
-    logic [$bits(gen_csr_if.wr_data)-1 : 0] wr_data_q;
+    logic [gen_csr_if.N_DATA_BITS-1 : 0] wr_data_q;
     logic [LOCAL_ADDR_BITS-1 : 0] wr_idx_q;
 
     always_ff @(posedge clk)
