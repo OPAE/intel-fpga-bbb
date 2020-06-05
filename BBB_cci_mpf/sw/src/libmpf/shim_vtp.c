@@ -147,7 +147,10 @@ static fpga_result vtpPinRegion(
                                        NULL, NULL);
             if (FPGA_OK == r) goto huge_success;
 
-            MPF_FPGA_MSG("Trying again with a smaller page (VA %p)...", page);
+            if (_mpf_handle->dbg_mode)
+            {
+                MPF_FPGA_MSG("Trying again with a smaller page (VA %p)...", page);
+            }
         }
 
         // Standard 4KB page
