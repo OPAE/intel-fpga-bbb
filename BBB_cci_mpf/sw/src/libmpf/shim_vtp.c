@@ -100,7 +100,6 @@ static fpga_result vtpPinRegion(
 )
 {
     fpga_result r;
-    const size_t page_mask_1gb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_1GB) - 1;
     const size_t page_mask_2mb = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_2MB) - 1;
     const bool preallocated = (pt_flags & MPF_VTP_PT_FLAG_PREALLOC);
 
@@ -132,30 +131,34 @@ static fpga_result vtpPinRegion(
         if ((0 == ((size_t)page & page_mask_2mb)) &&
             (_mpf_handle->vtp.max_physical_page_size >= MPF_VTP_PAGE_2MB))
         {
-            r = mpfOsGetPageSize(page, &this_page_size);
-            if (FPGA_OK != r) goto fail;
+            // At this point we could call mpfOsGetPageSize(), but that result
+            // may be pessimistic for Linux transparent huge pages. THPs are
+            // allocated in regions that report the page size as 4KB, despite
+            // some pages in the region being larger.
+            //
+            // Instead of asking, we just try to pin a large page when it
+            // is appropriately aligned. If the kernel complains or the page
+            // table already has smaller pages at the level, the code below
+            // will try again with a smaller page.
+            this_page_size = MPF_VTP_PAGE_2MB;
+            this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
 
-            // If the page is 1GB then the request has to be aligned
-            // to the start of the page and VTP has to be willing to
-            // manage 1GB pages. If not, treat it as a 2MB page.
-            if ((this_page_size >= MPF_VTP_PAGE_1GB) &&
-                ((0 != ((size_t)page & page_mask_1gb)) ||
-                 (_mpf_handle->vtp.max_physical_page_size < MPF_VTP_PAGE_1GB)))
-            {
-                this_page_size = MPF_VTP_PAGE_2MB;
-            }
-        }
-        else
-        {
-            this_page_size = MPF_VTP_PAGE_4KB;
+            r = mpfVtpPinAndInsertPage(_mpf_handle, true, page, this_page_size, pt_flags,
+                                       NULL, NULL);
+            if (FPGA_OK == r) goto huge_success;
+
+            MPF_FPGA_MSG("Trying again with a smaller page (VA %p)...", page);
         }
 
+        // Standard 4KB page
+        this_page_size = MPF_VTP_PAGE_4KB;
         this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
 
         r = mpfVtpPinAndInsertPage(_mpf_handle, true, page, this_page_size, pt_flags,
                                    NULL, NULL);
         if (FPGA_OK != r) goto fail;
 
+      huge_success:
         if (pt_flags)
         {
             mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
@@ -476,20 +479,21 @@ fpga_result mpfVtpPinAndInsertPage(
                          alloc_va, va);
         }
 
-        return FPGA_NO_MEMORY;
+        r = FPGA_NO_MEMORY;
+        goto fail_post_pinning;
     }
 
     // Invalidate any old address translation in the FPGA. There may be failed
     // speculation entries in the FPGA cache that have to be removed now that
     // the page is valid.
     r = vtpInvalHWVAMapping(_mpf_handle, va, pt_locked);
-    if (FPGA_OK != r) return r;
+    if (FPGA_OK != r) goto fail_post_pinning;
 
     // Get the physical address of the buffer
     mpf_vtp_pt_paddr alloc_pa;
     mpf_vtp_page_size actual_page_size = page_size;
     r = vtpGetDMAAddress(_mpf_handle, wsid, va, &alloc_pa, &actual_page_size);
-    if (FPGA_OK != r) return r;
+    if (FPGA_OK != r) goto fail_post_pinning;
 
     // If the actual physical page is larger than the size at which VTP is
     // handling it then we must recover the page offset to the VTP-size page.
@@ -526,12 +530,15 @@ fpga_result mpfVtpPinAndInsertPage(
             MPF_FPGA_MSG("FAILED inserting page mapping, status %d", r);
         }
 
-        fpgaReleaseBuffer(_mpf_handle->handle, wsid);
-
-        return r;
+        goto fail_post_pinning;
     }
 
     return FPGA_OK;
+
+  fail_post_pinning:
+    // Error after the buffer was pinned. Unpin it and return the error.
+    fpgaReleaseBuffer(_mpf_handle->handle, wsid);
+    return r;
 }
 
 
