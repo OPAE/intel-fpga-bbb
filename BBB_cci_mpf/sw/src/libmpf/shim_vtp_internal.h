@@ -139,14 +139,20 @@ fpga_result vtpInvalHWVAMapping(
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  wsid        Workspace ID of the pinned buffer.
  * @param[in]  va          Virtual address of the pinned buffer.
+ * @param[in]  va          Virtual address of the pinned buffer.
  * @param[out] dma_addr    Buffer address in FPGA DMA space.
+ * @param[inout] page_size Maybe update the physical page size. The caller
+ *                         should pass in the expected page size. Some
+ *                         DMA translation methods may also update the page
+ *                         size based on information returned from the kernel.
  * @returns                FPGA_OK on success.
  */
 fpga_result vtpGetDMAAddress(
     _mpf_handle_p _mpf_handle,
     uint64_t wsid,
     mpf_vtp_pt_vaddr va,
-    mpf_vtp_pt_paddr* dma_addr
+    mpf_vtp_pt_paddr* dma_addr,
+    mpf_vtp_page_size* page_size
 );
 
 

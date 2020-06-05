@@ -357,7 +357,8 @@ fpga_result vtpGetDMAAddress(
     _mpf_handle_p _mpf_handle,
     uint64_t wsid,
     mpf_vtp_pt_vaddr va,
-    mpf_vtp_pt_paddr* dma_addr
+    mpf_vtp_pt_paddr* dma_addr,
+    mpf_vtp_page_size* page_size
 )
 {
     fpga_result r;
@@ -392,6 +393,14 @@ fpga_result vtpGetDMAAddress(
 
         // Some DMA spaces have a constant offset, stored in phys_space_base.
         *dma_addr = buf_info.phys_addr - buf_info.phys_space_base;
+
+        // Update page size
+        if (page_size)
+        {
+            // mpf_vtp_page_size is an enumeration with equivalents for standard
+            // page table shift values.
+            *page_size = (mpf_vtp_page_size)buf_info.page_shift;
+        }
 
         // Check the NUMA domain
         if (!numa_bitmask_isbitset(_mpf_handle->vtp.numa_memory_domains, buf_info.numa_id))
@@ -478,8 +487,22 @@ fpga_result mpfVtpPinAndInsertPage(
 
     // Get the physical address of the buffer
     mpf_vtp_pt_paddr alloc_pa;
-    r = vtpGetDMAAddress(_mpf_handle, wsid, va, &alloc_pa);
+    mpf_vtp_page_size actual_page_size = page_size;
+    r = vtpGetDMAAddress(_mpf_handle, wsid, va, &alloc_pa, &actual_page_size);
     if (FPGA_OK != r) return r;
+
+    // If the actual physical page is larger than the size at which VTP is
+    // handling it then we must recover the page offset to the VTP-size page.
+    if (actual_page_size > page_size)
+    {
+        // Vector of (actual_page_size - page_size) one bits
+        mpf_vtp_pt_paddr offset_mask = ((size_t)1 << (actual_page_size - page_size)) - 1;
+        // Shift mask to cover the bit region [actual_page_size-1 : page_size]
+        offset_mask <<= page_size;
+
+        // Take the masked page offset bits from VA
+        alloc_pa |= (offset_mask & (mpf_vtp_pt_paddr)va);
+    }
 
     if (pinned_pa)
     {

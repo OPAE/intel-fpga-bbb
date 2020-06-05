@@ -213,7 +213,7 @@ fpga_result mpfVtpSrvInit(
 
         // Get the FPGA-side physical address
         r = vtpGetDMAAddress(_mpf_handle, new_srv->req_wsid,
-                             &new_srv->req_va, &new_srv->req_pa);
+                             &new_srv->req_va, &new_srv->req_pa, NULL);
 
         r = mpfWriteCsr(_mpf_handle, CCI_MPF_SHIM_VTP,
                         CCI_MPF_VTP_CSR_PAGE_TRANSLATION_BUF_PADDR,

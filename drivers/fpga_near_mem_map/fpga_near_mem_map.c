@@ -87,13 +87,12 @@ static int fpga_near_mem_map_release(struct inode *inode, struct file *file)
 
 /*
  * Walk the page table to determine whether the user virtual address
- * is mapped. Returns 0 when not present. Returns the level in the table
- * when a mapping is found. Level 1 is the leaf (smallest pages) and
- * levels above that are huge pages.
+ * is mapped. Returns 0 when not present. Returns the page shift
+ * when a mapping is found.
  *
  * Sets *page with the associated struct page* when a translation exists.
  */
-static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **page)
+static u32 user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **page)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -120,7 +119,7 @@ static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **pag
 #if CONFIG_HUGETLB_PAGE
 	if (p4d_large(*p4d)) {
 		*page = p4d_page(*p4d);
-		return 4;
+		return P4D_SHIFT;
 	}
 #endif
 
@@ -133,7 +132,7 @@ static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **pag
 #if CONFIG_HUGETLB_PAGE
 	if (pud_large(*pud)) {
 		*page = pud_page(*pud);
-		return 3;
+		return PUD_SHIFT;
 	}
 #endif
 
@@ -143,12 +142,12 @@ static int user_vaddr_to_page(struct mm_struct *mm, u64 vaddr, struct page **pag
 #if CONFIG_HUGETLB_PAGE
 	if (pmd_large(*pmd)) {
 		*page = pmd_page(*pmd);
-		return 2;
+		return PMD_SHIFT;
 	}
 #endif
 
 	ptep = pte_offset_map(pmd, vaddr);
-	ret = (!pte_present(*ptep) ? 0 : 1);
+	ret = (!pte_present(*ptep) ? 0 : PAGE_SHIFT);
 	if (ret) {
 		*page = pte_page(*ptep);
 	}
@@ -198,6 +197,12 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 	page = NULL;
 	level = user_vaddr_to_page(mm, vaddr, &page);
 	if (level) {
+		/*
+		 * Update the page shift with the true value from the page table.
+		 * A transparent huge page may be mapped inside a VMA tagged
+		 * for smaller pages.
+		 */
+		*page_shift = level;
 		*page_phys = page_to_phys(page);
 		*page_nid = page_to_nid(page);
 	}
