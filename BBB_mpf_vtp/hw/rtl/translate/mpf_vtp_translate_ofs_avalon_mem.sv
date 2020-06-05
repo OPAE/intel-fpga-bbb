@@ -184,6 +184,7 @@ module mpf_vtp_translate_ofs_avalon_mem
     assign rd_deq_en = rsp_do_read && rd_rsp_valid && ! host_mem_if.waitrequest;
     assign rd_rsp_address = (rd_rsp_used_vtp ? vtp_rd_rsp.addr : '0);
     // Translation error?
+    logic rd_error;
     assign rd_error = rd_rsp_valid && (rd_rsp_used_vtp ? vtp_rd_rsp.error : 1'b0);
 
     generate
@@ -282,6 +283,7 @@ module mpf_vtp_translate_ofs_avalon_mem
     assign wr_deq_en = rsp_do_write && wr_rsp_valid && ! host_mem_if.waitrequest;
     assign wr_rsp_address = (wr_rsp_used_vtp ? vtp_wr_rsp.addr : '0);
     // Translation error? Raise only on SOP beats (that is when VTP is used).
+    logic wr_error;
     assign wr_error = wr_rsp_valid && (wr_rsp_used_vtp ? vtp_wr_rsp.error : wr_rsp_reg_error);
 
     // Hold the VTP error response for an entire burst
@@ -294,7 +296,7 @@ module mpf_vtp_translate_ofs_avalon_mem
         end
 
         // Turn off error at EOP
-        if (wr_rsp_eop)
+        if (wr_rsp_eop && !host_mem_if.waitrequest)
         begin
             wr_rsp_reg_error <= 1'b0;
         end
