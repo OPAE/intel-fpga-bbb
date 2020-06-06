@@ -232,11 +232,24 @@ fpga_result mpfOsMapMemory(
         else
             flags = FLAGS_4K;
 
-        *buffer = mmap(NULL, roundUpToPages(num_bytes, *page_size),
-                       (PROT_READ | PROT_WRITE), flags, 0, 0);
+        size_t size = roundUpToPages(num_bytes, *page_size);
+        *buffer = mmap(NULL, size, (PROT_READ | PROT_WRITE), flags, -1, 0);
 
-        // Done if buffer allocated
-        if (*buffer != MAP_FAILED) break;
+        // Buffer allocated?
+        if (*buffer != MAP_FAILED)
+        {
+            // Allocating the buffer is not a guarantee that sufficient backing RAM
+            // exists, especially for huge pages. Lock the range, forcing pages to
+            // be mapped. munmap() still unlocks these pages, so we can just leave
+            // them locked. The driver is going to pin them for FPGA access anyway.
+            int status = mlock(*buffer, size);
+            // Success? If no error then leave the buffer locked and return it.
+            if (! status) break;
+
+            // Physical mapping failed. Unmap the buffer and either try a smaller
+            // page size or fail.
+            munmap(*buffer, size);
+        }
 
         // Try a smaller size
         if (*page_size == MPF_VTP_PAGE_1GB)
