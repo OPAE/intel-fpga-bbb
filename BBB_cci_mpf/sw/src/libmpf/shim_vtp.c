@@ -248,6 +248,8 @@ static fpga_result vtpPreallocBuffer(
     {
         pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
     }
+#else
+    UNUSED_PARAM(fpga_flags);
 #endif
     r = vtpPinRegion(_mpf_handle, len, (void*)page, pt_flags);
     return r;
@@ -315,6 +317,8 @@ static fpga_result vtpAllocBuffer(
     {
         pt_flags |= MPF_VTP_PT_FLAG_READ_ONLY;
     }
+#else
+    UNUSED_PARAM(fpga_flags);
 #endif
     if (FPGA_OK == r)
     {
@@ -379,6 +383,7 @@ fpga_result vtpGetDMAAddress(
     else
     {
 #ifndef FPGA_NEAR_MEM_MAP
+        UNUSED_PARAM(page_size);
         // Physical addresses are expected but MPF was built without
         // the required library.
         MPF_FPGA_MSG(
