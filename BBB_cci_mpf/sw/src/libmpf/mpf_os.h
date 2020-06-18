@@ -33,6 +33,18 @@
 #ifndef __FPGA_MPF_OS_H__
 #define __FPGA_MPF_OS_H__
 
+
+/**
+ * Initialize the mpfOs module.
+ *
+ * @param[in] is_simulated Is the FPGA real or simulated?
+ * @returns                FPGA_OK on success.
+ */
+fpga_result mpfOsInit(
+    _mpf_handle_p _mpf_handle
+);
+
+
 /**
  * Memory barrier.
  *

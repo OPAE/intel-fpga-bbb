@@ -89,6 +89,9 @@ fpga_result __MPF_API__ mpfConnect(
     _mpf_handle->simulated_fpga = (_mpf_handle->mmio_ptr == NULL) &&
                                   getenv("ASE_WORKDIR");
 
+    r = mpfOsInit(_mpf_handle);
+    if (FPGA_OK != r) return r;
+
     // Debugging can also be enabled by defining an environment
     // variable named MPF_ENABLE_DEBUG (any value).
     if (getenv("MPF_ENABLE_DEBUG"))
