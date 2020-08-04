@@ -62,7 +62,9 @@ struct fpga_near_mem_map_page_vma_info {
 
 /*
  * Return the base address of physical memory on the designated
- * memory controller.
+ * memory controller. Recent implementations all return 0 as the
+ * base physical address, leaving the memory address translation
+ * from host physical inside the fixed region of the FPGA.
  */
 struct fpga_near_mem_map_base_phys_addr {
 	/* Input */
