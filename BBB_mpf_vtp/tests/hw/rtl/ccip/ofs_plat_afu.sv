@@ -63,8 +63,8 @@ module ofs_plat_afu
         .to_fiu(plat_ifc.host_chan.ports[0]),
         .to_afu(host_ccip_if),
 
-        .afu_clk(plat_ifc.clocks.uClk_usr),
-        .afu_reset_n(plat_ifc.clocks.uClk_usr_reset_n)
+        .afu_clk(plat_ifc.clocks.uClk_usr.clk),
+        .afu_reset_n(plat_ifc.clocks.uClk_usr.reset_n)
         );
 
 
@@ -91,7 +91,7 @@ module ofs_plat_afu
     afu afu_impl
       (
        .host_ccip_if(host_ccip_if),
-       .pClk(plat_ifc.clocks.pClk),
+       .pClk(plat_ifc.clocks.pClk.clk),
        .pwrState(plat_ifc.pwrState)
        );
 

@@ -84,7 +84,7 @@ module ofs_plat_afu
     localparam NUM_PORTS_G1 = 0;
     ofs_plat_avalon_mem_if
       #(
-        `HOST_CHAN_AVALON_MEM_PARAMS,
+        `HOST_CHAN_AVALON_MEM_RDWR_PARAMS,
         .BURST_CNT_WIDTH(3)
         )
         host_mem_g1_to_afu[1]();
@@ -158,7 +158,7 @@ module ofs_plat_afu
       (
        .host_ccip_if(host_ccip_if),
        .host_mem_g1_if(host_mem_g1_to_afu),
-       .pClk(plat_ifc.clocks.pClk),
+       .pClk(plat_ifc.clocks.pClk.clk),
        .pwrState(plat_ifc.pwrState)
        );
 
