@@ -15,8 +15,7 @@ Manager](https://github.com/OPAE/ofs-platform-afu-bbb/) (PIM), which has been
 available since mid-2020. Version 2 is a significant upgrade over the first
 version. Version 1 AFUs continue to work on the new codebase in compatibility
 mode. An older, v1 version of this tutorial can be found in the git
-history of this [samples tree]
-(https://github.com/OPAE/intel-fpga-bbb/tree/release/1.3.0/samples).
+history of this [samples tree](https://github.com/OPAE/intel-fpga-bbb/tree/release/1.3.0/samples).
 
 __Platform releases predating August 2020, such as SR-5.0.3, SR-6.4.0 and
 PAC cards, must be updated to work with the PIM.  Please see the section below
@@ -61,10 +60,10 @@ on updating releases.__
 
 ## Updating Releases for use with the Platform Interface Manager
 
-A set of scripts is provided in the [ofs-platform-afu-bbb]
-(https://github.com/OPAE/ofs-platform-afu-bbb) repository to update older
-platform releases. The one-time script, [plat\_if\_release/update\_release.sh]
-(https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_release/update_release.sh),
+A set of scripts is provided in the
+[ofs-platform-afu-bbb](https://github.com/OPAE/ofs-platform-afu-bbb)
+repository to update older platform releases. The one-time script,
+[plat\_if\_release/update\_release.sh](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_release/update_release.sh),
 must be run in order to configure both simulation and Quartus environments with the PIM.
 Please follow the instructions there. Once properly configured, the PIM will
 use the chosen target.
