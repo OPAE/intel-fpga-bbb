@@ -10,65 +10,64 @@ interfaces.
 
 ## OPAE Version
 
-All samples require the [OPAE Platform Interface
-Manager](https://github.com/OPAE/opae-sdk/tree/master/platforms) (PIM). The
-PIM is available in OPAE release 0.14 and later as well as [OPAE sources on
-GitHub](https://github.com/OPAE/opae-sdk) on master as of March 1st, 2018.
+All samples require version 2 of the [Platform Interface
+Manager](https://github.com/OPAE/ofs-platform-afu-bbb/) (PIM), which has been
+available since mid-2020. Version 2 is a significant upgrade over the first
+version. Version 1 AFUs continue to work on the new codebase in compatibility
+mode. An older, v1 version of this tutorial can be found in the git
+history of this [samples tree]
+(https://github.com/OPAE/intel-fpga-bbb/tree/release/1.3.0/samples).
 
-__Platform releases predating March 1st, 2018, such as SR-5.0.3, SR-6.4.0 and
-PAC 1.0, must be updated to work with the PIM.  Please see the section below
+__Platform releases predating August 2020, such as SR-5.0.3, SR-6.4.0 and
+PAC cards, must be updated to work with the PIM.  Please see the section below
 on updating releases.__
-
-If you must use an older version of the OPAE SDK, older versions of the
-tutorial are available as branches in this
-[intel-fpga-bbb](https://github.com/OPAE/intel-fpga-bbb) repository. The
-branch names are release/\<number\>.
 
 ## OPAE Environment
 
 1. Install the OPAE SDK from packages shipped with a board release or from
    source, by following the [standard instructions](https://opae.github.io/).
 
-2. Some samples depend on building blocks contained in this repository, such
-   as [MPF](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_cci_mpf). Build
-   and add BBB software libraries to the OPAE installation by following the
-   [BBB installation
-   instructions](https://github.com/OPAE/intel-fpga-bbb/wiki/Installation).
-
-3. Define environment variables. The samples and tutorial make the following
+2. Define environment variables. The samples and tutorial make the following
    assumptions about the environment:
 
-   - __FPGA_BBB_CCI_SRC__ points to the top of the BBB release tree. RTL for
-     MPF is imported by some scripts through
-     [${FPGA_BBB_CCI_SRC}/BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt](../BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt).
+   - The __OPAE\_PLATFORM\_ROOT__ environment variable must point to the root
+     of a release tree, such as a PAC card release or SR-5.0.3 for Broadwell
+     Xeon+FPGA. The release tree is used both for synthesis and to define
+     platform characteristics used in simulation. __Please
+     note the section below on updating old releases for compatibility with
+     the PIM.__  You can determine whether OPAE\_PLATFORM\_ROOT points to an
+     updated release tree by confirming that
+     ${OPAE\_PLATFORM\_ROOT}/hw/lib/build/platform/ofs\_plat\_if exists.
 
-   - If you have installed a specific platform release, such as SR-5.0.3 for
-     Broadwell Xeon+FPGA or PAC with Arria 10 GX FPGA 1.0 for a discrete PCIe
-     board, the __OPAE_PLATFORM_ROOT__ environment variable should point to the
-     root of the installation tree. __Please note the section below on updating
-     old releases for compatibility with the samples.__
+   - __FPGA\_BBB\_CCI\_SRC__ points to the top of the BBB release tree. RTL for
+     MPF is imported by some scripts through
+     [${FPGA\_BBB\_CCI\_SRC}/BBB\_cci\_mpf/hw/rtl/cci\_mpf\_sources.txt](../BBB_cci_mpf/hw/rtl/cci_mpf_sources.txt).
 
    - If OPAE and the BBBs are installed to standard system directories they
      may already be found on C and C++ header and library search paths. If
      not, their installation directories must be added explicitly:
 
      - Header files from OPAE and MPF must either be on the default compiler
-       search paths or on both __C_INCLUDE_PATH__ and __CPLUS_INCLUDE_PATH__.
+       search paths or on both __C\_INCLUDE\_PATH__ and __CPLUS\_INCLUDE\_PATH__.
 
      - OPAE and MPF libraries must either be on the default linker search
-       paths or on both __LIBRARY_PATH__ and __LD_LIBRARY_PATH__.
+       paths or on both __LIBRARY\_PATH__ and __LD\_LIBRARY\_PATH__.
+
+3. Some samples depend on building blocks contained in this repository, such
+   as [MPF](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_cci_mpf). Build
+   and add BBB software libraries to the OPAE installation by following the
+   [BBB installation
+   instructions](https://github.com/OPAE/intel-fpga-bbb/wiki/Installation).
 
 ## Updating Releases for use with the Platform Interface Manager
 
-A set of scripts is provided in
-[../platform-ifc-mgr-compat](../platform-ifc-mgr-compat)
-to update older platform releases. These one-time scripts must be run in
-order to configure both simulation and Quartus environments with the PIM.
+A set of scripts is provided in the [ofs-platform-afu-bbb]
+(https://github.com/OPAE/ofs-platform-afu-bbb) repository to update older
+platform releases. The one-time script, [plat\_if\_release/update\_release.sh]
+(https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_release/update_release.sh),
+must be run in order to configure both simulation and Quartus environments with the PIM.
 Please follow the instructions there. Once properly configured, the PIM will
-target the configured platform by reading the contents of
-${OPAE_PLATFORM_ROOT}/hw/lib/fme-platform-class.txt.
+use the chosen target.
 
-ASE may still be used for simulation even if no platform specific library is
-installed or OPAE_PLATFORM_ROOT is not defined. It will default to
-configuring builds for integrated Xeon+FPGA platforms. Synthesis with
-Quartus requires a platform release and a valid OPAE_PLATFORM_ROOT.
+For a detailed description of the inner workings of the PIM, please see the documentation
+at [ofs-platform-afu-bbb](https://github.com/OPAE/ofs-platform-afu-bbb).
