@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2017, Intel Corporation
+// Copyright (c) 2020, Intel Corporation
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,59 +28,71 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-`include "platform_if.vh"
+`include "ofs_plat_if.vh"
 `include "afu_json_info.vh"
 
+//
+// CCI-P version of hello world AFU example.
+//
 
-module ccip_std_afu
+module ofs_plat_afu
    (
-    // CCI-P Clocks and Resets
-    input           logic             pClk,              // 400MHz - CCI-P clock domain. Primary interface clock
-    input           logic             pClkDiv2,          // 200MHz - CCI-P clock domain.
-    input           logic             pClkDiv4,          // 100MHz - CCI-P clock domain.
-    input           logic             uClk_usr,          // User clock domain. Refer to clock programming guide  ** Currently provides fixed 300MHz clock **
-    input           logic             uClk_usrDiv2,      // User clock domain. Half the programmed frequency  ** Currently provides fixed 150MHz clock **
-    input           logic             pck_cp2af_softReset,      // CCI-P ACTIVE HIGH Soft Reset
-    input           logic [1:0]       pck_cp2af_pwrState,       // CCI-P AFU Power State
-    input           logic             pck_cp2af_error,          // CCI-P Protocol Error Detected
-
-    // Interface structures
-    input           t_if_ccip_Rx      pck_cp2af_sRx,        // CCI-P Rx Port
-    output          t_if_ccip_Tx      pck_af2cp_sTx         // CCI-P Tx Port
+    // All platform wires, wrapped in one interface.
+    ofs_plat_if plat_ifc
     );
 
+    // ====================================================================
+    //
+    //  Get a CCI-P port from the platform.
+    //
+    // ====================================================================
 
-    //
-    // Run the entire design at the standard CCI-P frequency (400 MHz).
-    //
+    // Instance of a CCI-P interface. The interface wraps usual CCI-P
+    // sRx and sTx structs as well as the associated clock and reset.
+    ofs_plat_host_ccip_if host_ccip();
+
+    // Use the platform-provided module to map the primary host interface
+    // to CCI-P. The "primary" interface is the port that includes the
+    // main OPAE-managed MMIO connection. This primary port is always
+    // index 0 of plat_ifc.host_chan.ports, indepedent of the platform
+    // and the native protocol of the host channel.
+    ofs_plat_host_chan_as_ccip primary_ccip
+       (
+        .to_fiu(plat_ifc.host_chan.ports[0]),
+        .to_afu(host_ccip),
+
+        // These ports would be used if the PIM is told to cross to
+        // a different clock. In this example, host_ccip is instantiated
+        // with the native pClk.
+        .afu_clk(),
+        .afu_reset_n()
+        );
+
+
+    // Each interface names its associated clock and reset.
     logic clk;
-    assign clk = pClk;
+    assign clk = host_ccip.clk;
+    logic reset_n;
+    assign reset_n = host_ccip.reset_n;
 
-    logic reset;
-    assign reset = pck_cp2af_softReset;
 
-
-    // =========================================================================
+    // ====================================================================
     //
-    //   Register requests.
+    //  Tie off unused ports.
     //
-    // =========================================================================
+    // ====================================================================
 
-    //
-    // The incoming pck_cp2af_sRx and outgoing pck_af2cp_sTx must both be
-    // registered.  Here we register pck_cp2af_sRx and assign it to sRx.
-    // We also assign pck_af2cp_sTx to sTx here but don't register it.
-    // The code below never uses combinational logic to write sTx.
-    //
-
-    t_if_ccip_Rx sRx;
-    always_ff @(posedge clk)
-    begin
-        sRx <= pck_cp2af_sRx;
-    end
-
-    t_if_ccip_Tx sTx;
-    assign pck_af2cp_sTx = sTx;
+    // The PIM ties off unused devices, controlled by the AFU indicating
+    // which devices it is using. This way, an AFU must know only about
+    // the devices it uses. Tie-offs are thus portable, with the PIM
+    // managing devices unused by and unknown to the AFU.
+    ofs_plat_if_tie_off_unused
+      #(
+        // Host channel group 0 port 0 is connected. The mask is a
+        // bit vector of indices used by the AFU.
+        .HOST_CHAN_IN_USE_MASK(1)
+        )
+        tie_off(plat_ifc);
 
 
     // =========================================================================
@@ -104,17 +116,17 @@ module ccip_std_afu
 
     // Is a CSR read request active this cycle?
     logic is_csr_read;
-    assign is_csr_read = sRx.c0.mmioRdValid;
+    assign is_csr_read = host_ccip.sRx.c0.mmioRdValid;
 
     // Is a CSR write request active this cycle?
     logic is_csr_write;
-    assign is_csr_write = sRx.c0.mmioWrValid;
+    assign is_csr_write = host_ccip.sRx.c0.mmioWrValid;
 
     // The MMIO request header is overlayed on the normal c0 memory read
     // response data structure.  Cast the c0Rx header to an MMIO request
     // header.
     t_ccip_c0_ReqMmioHdr mmio_req_hdr;
-    assign mmio_req_hdr = t_ccip_c0_ReqMmioHdr'(sRx.c0.hdr);
+    assign mmio_req_hdr = t_ccip_c0_ReqMmioHdr'(host_ccip.sRx.c0.hdr);
 
 
     //
@@ -123,17 +135,17 @@ module ccip_std_afu
 
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
-            sTx.c2.mmioRdValid <= 1'b0;
+            host_ccip.sTx.c2.mmioRdValid <= 1'b0;
         end
         else
         begin
             // Always respond with something for every read request
-            sTx.c2.mmioRdValid <= is_csr_read;
+            host_ccip.sTx.c2.mmioRdValid <= is_csr_read;
 
             // The unique transaction ID matches responses to requests
-            sTx.c2.hdr.tid <= mmio_req_hdr.tid;
+            host_ccip.sTx.c2.hdr.tid <= mmio_req_hdr.tid;
 
             // Addresses are of 32-bit objects in MMIO space.  Addresses
             // of 64-bit objects are thus multiples of 2.
@@ -142,26 +154,26 @@ module ccip_std_afu
                 begin
                     // Here we define a trivial feature list.  In this
                     // example, our AFU is the only entry in this list.
-                    sTx.c2.data <= t_ccip_mmioData'(0);
+                    host_ccip.sTx.c2.data <= t_ccip_mmioData'(0);
                     // Feature type is AFU
-                    sTx.c2.data[63:60] <= 4'h1;
+                    host_ccip.sTx.c2.data[63:60] <= 4'h1;
                     // End of list (last entry in list)
-                    sTx.c2.data[40] <= 1'b1;
+                    host_ccip.sTx.c2.data[40] <= 1'b1;
                 end
 
               // AFU_ID_L
-              2: sTx.c2.data <= afu_id[63:0];
+              2: host_ccip.sTx.c2.data <= afu_id[63:0];
 
               // AFU_ID_H
-              4: sTx.c2.data <= afu_id[127:64];
+              4: host_ccip.sTx.c2.data <= afu_id[127:64];
 
               // DFH_RSVD0
-              6: sTx.c2.data <= t_ccip_mmioData'(0);
+              6: host_ccip.sTx.c2.data <= t_ccip_mmioData'(0);
 
               // DFH_RSVD1
-              8: sTx.c2.data <= t_ccip_mmioData'(0);
+              8: host_ccip.sTx.c2.data <= t_ccip_mmioData'(0);
 
-              default: sTx.c2.data <= t_ccip_mmioData'(0);
+              default: host_ccip.sTx.c2.data <= t_ccip_mmioData'(0);
             endcase
         end
     end
@@ -187,7 +199,7 @@ module ccip_std_afu
     begin
         if (is_mem_addr_csr_write)
         begin
-            mem_addr <= t_ccip_clAddr'(sRx.c0.data);
+            mem_addr <= t_ccip_clAddr'(host_ccip.sRx.c0.data);
         end
     end
     
@@ -216,7 +228,7 @@ module ccip_std_afu
     //
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
             state <= STATE_IDLE;
         end
@@ -233,7 +245,7 @@ module ccip_std_afu
             // The AFU completes its task by writing a single line.  When
             // the line is written return to idle.  The write will happen
             // as long as the request channel is not full.
-            if ((state == STATE_RUN) && ! sRx.c1TxAlmFull)
+            if ((state == STATE_RUN) && ! host_ccip.sRx.c1TxAlmFull)
             begin
                 state <= STATE_IDLE;
                 $display("AFU done...");
@@ -260,29 +272,29 @@ module ccip_std_afu
     end
 
     // Data to write to memory: little-endian ASCII encoding of "Hello world!"
-    assign sTx.c1.data = t_ccip_clData'('h0021646c726f77206f6c6c6548);
+    assign host_ccip.sTx.c1.data = t_ccip_clData'('h0021646c726f77206f6c6c6548);
 
     // Control logic for memory writes
     always_ff @(posedge clk)
     begin
-        if (reset)
+        if (!reset_n)
         begin
-            sTx.c1.valid <= 1'b0;
+            host_ccip.sTx.c1.valid <= 1'b0;
         end
         else
         begin
             // Request the write as long as the channel isn't full.
-            sTx.c1.valid <= ((state == STATE_RUN) &&
-                             ! sRx.c1TxAlmFull);
+            host_ccip.sTx.c1.valid <= ((state == STATE_RUN) &&
+                                       ! host_ccip.sRx.c1TxAlmFull);
         end
 
-        sTx.c1.hdr <= wr_hdr;
+        host_ccip.sTx.c1.hdr <= wr_hdr;
     end
 
 
     //
     // This AFU never makes a read request.
     //
-    assign sTx.c0.valid = 1'b0;
+    assign host_ccip.sTx.c0.valid = 1'b0;
 
 endmodule
