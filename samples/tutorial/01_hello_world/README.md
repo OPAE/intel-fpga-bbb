@@ -1,66 +1,45 @@
 This example is nearly the simplest possible accelerator. The RTL receives an
-address via a memory mapped I/O (MMIO) write and generates a CCI write to the
+address via a memory mapped I/O (MMIO) write and generates a DMA write to the
 memory line at that address, containing the string "Hello World!". The
 software spins, waiting for the line to update. Once available, the software
 prints the string.
 
-The RTL is contained entirely in
-[hw/rtl/cci_hello_afu.sv](hw/rtl/cci_hello_afu.sv) and demonstrates the
-following universal AFU requirements:
+There are three functionally equivalent RTL implementations: one using AXI memory
+interfaces, one using Avalon memory interfaces, and one using CCI-P. All three
+can be compiled on any PIM-based platform. The PIM instantiates bridges to the
+interface expected by each version of the AFU. Each version has a single
+SystemVerilog source file, found in subdirectories of [hw/rtl](hw/rtl).
 
-- The CCI request and response ports are clocked by pClk.
-
-- Reset (pck_cp2af_softReset) is synchronous with pClk.
-
-- Outgoing request and incoming response wires must be registered.
-
-- All AFUs must implement a read-only device feature header (DFH) in MMIO
-  space at MMIO address 0. The DFH holds a 128 bit AFU ID, mapped to a pair of
-  64 bit MMIO "registers". The AFU ID that uniquely identifies the design is
-  stored in [hw/rtl/cci_hello.json](hw/rtl/cci_hello.json) and is extracted by
-  the OPAE afu_json_mgr script into both Verilog and C header files.
-  afu_json_mgr is invoked by the simulation and synthesis setup scripts
-  described below for RTL and by [sw/Makefile](sw/Makefile) for software.
-
-  AFU JSON will be covered in greater detail in [Section 2](../02_platform_ifc/).
-
-- CCI request rates are limited by off-chip physical bus speeds and by
-  buffering inside the Intel-supplied FIU (the blue bitstream). User RTL
-  must honor the CCI almost full signals to avoid lost requests.
-
-The software side is contained entirely in [sw/cci_hello.c](sw/cci_hello.c):
-
-- The AFU ID in the software must match the AFU ID in the hardware's DFH.
-
-- The FPGA-accessible shared memory is mapped explicitly.
-
-- Memory addresses passed to the FIU's CCI request wires are in a
-  physical I/O address space. Since all CCI requests refer to entire 512
-  bit memory lines, the example passes the line-based physical address
-  to which "Hello World!" should be written.
-
-- The code in connect_to_accel() is a simplification of the ideal
-  sequence. The code detects at most one accelerator matching the
-  desired UUID.  Later examples detect when multiple instances of the
-  same hardware are available in case one is already in use.
-
+The details of individual RTL examples and interfaces are discussed at the end
+of this README.
 
 ## AFU RTL Source Specification
 
 OPAE provides a collection of scripts for configuring both simulation and
 synthesis environments, driven by a common source specification. All tutorial
-AFUs define their RTL sources in hw/rtl/sources.txt. These sources.txt files
-are parsed by an OPAE script, "rtl_src_config", which is invoked by the
-configuration tools described below. For source configuration syntax, run
-"rtl_src_config --help".
+AFUs define their RTL sources within their hw/rtl trees in files with variations
+of the name "sources.txt". These "sources.txt" files are parsed by an OPAE
+script, "rtl\_src\_config", which is invoked by the configuration tools
+described below. For source configuration syntax, run "rtl\_src\_config --help".
 
+Every AFU requires a JSON file that holds meta-data required when it is compiled
+and loaded on an FPGA. The JSON holds a 128 bit UUID that identifies the accelerator.
+It also declares interface requirements that are consumed by the PIM. The current
+version of the PIM expects only that the afu-top-interface name be set to
+"ofs\_plat\_afu" in the JSON — a signficant change from previous versions. JSON
+files are also used to define the AFU-specific frequency of the user configurable
+clock (uClk). The three hello\_world examples share a JSON file, since they are
+functionally identical and have identical CSR mapping.
 
 ## Simulation with ASE
 
 Follow the steps in the root of the [samples tree](../..) for configuring your
 environment. In particular, ensure that the OPAE SDK is properly installed.
 OPAE SDK scripts must be on PATH and include files and libraries must be
-available to the C compiler.
+available to the C compiler. Also confirm that the OPAE\_PLATFORM\_ROOT
+environment variable points to a release tree that has been configured with
+the Platform Interface Manager (PIM). (If the steps below work, then you can
+be confident that your environment is properly configured.)
 
 Simulation requires two software processes: one for RTL simulation and
 the other to run the connected software. To construct an RTL simulation
@@ -68,18 +47,13 @@ environment execute the following in the directory containing this
 README:
 
 ```console
-$ afu_sim_setup --source hw/rtl/sources.txt build_sim
+$ afu_sim_setup --source hw/rtl/axi/sources.txt build_sim
 ```
+The Avalon and CCI-P verions are built by changing "axi" to the directories
+with the other variants.
 
-Many samples provide wrapper scripts for convenience as hw/sim/setup_ase. The
-following is equivalent to afu_sim_setup above:
-
-```console
-$ ./hw/sim/setup_ase build_sim
-```
-
-Either of these will construct an ASE environment in the build_sim
-subdirectory. If the command fails, confirm that afu_sim_setup is on your PATH
+The afu\_sim\_setup script constructs an ASE environment in the build\_sim
+subdirectory. If the command fails, confirm that afu\_sim\_setup is on your PATH
 (in the OPAE SDK bin directory) and that your Python version is at least 2.7.
 
 To build and execute the simulator:
@@ -103,32 +77,28 @@ run the software:
 # Set ASE_WORKDIR as directed by the simulator
 $ cd sw
 $ make
-$ ./cci_hello_ase
+$ ./hello_world_ase
 ```
 
 The software and simulator should both run quickly, log transactions and
 exit. If the software prints "Accelerator not found" you ran the wrong
-binary (./cci_hello instead of ./cci_hello_ase). The binary without the "ase"
-suffix is for execution on an FPGA.
-
+binary (./hello\_world instead of ./hello\_world\_ase). The binary without
+the "ase" suffix is for execution on an FPGA.
 
 ## Synthesis with Quartus
 
 RTL simulation and synthesis are driven by the same sources.txt and underlying
-OPAE scripts. Unlike simulation with ASE, a platform-specific release must be
-installed and the OPAE_PLATFORM_ROOT environment variable must be set, as
-described in the [samples directory](../..). To construct a Quartus synthesis
-environment for this AFU, enter:
+OPAE scripts. To construct a Quartus synthesis environment for this AFU, enter:
 
 ```console
-$ afu_synth_setup --source hw/rtl/sources.txt build_synth
+$ afu_synth_setup --source hw/rtl/axi/sources.txt build_synth
 $ cd build_synth
-$ ${OPAE_PLATFORM_ROOT}/bin/run.sh
+$ ${OPAE_PLATFORM_ROOT}/bin/afu_synth
 ```
 
-run.sh will invoke Quartus, which must be properly installed. Note that each
+afu\_synth will invoke Quartus, which must be properly installed. Note that each
 platform release requires a specific Quartus version in order to match the
-FIU. The end result will be a file named hello_afu.gbs in the build_synth
+FIM. The end result will be a file named "hello\_world.gbs" in the build\_synth
 directory. This GBS file may be loaded onto a compatible FPGA using OPAE's
 fpgaconf tool.
 
@@ -137,13 +107,81 @@ main binary. If you have already run ASE simulation, the binary has already
 been compiled and make will do nothing:
 
 ```console
-# Continue in the build_synth directory where run.sh was invoked...
+# Continue in the build_synth directory where afu_synth was invoked...
 
 # Load the AFU into the partial reconfiguration region
-$ sudo fpgaconf cci_hello.gbs
+$ sudo fpgaconf hello_world.gbs
 
 $ cd ../sw
 $ make
-# sudo may be required to invoke cci_hello, depending on your environment.
-$ ./cci_hello
+# sudo may be required to invoke hello_world, depending on your environment.
+$ ./hello_world
 ```
+
+## PIM: Avalon, AXI and CCI-P
+
+Platform interface wires are passed to the AFU's top-level ofs\_plat\_afu module
+in a single wrapper interface: plat\_ifc. The wrapper interface holds vectors of
+sub-interfaces. These sub-interfaces are deliberately given protocol-independent
+names. Connections to the host (PCIe, etc.) are named "host\_chan", connections to
+FPGA local memory are called "local\_mem". Device interfaces are always vectors,
+even if only one is present. This allows for portability: an AFU may work as long
+as at least the required number of instances of a device (e.g. memory banks) are
+available.
+
+The PIM provides modules with standardized names that map platform interfaces to
+AFU interfaces chosen by AFU developers. A module that maps a host channel to AXI-MM
+will have the same name on all platforms, though the implementation within the PIM
+may vary significantly. Platforms exposing PCIe TLPs and platforms exposing CCI-P from
+the FIM will have quite different PIM implementations, but the same PIM/AFU interface.
+
+The choice of interface is up to each AFU developer. The area costs of any required
+bridges tends to be small. The largest structures in bridges are typically reorder
+buffers that sort responses in request order. AFUs that require ordered responses will
+need this structure anyway.
+
+This hello world example is implemented three times:
+
+### Avalon
+
+The full Avalon RTL example is contained entirely in
+[hw/rtl/avalon/hello\_world\_avalon.sv](hw/rtl/avalon/hello_world_avalon.sv). It
+instantiates two Avalon memory interfaces: one for MMIO (the AFU's CSR space) and
+one for DMA to host memory. The PIM's Avalon MMIO implementation allows the AFU
+to select the width of the MMIO bus. The address space is adjusted automatically
+to match.
+
+### AXI
+
+The AXI RTL example is in
+[hw/rtl/axi/hello\_world\_axi.sv](hw/rtl/axi/hello_world_axi.sv). It is generally
+similar to the Avalon example, though AXI is more complex than Avalon. AXI's
+split address and data buses, along with the addition of back-pressure on
+response channels, requires significantly more logic.
+
+### CCI-P
+
+The CCI-P RTL example is in
+[hw/rtl/ccip/hello\_world\_ccip.sv](hw/rtl/ccip/hello_world_ccip.sv). The CCI-P
+protocol was the original protocol offered on OPAE systems. While still available
+from the PIM, we expect that architects of new AFUs will choose either Avalon or
+AXI.
+
+## Software
+
+The software side is contained entirely in [sw/hello_world.c](sw/hello_world.c):
+
+- The AFU ID in the software must match the AFU ID in the hardware's DFH. The OPAE
+  SDK provides a tool for generating a C header file from an AFU's JSON file. The
+  Makefile implements this flow.
+
+- The FPGA-accessible shared memory is mapped explicitly.
+
+- Memory addresses passed to the AFU wires are in a physical I/O address space.
+  The PIM's memory interfaces operate on 512 bit memory lines. The example passes
+  the line-based physical address to which "Hello World!" should be written.
+
+- The code in connect\_to\_accel() is a simplification of the ideal
+  sequence. The code detects at most one accelerator matching the
+  desired UUID.  Later examples detect when multiple instances of the
+  same hardware are available in case one is already in use.
