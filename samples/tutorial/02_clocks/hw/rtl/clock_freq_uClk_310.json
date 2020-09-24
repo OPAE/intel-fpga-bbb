@@ -2,16 +2,18 @@
    "version": 1,
    "afu-image": {
       "power": 0,
+      "clock-frequency-high": 310,
+      "clock-frequency-low": 155,
       "afu-top-interface":
          {
-            "class": "ccip_std_afu_avalon_mm"
+            "class": "ofs_plat_afu"
          },
       "accelerator-clusters":
          [
             {
-               "name": "ccip_with_local_mem",
+               "name": "clock_freq_test",
                "total-contexts": 1,
-               "accelerator-type-uuid": "8e4b0f39-dddd-4ac5-b26e-1363111668df"
+               "accelerator-type-uuid": "bd9ccef3-0b2c-4bb2-901f-6c7486821188"
             }
          ]
    }

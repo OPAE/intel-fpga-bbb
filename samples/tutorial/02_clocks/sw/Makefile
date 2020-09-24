@@ -1,4 +1,4 @@
-include ../../../common/sw/common_include.mk
+include ../../common/sw/common_include.mk
 
 # Primary test name
 TEST = clock_freq_test
@@ -17,7 +17,7 @@ all: $(TEST) $(TEST)_ase
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
-$(AFU_JSON_INFO): ../hw/rtl/clock_freq_pClk.json | objdir
+$(AFU_JSON_INFO): ../hw/rtl/clock_freq_uClk_auto.json | objdir
 	afu_json_mgr json-info --afu-json=$^ --c-hdr=$@
 $(OBJS): $(AFU_JSON_INFO)
 

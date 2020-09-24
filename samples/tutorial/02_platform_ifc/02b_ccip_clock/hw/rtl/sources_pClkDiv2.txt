@@ -1,3 +1,0 @@
-clock_freq_pClkDiv2.json
-
-C:sources_common.txt

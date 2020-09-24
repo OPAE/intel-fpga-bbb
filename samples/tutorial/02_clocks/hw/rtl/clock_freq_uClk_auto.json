@@ -6,17 +6,7 @@
       "clock-frequency-low": "auto",
       "afu-top-interface":
          {
-            "class": "ccip_std_afu",
-            "module-ports" :
-               [
-                  {
-                     "class": "cci-p",
-                     "params":
-                        {
-                           "clock": "uClk_usr"
-                        }
-                  }
-               ]
+            "class": "ofs_plat_afu"
          },
       "accelerator-clusters":
          [

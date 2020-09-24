@@ -1,0 +1,3 @@
+ofs_plat_afu.sv
+clock_counter.sv
+../par/clock_counter.sdc

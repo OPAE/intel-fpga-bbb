@@ -131,9 +131,7 @@ void read_final_counters(fpga_handle afc_handle)
     print_clock_freq("uClk_usr", counter_clkusr_value, counter_pclk_value, pclk_freq_value);
     print_clock_freq("uClk_usrDiv2", counter_clkusr_div2_value, counter_pclk_value, pclk_freq_value);
     printf("\n");
-    printf("The CCI-P clock is chosen from among the available clocks by the AFU's\n");
-    printf("JSON (clock_freq_test.json in the rtl directory):\n");
-    print_clock_freq("CCI-P clk", counter_clk_value, counter_pclk_value, pclk_freq_value);
+    print_clock_freq("AFU clk", counter_clk_value, counter_pclk_value, pclk_freq_value);
     printf("\n");
 }
 
