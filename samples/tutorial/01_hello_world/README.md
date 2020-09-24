@@ -149,7 +149,12 @@ The full Avalon RTL example is contained entirely in
 instantiates two Avalon memory interfaces: one for MMIO (the AFU's CSR space) and
 one for DMA to host memory. The PIM's Avalon MMIO implementation allows the AFU
 to select the width of the MMIO bus. The address space is adjusted automatically
-to match.
+to match. Avalon interfaces are defined in
+$OPAE\_PLATFORM\_ROOT/hw/lib/build/platform/ofs\_plat\_if/rtl/base\_ifcs/avalon/,
+derived from the PIM sources:
+[ofs\_plat\_avalon\_mem\_rdwr\_if.sv](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/avalon/ofs_plat_avalon_mem_rdwr_if.sv)
+and
+[ofs\_plat\_avalon\_mem\_if.sv](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/avalon/ofs_plat_avalon_mem_if.sv).
 
 ### AXI
 
@@ -157,7 +162,12 @@ The AXI RTL example is in
 [hw/rtl/axi/hello\_world\_axi.sv](hw/rtl/axi/hello_world_axi.sv). It is generally
 similar to the Avalon example, though AXI is more complex than Avalon. AXI's
 split address and data buses, along with the addition of back-pressure on
-response channels, requires significantly more logic.
+response channels, requires significantly more logic. AXI interfaces are defined in
+$OPAE\_PLATFORM\_ROOT/hw/lib/build/platform/ofs\_plat\_if/rtl/base\_ifcs/axi/,
+derived from the PIM sources:
+[ofs\_plat\_axi\_mem\_if.sv](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/axi/ofs_plat_axi_mem_if.sv)
+and
+[ofs\_plat\_axi\_mem\_lite\_if.sv](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/axi/ofs_plat_axi_mem_lite_if.sv).
 
 ### CCI-P
 
@@ -165,7 +175,9 @@ The CCI-P RTL example is in
 [hw/rtl/ccip/hello\_world\_ccip.sv](hw/rtl/ccip/hello_world_ccip.sv). The CCI-P
 protocol was the original protocol offered on OPAE systems. While still available
 from the PIM, we expect that architects of new AFUs will choose either Avalon or
-AXI.
+AXI. The CCI-P interface is defined in
+$OPAE\_PLATFORM\_ROOT/hw/lib/build/platform/ofs\_plat\_if/rtl/ifc\_classes/host\_chan/afu\_ifcs/ccip/ccip\_if\_pkg.sv, derived from the PIM sources:
+[ccip\_if\_pkg.sv](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/ifc_classes/host_chan/afu_ifcs/ccip/ccip_if_pkg.sv).
 
 ## Software
 

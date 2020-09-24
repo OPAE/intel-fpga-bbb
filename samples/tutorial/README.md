@@ -8,7 +8,7 @@ All the designs may either be simulated with ASE or synthesized for FPGA
 hardware.
 
 This tutorial assumes that OPAE has been installed already, that your
-OPAE\_PLATFORM\_ROOT environment variables points to a release updated with
+OPAE\_PLATFORM\_ROOT environment variable points to a release updated with
 PIM v2, and that the BBB (Basic Building Blocks) release is present. Please
 follow the instructions in the README file in the [../samples](..) directory.
 
@@ -23,7 +23,7 @@ is on GitHub in the
 All of the tutorials have two components: CPU-side software in the sw tree
 and FPGA-side RTL in the hw tree.
 
-AFU sources are stored in directories named hw/rtl which contain:
+AFU sources are stored in directories named hw/rtl, which contain:
 
 - A file specifying the set of sources to compile: sources.txt.
 - A JSON file containing meta-data that describes the AFU.
@@ -38,9 +38,16 @@ an FPGA it will print an error that the target hardware was not found.
 ## Topics
 
 - [Section 1](01_hello_world/) describes the basic structure of an AFU, simulation
-  with ASE and synthesis for hardware. __This section is a prerequisite for all
+  with ASE and synthesis for hardware. It also covers the AXI, Avalon and CCI-P host
+  interface options available through the PIM. __This section is a prerequisite for all
   subsequent sections. All of the later examples are compiled using the steps
   described here.__
+
+- [Section 2](02_clocks/) documents the global clocks passed into AFUs and
+  PIM-based clock management.
+
+- [Section 3](03_local_memory/) covers the top-level interface to local
+  memory, including clock management.
 
 - [Section 2](02_platform_ifc/) introduces the OPAE Platform Interface Manager
   (PIM). The PIM constructs a shim that mates an AFU's top-level interface to
@@ -56,6 +63,3 @@ an FPGA it will print an error that the target hardware was not found.
   Building Block (BBB). MPF is a collection of configurable shims that
   transform CCI-P semantics. MPF adds options such as ordered memory
   transactions and AFU-side virtual addressing managed by a TLB.
-
-- [Section 4](04_local_memory/) covers the top-level interface to local
-  memory, including clock management.
