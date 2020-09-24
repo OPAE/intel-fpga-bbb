@@ -96,4 +96,5 @@ the new clock.
 
 Any global clock could have been used instead of uClk\_usr. To run a design at half
 the normal speed, bind afu\_clk to plat\_ifc.clocks.pClkDiv2.clk and afu\_reset\_n to
-plat\_ifc.clocks.pClkDiv2.reset_n.
+plat\_ifc.clocks.pClkDiv2.reset_n. The frequency of uClk\_usr may still be set in the
+AFU JSON, despite uClk\_usr not being used in the design.
