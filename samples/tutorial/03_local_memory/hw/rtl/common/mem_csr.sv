@@ -125,7 +125,7 @@ module mem_csr
 
             // set the registers on MMIO write request
             // these are user-defined AFU registers at offset 0x40 and 0x41
-            if(cp2af_sRxPort.c0.mmioWrValid == 1)
+            if (cp2af_sRxPort.c0.mmioWrValid == 1)
             begin
                 case(mmioHdr.address)
                   SCRATCH_REG: scratch_reg <= cp2af_sRxPort.c0.data[63:0];
@@ -152,10 +152,10 @@ module mem_csr
             end
 
             // serve MMIO read requests
-            if(cp2af_sRxPort.c0.mmioRdValid == 1)
+            if (cp2af_sRxPort.c0.mmioRdValid == 1)
             begin
                 af2cp_sTxPort.c2.hdr.tid <= mmioHdr.tid; // copy TID
-                case(mmioHdr.address)
+                case (mmioHdr.address)
                   // AFU header
                   16'h0000: af2cp_sTxPort.c2.data <= {
                                                       4'b0001, // Feature type = AFU

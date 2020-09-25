@@ -38,8 +38,8 @@ module afu_top
     // CCI-P port, reset and clock
     ofs_plat_host_ccip_if.to_fiu ccip_if,
 
-    // Local memory interface. The platform interface module (afu_top_ofs_plat)
-    // has mapped all local memory clocks to the CCI-P clock.
+    // Local memory interface. The platform interface module (ofs_plat_afu)
+    // has mapped all local memory clocks to same clock as ccip_if.
     ofs_plat_avalon_mem_if.to_slave local_mem[NUM_LOCAL_MEM_BANKS],
 
     // AFU Power State
