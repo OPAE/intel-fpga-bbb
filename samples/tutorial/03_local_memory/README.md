@@ -28,8 +28,11 @@ using the same steps as the previous examples.
 
 ## AXI
 
-The AXI variant instantiates a vector of ofs\_plat\_axi\_mem\_if interfaces,
-one for each memory bank, in [axi/ofs\_plat\_afu.sv](hw/rtl/axi/ofs_plat_afu.sv).
+The AXI variant instantiates a vector of
+[ofs\_plat\_axi\_mem\_if](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/axi/ofs_plat_axi_mem_if.sv)
+interfaces, one for each memory bank, in [axi/ofs\_plat\_afu.sv](hw/rtl/axi/ofs_plat_afu.sv).
+The ofs\_plat\_axi\_mem\_if interface is the same definition used for AXI DMA
+streams connected to host memory in the [hello world](../01_hello_world) example.
 The module ofs\_plat\_local\_mem\_as\_axi\_mem instantiates a bridge from the
 platform's base interface to AXI. The PIM provides the same portable module name
 on any platform, independent of the actual protocol of the base interface. The
@@ -62,7 +65,8 @@ $ afu_synth_setup --source hw/rtl/sources_axi.txt build_synth
 ## Avalon
 
 The Avalon variant has very similar structure to the AXI variant. It instantiates
-a vector of Avalon interfaces in [avalon/ofs\_plat\_afu.sv](hw/rtl/avalon/ofs_plat_afu.sv)
+a vector of [ofs\_plat\_avalon\_mem\_if](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_develop/ofs_plat_if/src/rtl/base_ifcs/avalon/ofs_plat_avalon_mem_if.sv)
+Avalon interfaces in [avalon/ofs\_plat\_afu.sv](hw/rtl/avalon/ofs_plat_afu.sv)
 and maps the platform's local memory base interface by invoking
 ofs\_plat\_local\_mem\_as\_avalon\_mem. The logic in
 [avalon/afu\_top.sv](hw/rtl/avalon/afu_top.sv) passes commands from the FSM to

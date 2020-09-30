@@ -1,11 +1,19 @@
 # Tutorial
 
 The sample designs in this tree are deliberately simple. They are intended
-to demonstrate simulation, synthesis and the Platform Interface Manager (PIM)
+to demonstrate simulation, synthesis and the Platform Interface Manager
 without the details of an actual accelerator getting in the way.
 
 All the designs may either be simulated with ASE or synthesized for FPGA
 hardware.
+
+The Platform Interface Manager (PIM) is an abstraction layer, enabling AFU
+portability across hardware despite variations in hardware topology and native
+interfaces. The PIM implementation is documented both for platform developers
+and for AFU developers in its [source repository](https://github.com/OPAE/ofs-platform-afu-bbb/).
+Use of the PIM for AFU developers is optional. As the tutorial
+is intended to be platform-agnostic, all of the examples use the PIM. See
+below for a short discussion of [non-PIM AFU development](#non-pim-afu-development).
 
 This tutorial assumes that OPAE has been installed already, that your
 OPAE\_PLATFORM\_ROOT environment variable points to a release updated with
@@ -49,17 +57,27 @@ an FPGA it will print an error that the target hardware was not found.
 - [Section 3](03_local_memory/) covers the top-level interface to local
   memory, including clock management.
 
-- [Section 2](02_platform_ifc/) introduces the OPAE Platform Interface Manager
-  (PIM). The PIM constructs a shim that mates an AFU's top-level interface to
-  the base system. The PIM manages top-level clocking, allowing AFUs to
-  request automatic instantiation of clock-crossing shims for device
-  interfaces. AFU's may also instruct the PIM to constrain the frequency of
-  the user clock, including an automatic mode similar to OpenCL in which the
-  user clock frequency is set to the Fmax achieved during compilation.
+- [Section 4](04_PIM/) covers some more advanced PIM features.
 
-- [Section 3](03_ccip/) covers basic CCI-P concepts and introduces the Memory
-  Properties Factory
-  ([MPF](https://github.com/OPAE/intel-fpga-bbb/wiki/BBB_cci_mpf)) Basic
-  Building Block (BBB). MPF is a collection of configurable shims that
-  transform CCI-P semantics. MPF adds options such as ordered memory
-  transactions and AFU-side virtual addressing managed by a TLB.
+## Non-PIM AFU Development
+
+AFU developers may choose to connect directly to the PR interface or to the
+platform-provided green\_bs() interface. Perhaps your AFU provides its own bridges
+from native interfaces. Even then, we strongly suggest taking a hybrid approach
+and attaching your AFU through the PIM's top-level ofs\_plat\_afu() module and
+the plat\_ifc top-level interface wrapper. There is no performance or area cost
+for this style compared to directly attaching to green\_bs(). The plat\_ifc
+wrapper is only wires and all PR interfaces are available, mapped through plat\_ifc.
+There are several advantages to connecting through ofs\_plat\_afu():
+
+- AFUs can be simulated with ASE as long as they connect through ofs\_plat\_afu().
+  The ASE environment emulates the plat\_ifc interface and is fully functional,
+  whether or not an AFU uses PIM-provided bridge modules.
+- The wired PIM interface wrappers in plat\_ifc offer both transaction logging
+  and some error checking during simulation, whether or not PIM bridges are used.
+- AFUs might use PIM bridges for some interfaces and not others. For example,
+  an AFU that provides its own shell for PCIe and connects directly to the host
+  channel port may still use the PIM to map local memory to a target interface
+  and clock.
+- The PIM's tie-off module for unused interfaces is available for AFUs that
+  don't use other PIM modules.
