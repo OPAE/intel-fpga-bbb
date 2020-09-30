@@ -1,183 +1,92 @@
-hello_mem_afu is an AFU that builds a simple state machine capable of a few
-access patterns to local memory. By *local memory*, we mean memory that is
-directly attached to FPGA pins, such as DDR4 DIMMs. This memory is distinct
-from the host memory accessed over CCI-P. In hello_mem_afu, the controller
-state machine is managed by CSRs (MMIO requests) written and read by the
-host.
+# Local Memory
 
-This discussion will cover the infrastructure that enables three key aspects
-of hello_mem_afu:
+By *local memory*, we mean memory that is directly attached to FPGA pins. The
+PIM is consistent in naming any locally attached memory (DDR, HBM, etc.)
+*local memory*. Ports to host memory are always named *host channels*, since I/O
+with the host is often a combination of DMA and CSR traffic. *Host channels*
+were described in the original [hello world](../01_hello_world) example.
 
-- In order to access local memory, the top-level ccip_std_afu() ports are
-  different than in the original [hello world example](../01_hello_world).
+Like host channels and clocks, local memory is passed to the ofs\_plat\_afu()
+top-level module in the plat\_ifc wrapper interface. Also similar to host
+channels, the PIM provides bridges for local memory with protocol translations
+to Avalon-MM or AXI-MM as well as optional clock crossing.
 
-- By default, the interface controlling each bank of local memory is in its
-  own clock domain. CCI-P signals are, by default, clocked by pClk. Despite
-  this, there is no clock management in the AFU and all signals are in the
-  uClk_usr clock domain.
+## Example Code
 
-- The frequencies of the two user clocks are set to "auto", triggering a mode
-  in which uClk_usr will be set to whatever frequency is achieved by a
-  particular compilation. Like OpenCL, this greatly improves the probability
-  of synthesizing a working design free of timing failures.
+The sample code here has two variants, one with AXI ports to local memory
+and one with Avalon. The majority of code is common. Both examples use the
+same CCI-P host interface. The host interface protocol and local memory
+protocols are completely independent.
 
-Both the addition of the local memory port to ccip_std_afu and the automated
-clock crossing are driven by the AFU's JSON:
-[hw/rtl/hello_mem_afu.json](hw/rtl/hello_mem_afu.json). When a build is
-configured using either afu_sim_setup or afu_synth_setup, the OPAE [Platform
-Interface Manager](https://github.com/OPAE/opae-sdk/tree/master/platforms) is
-invoked to construct an AFU-specific top-level interface. The main Platform
-Interface Manager script, afu_platform_config, manages an abstraction layer
-between the FIU and the AFU. This layer governs the set of ports that will be
-passed to the AFU and the clocks associated with those ports.
+The example builds a simple CSR interface controlled by the host, implemented
+with a CCI-P interface. The CSR logic in [common/mem\_csr.sv](hw/rtl/common/mem_csr.sv)
+sends commands to an FSM in [common/mem\_fsm.sv](hw/rtl/common/mem_fsm.sv) over
+an Avalon memory channel. The FSM generates requests to local memory.
 
-afu_platform_config consumes three components:
+The example is driven by software in the [sw](sw) directory. Build and run it
+using the same steps as the previous examples.
 
-- The AFU JSON.
+## AXI
 
-- A database of available top-level port classes,
-  [afu_top_ifc_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/afu_top_ifc_db).
+The AXI variant instantiates a vector of ofs\_plat\_axi\_mem\_if interfaces,
+one for each memory bank, in [axi/ofs\_plat\_afu.sv](hw/rtl/axi/ofs_plat_afu.sv).
+The module ofs\_plat\_local\_mem\_as\_axi\_mem instantiates a bridge from the
+platform's base interface to AXI. The PIM provides the same portable module name
+on any platform, independent of the actual protocol of the base interface. The
+AFU source is thus portable across platforms, even when platforms change the
+native local memory interface.
 
-- A database of physical platforms and their hardware characteristics
-  [platform_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/platform_db).
-  The platform_db search path may also be extended by specific board releases,
-  which are discovered by probing the OPAE_PLATFORM_ROOT environment variable.
+In addition to the protocol translation, the example commands
+ofs\_plat\_local\_mem\_as\_axi\_mem to instantiate a clock crossing from
+each memory bank's native clock to the host channel's clock. As a result, all
+AFU interfaces operate in a common clock domain.
 
-"afu_platform_config --help" displays the current database search paths,
-available top-level interfaces and platform names.
+Logic in [axi/afu\_top.sv](hw/rtl/axi/afu_top.sv) maps commands from the FSM
+to local memory AXI requests. Of course a production AFU is likely to employ
+a single protocol universally instead of this combination of Avalon and AXI.
+Avalon is used here in the FSM to avoid rewriting a module that isn't central
+to the example.
 
-The AFU JSON is specified in the sources text file passed to afu_sim_setup or
-afu_synth_setup (e.g. [hw/rtl/sources.txt](hw/rtl/sources.txt)). The target
-physical platform is stored in
-${OPAE_PLATFORM_ROOT}/hw/lib/fme-platform-class.txt. An entry matching the name
-stored in fme-platform-class.txt must be present in the physical platforms
-database. The AFU's top-level interface is stored in the AFU JSON file in the
-afu-top-interface:class field. For hello_mem_afu, that entry is
-*ccip_std_afu_avalon_mm*. The class of an interface defines the ports
-expected by the AFU's top-level module and corresponds to a file in the
-afu_top_ifc_db described above. Note that the class defines port collections,
-not the AFU's top-level module name. The top-level module name typically
-remains ccip_std_afu(). SystemVerilog templates corresponding to interface
-classes are stored in the
-[afu_top_ifc_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/afu_top_ifc_db).
-
-Given a desired top-level interface and a description of a specific physical
-platform, afu_platform_config attempts to satisfy the demands of the AFU. If
-an AFU requests only ccip_std_afu (the interface requested in the previous
-hello world example), the request is satisfiable whether or not the physical
-platform has local memory. In the current example, afu_platform_config will
-fail when a target physical platform does not offer local memory connected to
-an Avalon MM interface.
-
-When successful, afu_platform_config emits a Verilog header file named
-platform_afu_top_config.vh into the build tree. The full path is different
-for simulation and synthesis, but it can be found within the hierarchy in both
-environments. platform_afu_top_config.vh contains Verilog preprocessor macros
-that control compile-time decisions within code that Intel provides. The key
-parameters are PLATFORM_PROVIDES_* and AFU_TOP_REQUIRES_*. In the majority of
-cases, these details are internal to the Intel-provided glue logic and not
-exposed to the AFU.
-
-With this mechanism, an AFU may compile on any platform that satisfies the
-interface requirements of the AFU. Older AFUs can be compiled on new physical
-platforms, despite the fact that a new platform may offer device interfaces
-that were defined after the old AFU was written.
-
-## Port Classes and Clocking
-
-Interface ports are broken down into classes.  The AFU JSON in
-[hw/rtl/hello_mem_afu.json](hw/rtl/hello_mem_afu.json) modifies two port
-classes: *cci-p* and *local-memory*. The clock field is updated. Setting
-*clock* to something other than it's default (*default*) or to the interface's
-native clock (e.g. *pClk* for CCI-P) triggers automatic insertion of clock
-crossing logic from the native domain to the target domain. Any valid clock
-name may be used. Most AFUs will use one of the standard CCI-P clocks
-(pClkDiv2, uClk_usr, etc.). Specifying a local memory clock
-(e.g. local_mem[0].clk) is legal, though generally a poor choice since each
-memory bank may have its own clock.
-
-When no clock is specified in the JSON, a port's native clock is unchanged.
-It is not necessary to specify clocks for all interfaces. For example,
-hello_mem_afu could run in the pClk domain by removing the *clock* field
-from class *cci-p* and specifying *pClk* as the clock in class
-*local-memory*.
-
-Note that not all module port classes offer automatic clock crossing.
-afu_platform_config will fail if a clock crossing is requested that can not
-be satisfied.
-
-For most interfaces, an automated clock crossing changes the clock passed
-along with the interface. For example, the local_mem[0].clk port in
-hw/rtl/ccip_std_afu.sv is connected to uClk_usr in this example. CCI-P's
-standard clocks (pClk, pClkDiv2 and pClkDiv4) are exceptions. Because they may
-be used to drive other logic, these clocks are always passed in
-unchanged. Instead, afu_platform_config sets two Verilog macros. Note the
-definitions of clk and reset in
-[hw/rtl/ccip_std_afu.sv](hw/rtl/ccip_std_afu.sv):
-
-```verilog
-assign clk = `PLATFORM_PARAM_CCI_P_CLOCK;
-assign reset = `PLATFORM_PARAM_CCI_P_RESET;
-```
-
-AFUs that use these two macros will always pick the correct CCI-P clock in
-response to changes in the AFU JSON.
-
-__The clock and reset macros above and the packages containing CCI-P and
-local memory interface definitions should be loaded in AFU sources with:__
-
-```verilog
-`include "platform_if.vh"
-```
-
-All port selection and automated clock crossing is handled in a combination of
-Intel-provided code:
-
-- Either the top-level ASE driver module or the top-level green bitstream
-  PR connection module that ships with a physical platform release.
-
-- [Shims that are
-  provided](https://github.com/OPAE/opae-sdk/tree/master/platforms/platform_if/rtl/platform_shims)
-  as part of OPAE.
-  
-## Building hello_mem_afu RTL
-
-afu_platform_config will generate an error if the target platform does not
-have local memory. For example, the AFU can not be mapped to integrated
-Xeon+FPGAs. To simulate the workload, either point OPAE_PLATFORM_ROOT to a
-release tree for a product that has local memory or force ASE to simulate a
-system with local memory:
+The AXI example can be configured for simulation with:
 
 ```console
-$ afu_sim_setup --source hw/rtl/sources.txt --platform discrete_pcie3 build_sim
+$ afu_sim_setup --source hw/rtl/sources_axi.txt build_sim
 ```
 
-The included [hw/sim/setup_ase](hw/sim/setup_ase) includes this platform
-switch.
+or synthesis with:
 
-## Avalon MM SystemVerilog Interface
+```console
+$ afu_synth_setup --source hw/rtl/sources_axi.txt build_synth
+```
 
-The local memory banks are passed to the AFU as a vector of SystemVerilog
-interfaces:
-[avalon_mem_if.vh](https://github.com/OPAE/opae-sdk/blob/master/platforms/platform_if/rtl/device_if/avalon_mem_if.vh).
-The SystemVerilog interface wraps the usual Avalon MM signals. These wrapped
-signals are easily mapped to individual Avalon wire names or ports, if
-desired.
+## Avalon
 
-AFU JSON may specify both the minimum and maximum number of banks the AFU will
-accept. (See min-entries and max-entries in
-[afu_top_ifc_db](https://github.com/OPAE/opae-sdk/tree/master/platforms/afu_top_ifc_db).
-While an ideal AFU would adapt to the number of banks available, this is
-sometimes too difficult. When a specific range of banks is specified, the
-Platform Interface Manager will either fail if the target platform has fewer
-banks available than the AFU's minimum or will tie off unused banks beyond the
-AFU's maximum.
+The Avalon variant has very similar structure to the AXI variant. It instantiates
+a vector of Avalon interfaces in [avalon/ofs\_plat\_afu.sv](hw/rtl/avalon/ofs_plat_afu.sv)
+and maps the platform's local memory base interface by invoking
+ofs\_plat\_local\_mem\_as\_avalon\_mem. The logic in
+[avalon/afu\_top.sv](hw/rtl/avalon/afu_top.sv) passes commands from the FSM to
+the local memory Avalon interfaces.
 
-## Debugging Local Memory Traffic
+Like the AXI code, the Avalon example adds a clock crossing to each local memory
+bank by passing a target clock to ofs\_plat\_local\_mem\_as\_avalon\_mem and setting
+ADD\_CLOCK\_CROSSING.
 
-The SystemVerilog Avalon MM interface includes an optional traffic logger when
-running in an RTL simulator. By default, logging is enabled at the FIU
-edge. It is also enabled on the AFU side of PIM-instantiated local memory
-clock crossing shims. The traffic log from ASE simulator runs is stored in
-work/avalon_mem_if.tsv. This is the same directory that holds the CCI-P
-transaction log: work/ccip_transactions.tsv.
+The Avalon example can be configured for simulation with:
+
+```console
+$ afu_sim_setup --source hw/rtl/sources_avalon.txt build_sim
+```
+
+or synthesis with:
+
+```console
+$ afu_synth_setup --source hw/rtl/sources_avalon.txt build_synth
+```
+
+## Debugging
+
+Like host channels, event logging is available for local memory. Transaction logs
+are written to log\_ofs\_plat\_local\_mem.tsv (for ASE, in the "work" directory).
+Any interface with LOG_CLASS set to ofs\_plat\_log\_pkg::LOCAL\_MEM, including
+interfaces instantiated at any point in AFU sources, will log to this file.

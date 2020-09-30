@@ -56,6 +56,8 @@ The afu\_sim\_setup script constructs an ASE environment in the build\_sim
 subdirectory. If the command fails, confirm that afu\_sim\_setup is on your PATH
 (in the OPAE SDK bin directory) and that your Python version is at least 2.7.
 
+### Simulation
+
 To build and execute the simulator:
 
 ```console
@@ -85,6 +87,30 @@ exit. If the software prints "Accelerator not found" you ran the wrong
 binary (./hello\_world instead of ./hello\_world\_ase). The binary without
 the "ase" suffix is for execution on an FPGA.
 
+### Debugging
+
+Several transaction logs are generated in the "work" subdirectory during RTL
+simulation, all named with the suffix ".tsv". The PIM's primary interfaces
+have built-in logging that can be enabled or disabled in each instance of an
+interface by setting the LOG\_CLASS parameter. The parameter is set in both the
+AXI and Avalon hello world samples. The enumeration passed to LOG\_CLASS
+corresponds to .tsv log files, with ofs\_plat\_log\_pkg::HOST\_CHAN mapping
+to log\_ofs\_plat\_host\_chan.tsv. All interfaces with logging enabled write
+to the same file, making it possible to see transactions in logical order as they
+pass through the hierarchy. Log entries are tagged with the full path of the
+interface instance. Specific interfaces instances may be isolated with search
+tools such as "grep".
+
+ASE also logs transactions at the boundary between the AFU and the simulated
+platform. Platforms with native PCIe TLP interfaces log to work/log\_ase\_events.tsv
+and platforms with native CCI-P interfaces log to work/ccip\_transactions.tsv.
+
+Waveform debugging is also available after simulation by executing:
+
+```console
+$ make wave
+```
+
 ## Synthesis with Quartus
 
 RTL simulation and synthesis are driven by the same sources.txt and underlying
@@ -109,8 +135,9 @@ been compiled and make will do nothing:
 ```console
 # Continue in the build_synth directory where afu_synth was invoked...
 
-# Load the AFU into the partial reconfiguration region
-$ sudo fpgaconf hello_world.gbs
+# Load the AFU into the partial reconfiguration region.
+# sudo may be required, depending on your environment.
+$ fpgaconf hello_world.gbs
 
 $ cd ../sw
 $ make
