@@ -1,0 +1,4 @@
+C:common/sources.txt
+
+avalon/ofs_plat_afu.sv
+avalon/afu_top.sv

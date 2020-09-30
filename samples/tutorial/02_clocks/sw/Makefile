@@ -1,7 +1,7 @@
 include ../../common/sw/common_include.mk
 
 # Primary test name
-TEST = hello_world
+TEST = clock_freq_test
 
 # Build directory
 OBJDIR = obj
@@ -17,15 +17,15 @@ all: $(TEST) $(TEST)_ase
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
-$(AFU_JSON_INFO): ../hw/rtl/$(TEST).json | objdir
+$(AFU_JSON_INFO): ../hw/rtl/clock_freq_uClk_auto.json | objdir
 	afu_json_mgr json-info --afu-json=$^ --c-hdr=$@
 $(OBJS): $(AFU_JSON_INFO)
 
 $(TEST): $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS) $(FPGA_LIBS) -lrt
+	$(CC) -o $@ $^ $(LDFLAGS) $(FPGA_LIBS)
 
 $(TEST)_ase: $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS) $(ASE_LIBS) -lrt
+	$(CC) -o $@ $^ $(LDFLAGS) $(ASE_LIBS)
 
 $(OBJDIR)/%.o: %.c | objdir
 	$(CC) $(CFLAGS) -c $< -o $@
