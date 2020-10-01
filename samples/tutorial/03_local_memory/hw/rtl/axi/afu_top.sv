@@ -64,6 +64,8 @@ module afu_top
     // domain.
     //
 
+    localparam DATA_WIDTH = `OFS_PLAT_PARAM_LOCAL_MEM_DATA_WIDTH;
+
     //
     // Memory banks are used very simply here.  Only one bank is active at
     // a time, selected by mem_bank_select.  mem_bank_select is set
@@ -110,7 +112,7 @@ module afu_top
     //
     logic avs_waitrequest_v[NUM_LOCAL_MEM_BANKS];
     logic avs_readdatavalid_v[NUM_LOCAL_MEM_BANKS];
-    logic [local_mem_cmd.DATA_WIDTH-1 : 0] avs_readdata_v[NUM_LOCAL_MEM_BANKS];
+    logic [DATA_WIDTH-1 : 0] avs_readdata_v[NUM_LOCAL_MEM_BANKS];
 
     genvar b;
     generate
