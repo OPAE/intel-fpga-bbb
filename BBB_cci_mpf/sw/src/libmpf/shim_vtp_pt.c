@@ -96,6 +96,11 @@ static bool nodeIsEmpty(
     mpf_vtp_pt_node* node
 )
 {
+    if (node == NULL)
+    {
+        return true;
+    }
+
     for (int idx = 0; idx < 512; idx++)
     {
         // Test vaddr so that all lookup operations in software are on the
@@ -112,7 +117,7 @@ static inline bool nodeEntryExists(
     uint64_t idx
 )
 {
-    if (idx >= 512)
+    if (idx >= 512 || node == NULL)
     {
         return false;
     }
