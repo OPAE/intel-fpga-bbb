@@ -438,7 +438,7 @@ fpga_result mpfOsGetPageSize(
         {
             // Look for KernelPageSize
             unsigned page_kb;
-            int ret = sscanf(line, "KernelPageSize: %d kB", &page_kb);
+            int ret = sscanf(line, "KernelPageSize: %u kB", &page_kb);
             if (ret == 0)
                 continue;
 
