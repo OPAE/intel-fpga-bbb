@@ -1,0 +1,2 @@
+[format]
+max-line-length = 88         # Compatibility with 'black'
