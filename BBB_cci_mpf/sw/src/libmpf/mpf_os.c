@@ -123,9 +123,15 @@ fpga_result mpfOsDestroyMutex(
 {
 #ifndef _WIN32
     pthread_mutex_t* m = (pthread_mutex_t*)mutex;
-    pthread_mutex_destroy(m);
-    free(m);
-    return FPGA_OK;
+    if (pthread_mutex_destroy(m) == 0)
+    {
+        free(m);
+        return FPGA_OK;
+    }
+    else
+    {
+        return FPGA_EXCEPTION;
+    }
 #else
     HANDLE m = (HANDLE)mutex;
     CloseHandle(m);
