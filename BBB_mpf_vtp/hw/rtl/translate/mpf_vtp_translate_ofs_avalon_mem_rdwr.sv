@@ -29,13 +29,14 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Translate Avalon requests from virtual addresses using VTP.
+// Translate Avalon split read/write-bus requests from virtual addresses
+// using VTP.
 //
 
 `include "ofs_plat_if.vh"
 `include "cci_mpf_if.vh"
 
-module mpf_vtp_translate_ofs_avalon_mem
+module mpf_vtp_translate_ofs_avalon_mem_rdwr
   #(
     // In normal mode, when FAIL_ON_ERROR is non-zero, all translations must
     // be successful. To aid in debugging, failures will block the pipeline
@@ -49,15 +50,16 @@ module mpf_vtp_translate_ofs_avalon_mem
     )
    (
     // FIU interface -- IOVA or physical addresses
-    ofs_plat_avalon_mem_if.to_slave host_mem_if,
+    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_if,
     // AFU interface -- virtual addresses
-    ofs_plat_avalon_mem_if.to_master host_mem_va_if,
+    ofs_plat_avalon_mem_rdwr_if.to_master host_mem_va_if,
 
     // Translation error signal. When FAIL_ON_ERROR is 0, the consumer of
     // host_mem_if is expected to note the error bit and handle the failure.
     // Errors are raised for the duration of failing bursts in order to
     // simplify routing logic.
-    output  logic error,
+    output  logic rd_error,
+    output  logic wr_error,
 
     // One port for reads, the other for writes. We split the ports because
     // read and write address streams are typically disjoint.
@@ -75,58 +77,13 @@ module mpf_vtp_translate_ofs_avalon_mem
     localparam DATA_WIDTH = host_mem_va_if.DATA_WIDTH_;
     localparam DATA_N_BYTES = host_mem_va_if.DATA_N_BYTES;
     localparam BURST_CNT_WIDTH = host_mem_va_if.BURST_CNT_WIDTH_;
+    localparam USER_WIDTH = host_mem_va_if.USER_WIDTH_;
 
     // Connect responses (no translation needed)
     always_comb
     begin
-        `OFS_PLAT_AVALON_MEM_IF_FROM_SINK_TO_SOURCE(host_mem_va_if, =, host_mem_if);
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_SLAVE_TO_MASTER(host_mem_va_if, =, host_mem_if);
     end
-
-    // Meta-data for translations (tells VTP what to do and returns result)
-    t_mpf_vtp_port_wrapper_req vtp_rd_req, vtp_wr_req;
-    t_mpf_vtp_port_wrapper_rsp vtp_rd_rsp, vtp_wr_rsp;
-
-    // Flow control
-    logic vtp_rd_full, vtp_wr_full, vtp_order_notFull;
-    assign host_mem_va_if.waitrequest = vtp_rd_full || vtp_wr_full || !vtp_order_notFull;
-
-
-    // ====================================================================
-    //
-    //  Sequencer
-    //
-    // ====================================================================
-
-    // Keep translated reads and writes in the same relative order on
-    // the outbound Avalon channel. This FIFO tracks whether the next
-    // operation is a read or a write.
-
-    logic rsp_do_read, rsp_do_write;
-    assign rsp_do_write = !rsp_do_read;
-
-    logic rd_deq_en;
-    logic wr_deq_en;
-
-    cci_mpf_prim_fifo_lutram
-      #(
-        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS * 2),
-        .N_DATA_BITS(1),
-        .REGISTER_OUTPUT(1)
-        )
-      rd_wr_order
-       (
-        .clk,
-        .reset(!reset_n),
-
-        .enq_data(host_mem_va_if.read),
-        .enq_en((host_mem_va_if.read || host_mem_va_if.write) && !host_mem_va_if.waitrequest),
-        .notFull(vtp_order_notFull),
-        .almostFull(),
-
-        .first(rsp_do_read),
-        .deq_en(rd_deq_en || wr_deq_en),
-        .notEmpty()
-        );
 
 
     // ====================================================================
@@ -135,24 +92,34 @@ module mpf_vtp_translate_ofs_avalon_mem
     //
     // ====================================================================
 
+    // Meta-data for translations (tells VTP what to do and returns result)
+    t_mpf_vtp_port_wrapper_req vtp_rd_req;
+    t_mpf_vtp_port_wrapper_rsp vtp_rd_rsp;
+    logic vtp_rd_full;
+
+    assign host_mem_va_if.rd_waitrequest = vtp_rd_full;
+
     always_comb
     begin
         vtp_rd_req = '0;
-        vtp_rd_req.addr = host_mem_va_if.address;
+        vtp_rd_req.addr = host_mem_va_if.rd_address;
         // All reads have virtual addresses in this AFU
         vtp_rd_req.addrIsVirtual = 1'b1;
         vtp_rd_req.isSpeculative = (FAIL_ON_ERROR == 0);
     end
 
-    localparam RD_OPAQUE_BITS = BURST_CNT_WIDTH +  // burstcount
-                                DATA_N_BYTES;      // byteenable
+    localparam RD_OPAQUE_BITS = BURST_CNT_WIDTH +  // rd_burstcount
+                                DATA_N_BYTES +     // rd_byteenable
+                                USER_WIDTH;        // rd_user
 
+    logic rd_deq_en;
     logic rd_rsp_valid;
     logic rd_rsp_used_vtp;
 
     logic [ADDR_WIDTH-1:0] rd_rsp_address;
     logic [BURST_CNT_WIDTH-1:0] rd_rsp_burstcount;
     logic [DATA_N_BYTES-1:0] rd_rsp_byteenable;
+    logic [USER_WIDTH-1:0] rd_rsp_user;
 
     mpf_vtp_translate_chan
       #(
@@ -165,12 +132,14 @@ module mpf_vtp_translate_ofs_avalon_mem
 
         .rsp_valid(rd_rsp_valid),
         .opaque_rsp({ rd_rsp_burstcount,
-                      rd_rsp_byteenable }),
+                      rd_rsp_byteenable,
+                      rd_rsp_user }),
         .deq_en(rd_deq_en),
 
-        .req_valid(host_mem_va_if.read && !host_mem_va_if.waitrequest),
-        .opaque_req({ host_mem_va_if.burstcount,
-                      host_mem_va_if.byteenable }),
+        .req_valid(host_mem_va_if.rd_read && !host_mem_va_if.rd_waitrequest),
+        .opaque_req({ host_mem_va_if.rd_burstcount,
+                      host_mem_va_if.rd_byteenable,
+                      host_mem_va_if.rd_user }),
         .full(vtp_rd_full),
 
         .vtp_req(vtp_rd_req),
@@ -180,25 +149,32 @@ module mpf_vtp_translate_ofs_avalon_mem
         .vtp_port(vtp_ports[0])
         );
 
-    assign rd_deq_en = rsp_do_read && rd_rsp_valid && ! host_mem_if.waitrequest;
+    assign rd_deq_en = rd_rsp_valid && ! host_mem_if.rd_waitrequest;
     assign rd_rsp_address = (rd_rsp_used_vtp ? vtp_rd_rsp.addr : '0);
     // Translation error?
-    logic rd_error;
     assign rd_error = rd_rsp_valid && (rd_rsp_used_vtp ? vtp_rd_rsp.error : 1'b0);
 
     generate
         if (FAIL_ON_ERROR != 0)
         begin : rne
             // Errors block pipeline. Discard reads that fail translation.
-            assign host_mem_if.read = rsp_do_read && rd_rsp_valid && ! rd_error;
+            assign host_mem_if.rd_read = rd_rsp_valid && ! rd_error;
         end
         else
         begin : re
             // Pass even failed translations to host_mem_if (rd_error raised
             // when needed).
-            assign host_mem_if.read = rsp_do_read && rd_rsp_valid;
+            assign host_mem_if.rd_read = rd_rsp_valid;
         end
     endgenerate
+
+    always_comb
+    begin
+        host_mem_if.rd_address = rd_rsp_address;
+        host_mem_if.rd_burstcount = rd_rsp_burstcount;
+        host_mem_if.rd_byteenable = rd_rsp_byteenable;
+        host_mem_if.rd_user = rd_rsp_user;
+    end
 
 
     // ====================================================================
@@ -206,6 +182,13 @@ module mpf_vtp_translate_ofs_avalon_mem
     //  Writes
     //
     // ====================================================================
+
+    // Meta-data for translations (tells VTP what to do and returns result)
+    t_mpf_vtp_port_wrapper_req vtp_wr_req;
+    t_mpf_vtp_port_wrapper_rsp vtp_wr_rsp;
+    logic vtp_wr_full;
+
+    assign host_mem_va_if.wr_waitrequest = vtp_wr_full;
 
     // Track SOP -- only translate the address at SOP
     logic wr_sop;
@@ -219,8 +202,8 @@ module mpf_vtp_translate_ofs_avalon_mem
        (
         .clk,
         .reset_n,
-        .flit_valid(host_mem_va_if.write && ! host_mem_va_if.waitrequest),
-        .burstcount(host_mem_va_if.burstcount),
+        .flit_valid(host_mem_va_if.wr_write && ! host_mem_va_if.wr_waitrequest),
+        .burstcount(host_mem_va_if.wr_burstcount),
         .sop(wr_sop),
         .eop(wr_eop)
         );
@@ -228,17 +211,22 @@ module mpf_vtp_translate_ofs_avalon_mem
     always_comb
     begin
         vtp_wr_req = '0;
-        vtp_wr_req.addr = host_mem_va_if.address;
+        vtp_wr_req.addr = host_mem_va_if.wr_address;
         // All reads have virtual addresses in this AFU
-        vtp_wr_req.addrIsVirtual = wr_sop;
+        vtp_wr_req.addrIsVirtual =
+            wr_sop &&
+            !host_mem_va_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_FENCE] &&
+            !host_mem_va_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_INTERRUPT];
         vtp_wr_req.isSpeculative = (FAIL_ON_ERROR == 0);
     end
 
     localparam WR_OPAQUE_BITS = BURST_CNT_WIDTH +  // wr_burstcount
                                 DATA_WIDTH +       // wr_writedata
                                 DATA_N_BYTES +     // wr_byteenable
+                                USER_WIDTH +       // wr_user
                                 1;                 // wr_eop
 
+    logic wr_deq_en;
     logic wr_rsp_valid;
     logic wr_rsp_used_vtp;
     logic wr_rsp_eop;
@@ -247,6 +235,7 @@ module mpf_vtp_translate_ofs_avalon_mem
     logic [ADDR_WIDTH-1:0] wr_rsp_address;
     logic [BURST_CNT_WIDTH-1:0] wr_rsp_burstcount;
     logic [DATA_N_BYTES-1:0] wr_rsp_byteenable;
+    logic [USER_WIDTH-1:0] wr_rsp_user;
 
     mpf_vtp_translate_chan
       #(
@@ -260,15 +249,17 @@ module mpf_vtp_translate_ofs_avalon_mem
 
         .rsp_valid(wr_rsp_valid),
         .opaque_rsp({ wr_rsp_burstcount,
-                      host_mem_if.writedata,
+                      host_mem_if.wr_writedata,
                       wr_rsp_byteenable,
+                      wr_rsp_user,
                       wr_rsp_eop }),
         .deq_en(wr_deq_en),
 
-        .req_valid(host_mem_va_if.write && !host_mem_va_if.waitrequest),
-        .opaque_req({ host_mem_va_if.burstcount,
-                      host_mem_va_if.writedata,
-                      host_mem_va_if.byteenable,
+        .req_valid(host_mem_va_if.wr_write && !host_mem_va_if.wr_waitrequest),
+        .opaque_req({ host_mem_va_if.wr_burstcount,
+                      host_mem_va_if.wr_writedata,
+                      host_mem_va_if.wr_byteenable,
+                      host_mem_va_if.wr_user,
                       wr_eop }),
         .full(vtp_wr_full),
 
@@ -279,10 +270,9 @@ module mpf_vtp_translate_ofs_avalon_mem
         .vtp_port(vtp_ports[1])
         );
 
-    assign wr_deq_en = rsp_do_write && wr_rsp_valid && ! host_mem_if.waitrequest;
+    assign wr_deq_en = wr_rsp_valid && ! host_mem_if.wr_waitrequest;
     assign wr_rsp_address = (wr_rsp_used_vtp ? vtp_wr_rsp.addr : '0);
     // Translation error? Raise only on SOP beats (that is when VTP is used).
-    logic wr_error;
     assign wr_error = wr_rsp_valid && (wr_rsp_used_vtp ? vtp_wr_rsp.error : wr_rsp_reg_error);
 
     // Hold the VTP error response for an entire burst
@@ -295,7 +285,7 @@ module mpf_vtp_translate_ofs_avalon_mem
         end
 
         // Turn off error at EOP
-        if (wr_rsp_eop && !host_mem_if.waitrequest)
+        if (wr_rsp_eop && !host_mem_if.wr_waitrequest)
         begin
             wr_rsp_reg_error <= 1'b0;
         end
@@ -310,39 +300,22 @@ module mpf_vtp_translate_ofs_avalon_mem
         if (FAIL_ON_ERROR != 0)
         begin : wne
             // Errors block pipeline. Discard reads that fail translation.
-            assign host_mem_if.write = rsp_do_write && wr_rsp_valid && ! wr_error;
+            assign host_mem_if.wr_write = wr_rsp_valid && ! wr_error;
         end
         else
         begin : we
             // Pass even failed translations to host_mem_if (wr_error raised
             // when needed).
-            assign host_mem_if.write = rsp_do_write && wr_rsp_valid;
+            assign host_mem_if.wr_write = wr_rsp_valid;
         end
     endgenerate
 
-
-    // ====================================================================
-    //
-    //  Merge translated requests into the shared Avalon port
-    //
-    // ====================================================================
-
     always_comb
     begin
-        if (rsp_do_read)
-        begin
-            host_mem_if.address = rd_rsp_address;
-            host_mem_if.burstcount = rd_rsp_burstcount;
-            host_mem_if.byteenable = rd_rsp_byteenable;
-            error = rd_error;
-        end
-        else
-        begin
-            host_mem_if.address = wr_rsp_address;
-            host_mem_if.burstcount = wr_rsp_burstcount;
-            host_mem_if.byteenable = wr_rsp_byteenable;
-            error = wr_error;
-        end
+        host_mem_if.wr_address = wr_rsp_address;
+        host_mem_if.wr_burstcount = wr_rsp_burstcount;
+        host_mem_if.wr_byteenable = wr_rsp_byteenable;
+        host_mem_if.wr_user = wr_rsp_user;
     end
 
 
@@ -374,4 +347,4 @@ module mpf_vtp_translate_ofs_avalon_mem
     end
     // synthesis translate_on
 
-endmodule // mpf_vtp_translate_ofs_avalon_mem
+endmodule // mpf_vtp_translate_ofs_avalon_mem_rdwr

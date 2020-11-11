@@ -42,16 +42,16 @@
 
 
 //
-// Dummy Avalon slave implementation to handle failed translations.
+// Dummy Avalon sink implementation to handle failed translations.
 // Information about failures is noted but requests are dropped.
 // There are no responses generated.
 //
-module dummy_failed_g1_slaves
+module dummy_failed_g1_sinks
   #(
     parameter NUM_PORTS_G1 = 0
     )
    (
-    ofs_plat_avalon_mem_if.to_master host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
+    ofs_plat_avalon_mem_if.to_source host_mem_g1_failed_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
 
     // Record recent failures that will be exported as CSRs
     output logic [63:0] csr_g1_rd_vtp_fail_va,
@@ -81,7 +81,7 @@ module dummy_failed_g1_slaves
             // tie off the response wires.
             always_comb
             begin
-                `OFS_PLAT_AVALON_MEM_IF_INIT_SLAVE_COMB(host_mem_g1_failed_if[p]);
+                `OFS_PLAT_AVALON_MEM_IF_INIT_SINK_COMB(host_mem_g1_failed_if[p]);
             end
 
             // Track SOP
@@ -171,19 +171,19 @@ module dummy_failed_g1_slaves
         end
     end
 
-endmodule // dummy_failed_g1_slaves
+endmodule // dummy_failed_g1_sinks
 
 
 //
 // Simple AVMM request routing fork, useful only for this example since
-// to_slave1 responses are ignored. Requests from master are routed either
-// to slave0 or slave1 depending on the picker inputs.
+// to_sink1 responses are ignored. Requests from source are routed either
+// to sink0 or sink1 depending on the picker inputs.
 //
 module fork_avalon_mem
    (
-    ofs_plat_avalon_mem_if.to_slave slave0,
-    ofs_plat_avalon_mem_if.to_slave slave1,
-    ofs_plat_avalon_mem_if.to_master master,
+    ofs_plat_avalon_mem_if.to_sink sink0,
+    ofs_plat_avalon_mem_if.to_sink sink1,
+    ofs_plat_avalon_mem_if.to_source source,
 
     // Picker directs requests
     input  logic pick_path
@@ -192,41 +192,41 @@ module fork_avalon_mem
     // Internal picker interfaces
     ofs_plat_avalon_mem_if
       #(
-        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(slave0)
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(sink0)
         )
       picker_mem_if[2]();
 
-    // Connect internal interfaces to the slave ports
-    ofs_plat_avalon_mem_if_reg_slave_clk reg0
+    // Connect internal interfaces to the sink ports
+    ofs_plat_avalon_mem_if_reg_sink_clk reg0
        (
-        .mem_slave(slave0),
-        .mem_master(picker_mem_if[0])
+        .mem_sink(sink0),
+        .mem_source(picker_mem_if[0])
         );
 
-    ofs_plat_avalon_mem_if_reg_slave_clk reg1
+    ofs_plat_avalon_mem_if_reg_sink_clk reg1
        (
-        .mem_slave(slave1),
-        .mem_master(picker_mem_if[1])
+        .mem_sink(sink1),
+        .mem_source(picker_mem_if[1])
         );
 
     always_comb
     begin
-        // Only slave0 (picker_mem_if[0]) responses reach master
-        `OFS_PLAT_AVALON_MEM_IF_FROM_SLAVE_TO_MASTER_COMB(master, picker_mem_if[0]);
+        // Only sink0 (picker_mem_if[0]) responses reach source
+        `OFS_PLAT_AVALON_MEM_IF_FROM_SINK_TO_SOURCE_COMB(source, picker_mem_if[0]);
 
-        // Send requests from master to both slaves (control signals will be
-        // cleaned up below so only one slave fires).
-        `OFS_PLAT_AVALON_MEM_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[0], master);
-        `OFS_PLAT_AVALON_MEM_IF_FROM_MASTER_TO_SLAVE_COMB(picker_mem_if[1], master);
+        // Send requests from source to both sinks (control signals will be
+        // cleaned up below so only one sink fires).
+        `OFS_PLAT_AVALON_MEM_IF_FROM_SOURCE_TO_SINK_COMB(picker_mem_if[0], source);
+        `OFS_PLAT_AVALON_MEM_IF_FROM_SOURCE_TO_SINK_COMB(picker_mem_if[1], source);
 
-        // Choose which slave gets the request
-        picker_mem_if[0].read = master.read && ~pick_path;
-        picker_mem_if[1].read = master.read && pick_path;
-        picker_mem_if[0].write = master.write && ~pick_path;
-        picker_mem_if[1].write = master.write && pick_path;
+        // Choose which sink gets the request
+        picker_mem_if[0].read = source.read && ~pick_path;
+        picker_mem_if[1].read = source.read && pick_path;
+        picker_mem_if[0].write = source.write && ~pick_path;
+        picker_mem_if[1].write = source.write && pick_path;
 
-        // Use only waitrequest from the chosen slave
-        master.waitrequest = (pick_path ? picker_mem_if[1].waitrequest :
+        // Use only waitrequest from the chosen sink
+        source.waitrequest = (pick_path ? picker_mem_if[1].waitrequest :
                                           picker_mem_if[0].waitrequest);
     end
 
@@ -310,4 +310,4 @@ module dummy_failed_mpf_ccip_shim
         end
     end
 
-endmodule // dummy_failed_mpf_ccip_slave
+endmodule // dummy_failed_mpf_ccip_sink

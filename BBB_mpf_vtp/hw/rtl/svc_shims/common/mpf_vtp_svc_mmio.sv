@@ -51,7 +51,9 @@ module mpf_vtp_svc_mmio
 
     // Address width of MMIO when addressing 64 bit objects. (The usual
     // CCI-P address space is 32 bit objects.)
-    parameter MMIO64_ADDR_WIDTH = CCIP_MMIOADDR_WIDTH - 1
+    parameter MMIO64_ADDR_WIDTH = CCIP_MMIOADDR_WIDTH - 1,
+
+    parameter MMIO64_TID_WIDTH = $bits(t_ccip_tid)
     )
    (
     input  logic clk,
@@ -64,9 +66,9 @@ module mpf_vtp_svc_mmio
     input  logic [63:0] write_data,
 
     input  logic read_req,
-    input  t_ccip_tid read_tid_in,
+    input  logic [MMIO64_TID_WIDTH-1 : 0] read_tid_in,
     output logic read_rsp,
-    output t_ccip_tid read_tid_out,
+    output logic [MMIO64_TID_WIDTH-1 : 0] read_tid_out,
     output logic [63:0] read_data,
     // Read responses sit in an output FIFO until read_deq is set
     input  logic read_deq,
@@ -92,7 +94,7 @@ module mpf_vtp_svc_mmio
     logic write_req_q, write_req_qq;
     logic [63:0] write_data_q, write_data_qq;
     logic read_req_q, read_req_qq;
-    t_ccip_tid read_tid_in_q, read_tid_in_qq, read_tid_in_qqq;
+    logic [MMIO64_TID_WIDTH-1 : 0] read_tid_in_q, read_tid_in_qq, read_tid_in_qqq;
 
     always_ff @(posedge clk)
     begin
@@ -147,7 +149,7 @@ module mpf_vtp_svc_mmio
     // read responses coming from the AFU.
     cci_mpf_prim_fifo_lutram
       #(
-        .N_DATA_BITS(CCIP_TID_WIDTH + 64),
+        .N_DATA_BITS(MMIO64_TID_WIDTH + 64),
         .N_ENTRIES(64),
         .REGISTER_OUTPUT(1)
         )

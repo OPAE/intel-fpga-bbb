@@ -37,7 +37,7 @@
 // The shim connection doesn't perform translation -- it only manages the
 // host I/O (MMIO and DMA) that supports translation. The shim exports a
 // vector of VTP translation ports (vtp_ports), which the AFU may use to
-// translate addresses within the AFU. VTP provides wrapper two modules,
+// translate addresses within the AFU. VTP provides two wrapper modules,
 // mpf_svc_vtp_port_wrapper_unordered and mpf_svc_vtp_port_wrapper_ordered,
 // to connect read or write DMA pipelines to a VTP translation port.
 //
@@ -48,19 +48,19 @@
 module mpf_vtp_svc_ofs_ccip
   #(
     // Instance ID reported in feature IDs of all device feature
-    // headers instantiated under this instance of MPF.  If only a single
+    // headers instantiated under this instance of MPF. If only a single
     // MPF instance is instantiated in the AFU then leaving the instance
     // ID at 1 is probably the right choice.
     parameter MPF_INSTANCE_ID = 1,
 
     // MMIO base address (byte level) allocated to VTP for feature lists
-    // and CSRs.  The AFU allocating this module must build at least
-    // a device feature header (DFH) for the AFU.  The chain of device
+    // and CSRs. The AFU allocating this module must build at least
+    // a device feature header (DFH) for the AFU. The chain of device
     // features in the AFU must then point to the base address here
     // as another feature in the chain. VTP will continue the list.
     // The base address here must point to a region that is at least
     // CCI_MPF_VTP_CSR_SIZE bytes.
-    parameter DFH_MMIO_BASE_ADDR = 0,
+    parameter DFH_MMIO_BASE_ADDR,
 
     // Address of the next device feature header outside VTP. VTP will
     // terminate the feature list if the next address is 0.
@@ -83,7 +83,7 @@ module mpf_vtp_svc_ofs_ccip
     parameter t_ccip_mdata MDATA_TAG_VALUE = MDATA_TAG_MASK,
 
     // Number of VTP translation ports required by the AFU.
-    parameter N_VTP_PORTS = 0,
+    parameter N_VTP_PORTS,
 
     // Two implementations of physical to virtual page translation are
     // available in VTP. Pick mode "HARDWARE_WALKER" to walk the VTP

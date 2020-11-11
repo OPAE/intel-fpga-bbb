@@ -48,7 +48,7 @@ module afu
 
     // Secondary host memory interface (as Avalon). Zero length vectors are illegal.
     // Force minimum size 1 dummy entry in case no secondary ports exist.
-    ofs_plat_avalon_mem_if.to_slave host_mem_g1_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
+    ofs_plat_avalon_mem_if.to_sink host_mem_g1_if[NUM_PORTS_G1 > 0 ? NUM_PORTS_G1 : 1],
 
     // pClk is used to compute the frequency of the AFU's clk, since pClk
     // is a known frequency.
@@ -318,6 +318,10 @@ module afu
         .c1Tx_pwrite('0)
         );
 
+    // Don't track host channel low-level events
+    host_chan_events_if host_chan_events();
+    host_chan_events_none n(.events(host_chan_events));
+
     host_mem_rdwr_engine_ccip
       #(
         .ENGINE_NUMBER(0)
@@ -325,6 +329,7 @@ module afu
       eng
        (
         .host_mem_if(host_mem_va_if),
+        .host_chan_events_if(host_chan_events),
         .csrs(eng_csr[0])
         );
 
@@ -373,11 +378,11 @@ module afu
     // Note VTP translation failures. A real implementation that handles
     // translation failures would have to be much smarter than this.
     //
-    dummy_failed_g1_slaves
+    dummy_failed_g1_sinks
       #(
         .NUM_PORTS_G1(NUM_PORTS_G1)
         )
-      g1_failed_slaves
+      g1_failed_sinks
        (
         .host_mem_g1_failed_if,
 
@@ -439,9 +444,9 @@ module g1_worker
     parameter WRITE_FENCE_SUPPORTED = 1
     )
    (
-    ofs_plat_avalon_mem_if.to_slave host_mem_if,
+    ofs_plat_avalon_mem_if.to_sink host_mem_if,
     // Failed translations are routed here
-    ofs_plat_avalon_mem_if.to_slave host_mem_failed_if,
+    ofs_plat_avalon_mem_if.to_sink host_mem_failed_if,
     engine_csr_if.engine csrs,
 
     mpf_vtp_port_if.to_slave vtp_ports[2]
@@ -480,9 +485,9 @@ module g1_worker
     // host_mem_failed_if.
     fork_avalon_mem pick_path
        (
-        .slave0(host_mem_if),
-        .slave1(host_mem_failed_if),
-        .master(host_mem_xlate_if),
+        .sink0(host_mem_if),
+        .sink1(host_mem_failed_if),
+        .source(host_mem_xlate_if),
         .pick_path(vtp_xlate_error)
         );
 
@@ -527,9 +532,13 @@ module g1_worker
 
     ofs_plat_avalon_mem_rdwr_if_to_mem_if conn_engine
        (
-        .mem_slave(host_mem_va_if),
-        .mem_master(host_mem_engine_if)
+        .mem_sink(host_mem_va_if),
+        .mem_source(host_mem_engine_if)
         );
+
+    // Don't track host channel low-level events
+    host_chan_events_if host_chan_events();
+    host_chan_events_none n(.events(host_chan_events));
 
     host_mem_rdwr_engine_avalon
       #(
@@ -541,6 +550,7 @@ module g1_worker
       eng
        (
         .host_mem_if(host_mem_engine_if),
+        .host_chan_events_if(host_chan_events),
         .csrs
         );
 

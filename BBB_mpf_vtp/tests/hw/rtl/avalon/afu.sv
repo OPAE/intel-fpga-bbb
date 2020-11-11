@@ -29,8 +29,8 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Add a VTP server to the CCI-P interface and use virtual addresses in the
-// test engine.
+// Add a VTP server to the host memory interface and use virtual addresses
+// in the test engine.
 //
 
 `include "ofs_plat_if.vh"
@@ -39,7 +39,10 @@
 module afu
    (
     // Primary host interface
-    ofs_plat_host_ccip_if.to_fiu host_ccip_if,
+    ofs_plat_avalon_mem_rdwr_if.to_sink host_mem_if,
+
+    // MMIO (CSR space)
+    ofs_plat_avalon_mem_if.to_source mmio64_if,
 
     // pClk is used to compute the frequency of the AFU's clk, since pClk
     // is a known frequency.
@@ -49,21 +52,27 @@ module afu
     input  t_ofs_plat_power_state pwrState
     );
 
+    import cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value;
+
     logic clk;
-    assign clk = host_ccip_if.clk;
+    assign clk = host_mem_if.clk;
     logic reset_n;
-    assign reset_n = host_ccip_if.reset_n;
+    assign reset_n = host_mem_if.reset_n;
 
     localparam NUM_ENGINES = 1;
+
+    // The width of the Avalon-MM user field is narrower on the AFU side
+    // of VTP, since VTP uses a bit to flag VTP page table traffic.
+    // Drop the high bit of the user field on the AFU side.
+    localparam AFU_AVMM_USER_WIDTH = host_mem_if.USER_WIDTH_ - 1;
 
 
     // ====================================================================
     //
     //  Instantiate the VTP service for use by the host channel.
-    //  The VTP service is an OFS CCI-P to OFS CCI-P shim that injects
-    //  MMIO and page table traffic into the interface. The VTP
-    //  translation ports are a separate interface that will be passed
-    //  to the AFU memory engines.
+    //  The VTP service is an OFS Avalon shim that injects MMIO and page
+    //  table traffic into the interface. The VTP translation ports are
+    //  a separate interface that will be passed to the AFU memory engines.
     //
     // ====================================================================
 
@@ -73,9 +82,33 @@ module afu
     // Byte address of VTP CSRs
     localparam VTP_MMIO_BASE_ADDR = 'h4000;
 
-    ofs_plat_host_ccip_if afu_ccip_if();
+    // Physical address interface for use by the AFU. This instance
+    // will be the AFU side of the VTP service shim. (The service
+    // shim injects page table requests. It is does not translate
+    // addresses on the memory interfaces. The service shim's VTP
+    // ports must be used by the AFU for translation.)
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS_EXCEPT_TAGS(host_mem_if),
+        .USER_WIDTH(AFU_AVMM_USER_WIDTH)
+        )
+      host_mem_afu_pa_if();
 
-    mpf_vtp_svc_ofs_ccip
+    assign host_mem_afu_pa_if.clk = host_mem_if.clk;
+    assign host_mem_afu_pa_if.reset_n = host_mem_if.reset_n;
+    assign host_mem_afu_pa_if.instance_number = host_mem_if.instance_number;
+
+    ofs_plat_avalon_mem_if
+      #(
+        `OFS_PLAT_AVALON_MEM_IF_REPLICATE_PARAMS(mmio64_if)
+        )
+      mmio64_afu_if();
+
+    assign mmio64_afu_if.clk = mmio64_if.clk;
+    assign mmio64_afu_if.reset_n = mmio64_if.reset_n;
+    assign mmio64_afu_if.instance_number = mmio64_if.instance_number;
+
+    mpf_vtp_svc_ofs_avalon_mem_rdwr
       #(
         // VTP's CSR byte address. The AFU will add this address to
         // the feature list.
@@ -84,32 +117,17 @@ module afu
         .N_VTP_PORTS(2),
         // The tag must use value not used by the AFU so VTP can identify
         // it's own DMA traffic.
-        .MDATA_TAG_MASK(1 << (CCIP_MDATA_WIDTH-2))
+        .USER_TAG_IDX(AFU_AVMM_USER_WIDTH)
         )
       vtp_svc
        (
-        .to_fiu(host_ccip_if),
-        .to_afu(afu_ccip_if),
+        .mem_sink(host_mem_if),
+        .mem_source(host_mem_afu_pa_if),
+
+        .mmio64_source(mmio64_if),
+        .mmio64_sink(mmio64_afu_if),
+
         .vtp_ports
-        );
-
-
-    // ====================================================================
-    //
-    //  Split the CCI-P interface into separate host memory and MMIO
-    //  interfaces.
-    //
-    // ====================================================================
-
-    // Enable simulation-time debug logging on these AFU interfaces
-    ofs_plat_host_ccip_if#(.LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)) host_mem_if();
-    ofs_plat_host_ccip_if#(.LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)) host_mmio_if();
-
-    ofs_plat_shim_ccip_split_mmio ccip_split
-       (
-        .to_fiu(afu_ccip_if),
-        .host_mem(host_mem_if),
-        .mmio(host_mmio_if)
         );
 
 
@@ -151,14 +169,24 @@ module afu
     // Generate a host memory interface that accepts virtual addresses.
     // The code below will connect it to the host_mem_if, which expects
     // IOVAs, performing the translation using the two VTP ports.
-    ofs_plat_host_ccip_if#(.LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)) host_mem_va_if();
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS_EXCEPT_TAGS(host_mem_if),
+        .USER_WIDTH(AFU_AVMM_USER_WIDTH),
+        .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
+        )
+      host_mem_afu_va_if();
 
-    mpf_vtp_translate_ofs_ccip vtp
+    assign host_mem_afu_va_if.clk = host_mem_if.clk;
+    assign host_mem_afu_va_if.reset_n = host_mem_if.reset_n;
+    assign host_mem_afu_va_if.instance_number = host_mem_if.instance_number;
+
+    mpf_vtp_translate_ofs_avalon_mem_rdwr vtp
        (
-        .host_mem_if,
-        .host_mem_va_if,
-        .error_c0(),
-        .error_c1(),
+        .host_mem_if(host_mem_afu_pa_if),
+        .host_mem_va_if(host_mem_afu_va_if),
+        .rd_error(),
+        .wr_error(),
         .vtp_ports
         );
 
@@ -168,14 +196,14 @@ module afu
 
     // Instantiate the test engine, which will generate requests using
     // virtual addresses.
-    host_mem_rdwr_engine_ccip
+    host_mem_rdwr_engine_avalon
       #(
         .ENGINE_NUMBER(0),
         .ADDRESS_SPACE("VA")
         )
       eng
        (
-        .host_mem_if(host_mem_va_if),
+        .host_mem_if(host_mem_afu_va_if),
         .host_chan_events_if(host_chan_events),
         .csrs(eng_csr[0])
         );
@@ -187,36 +215,31 @@ module afu
     //
     // ====================================================================
 
-    t_ccip_c0_ReqMmioHdr mmio_hdr;
-    assign mmio_hdr = t_ccip_c0_ReqMmioHdr'(host_mmio_if.sRx.c0.hdr);
-
-    // Tie off unused Tx ports
-    assign host_mmio_if.sTx.c0 = '0;
-    assign host_mmio_if.sTx.c1 = '0;
+    // MMIO never blocks
+    assign mmio64_afu_if.waitrequest = 1'b0;
 
     csr_mgr
       #(
         .NUM_ENGINES(NUM_ENGINES),
         .DFH_MMIO_NEXT_ADDR(VTP_MMIO_BASE_ADDR),
-        // Convert to QWORD index space (drop the low address bit)
-        .MMIO_ADDR_WIDTH(CCIP_MMIOADDR_WIDTH - 1)
+        .MMIO_ADDR_WIDTH(mmio64_afu_if.ADDR_WIDTH)
         )
       csr_mgr
        (
-        .clk(host_mmio_if.clk),
-        .reset_n(host_mmio_if.reset_n),
+        .clk(mmio64_afu_if.clk),
+        .reset_n(mmio64_afu_if.reset_n),
         .pClk,
 
-        .wr_write(host_mmio_if.sRx.c0.mmioWrValid),
-        .wr_address(mmio_hdr.address[CCIP_MMIOADDR_WIDTH-1 : 1]),
-        .wr_writedata(host_mmio_if.sRx.c0.data[63:0]),
+        .wr_write(mmio64_afu_if.write),
+        .wr_address(mmio64_afu_if.address),
+        .wr_writedata(mmio64_afu_if.writedata),
 
-        .rd_read(host_mmio_if.sRx.c0.mmioRdValid),
-        .rd_address(mmio_hdr.address[CCIP_MMIOADDR_WIDTH-1 : 1]),
-        .rd_tid_in(mmio_hdr.tid),
-        .rd_readdatavalid(host_mmio_if.sTx.c2.mmioRdValid),
-        .rd_readdata(host_mmio_if.sTx.c2.data),
-        .rd_tid_out(host_mmio_if.sTx.c2.hdr.tid),
+        .rd_read(mmio64_afu_if.read),
+        .rd_address(mmio64_afu_if.address),
+        .rd_tid_in('x),
+        .rd_readdatavalid(mmio64_afu_if.readdatavalid),
+        .rd_readdata(mmio64_afu_if.readdata),
+        .rd_tid_out(),
 
         .eng_csr_glob,
         .eng_csr
