@@ -21,6 +21,7 @@
  */
 
 #include <linux/version.h>
+#include <linux/dma-mapping.h>
 #include <linux/eventfd.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
@@ -162,12 +163,20 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 	*vm_flags = 0;
 
 	/* Lock the mm */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	mmap_read_lock(mm);
+#else
 	down_read(&mm->mmap_sem);
+#endif
 
 	/* Is there a mapping at vaddr? */
 	vma = find_vma(mm, vaddr);
 	if (!vma || (vaddr < vma->vm_start)) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+		mmap_read_unlock(mm);
+#else
 		up_read(&mm->mmap_sem);
+#endif
 		return -ENOMEM; /* no mapping */
 	}
 
@@ -194,7 +203,11 @@ static long get_vaddr_page_vma_info(struct mm_struct *mm, u64 vaddr,
 		*page_nid = page_to_nid(page);
 	}
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	mmap_read_unlock(mm);
+#else
 	up_read(&mm->mmap_sem);
+#endif
 	return 0;
 }
 
