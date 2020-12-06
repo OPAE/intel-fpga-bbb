@@ -49,7 +49,7 @@ module mem_csr
     output t_if_ccip_Tx af2cp_sTxPort,
 
     // Map CSR commands to requests to the memory FSM
-    ofs_plat_avalon_mem_if.to_slave mem_csr_to_fsm,
+    ofs_plat_avalon_mem_if.to_sink mem_csr_to_fsm,
     input  logic [31:0] mem_errors,
     output logic mem_error_clr,
 

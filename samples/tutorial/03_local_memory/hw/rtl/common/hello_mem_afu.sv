@@ -48,7 +48,7 @@ module hello_mem_afu
     output t_if_ccip_Tx af2cp_sTxPort,
 
     // Commands to local memory banks
-    ofs_plat_avalon_mem_if.to_slave mem_cmd,
+    ofs_plat_avalon_mem_if.to_sink mem_cmd,
 
     output logic [$clog2(NUM_LOCAL_MEM_BANKS)-1:0] mem_bank_select
     );

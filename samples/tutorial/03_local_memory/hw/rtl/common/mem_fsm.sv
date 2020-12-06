@@ -47,7 +47,7 @@ module mem_fsm
     input  reset_n,
 
     // Commands to local memory banks
-    ofs_plat_avalon_mem_if.to_slave mem_cmd,
+    ofs_plat_avalon_mem_if.to_sink mem_cmd,
 
     // AVL MM CSR Control Signals
     ofs_plat_avalon_mem_if.to_master mem_csr_to_fsm,

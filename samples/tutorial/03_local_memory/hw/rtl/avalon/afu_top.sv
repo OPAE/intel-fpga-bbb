@@ -40,7 +40,7 @@ module afu_top
 
     // Local memory interface. The platform interface module (ofs_plat_afu)
     // has mapped all local memory clocks to same clock as ccip_if.
-    ofs_plat_avalon_mem_if.to_slave local_mem[NUM_LOCAL_MEM_BANKS],
+    ofs_plat_avalon_mem_if.to_sink local_mem[NUM_LOCAL_MEM_BANKS],
 
     // AFU Power State
     input  t_ofs_plat_power_state pwrState
