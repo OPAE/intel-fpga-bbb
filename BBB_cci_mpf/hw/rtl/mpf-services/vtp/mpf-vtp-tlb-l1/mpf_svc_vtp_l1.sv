@@ -68,12 +68,12 @@ module mpf_svc_vtp_l1
     end
 
     // L1 lookup result wires
-    logic l1_fifo_deq;
-    logic l1_fifo_notEmpty;
-    t_mpf_vtp_lookup_req l1_req_out;
-    logic l1_reqIsOrdered_out;
-    logic l1_reqAddrIsVirtual_out;
-    t_mpf_vtp_lookup_rsp l1_rsp;
+    logic l1tlb_fifo_deq;
+    logic l1tlb_fifo_notEmpty;
+    t_mpf_vtp_lookup_req l1tlb_req_out;
+    logic l1tlb_reqIsOrdered_out;
+    logic l1tlb_reqAddrIsVirtual_out;
+    t_mpf_vtp_lookup_rsp l1tlb_rsp;
 
     // L1 insertion request wires
     t_tlb_4kb_va_page_idx insertVA;
@@ -81,10 +81,8 @@ module mpf_svc_vtp_l1
     logic en_insert_4kb;
     logic en_insert_2mb;
 
-    // Respond with a successful L1 lookup?
-    logic l1_rspValid;
-    // Forward an unsuccessful L1 lookup to the L2 pipeline?
-    logic l1_fwd_to_l2;
+    logic l2_notFull;
+    logic l2_notEmpty;
 
     //
     // Lookup in local L1 TLB. There is an internal FIFO, so requests
@@ -109,11 +107,11 @@ module mpf_svc_vtp_l1
         .req(vtp_port.req),
         .reqOpaque({ vtp_port.reqAddrIsVirtual, vtp_port.reqIsOrdered }),
 
-        .notEmpty(l1_fifo_notEmpty),
-        .req_out(l1_req_out),
-        .reqOpaque_out({ l1_reqAddrIsVirtual_out, l1_reqIsOrdered_out }),
-        .rsp(l1_rsp),
-        .deq(l1_fifo_deq),
+        .notEmpty(l1tlb_fifo_notEmpty),
+        .req_out(l1tlb_req_out),
+        .reqOpaque_out({ l1tlb_reqAddrIsVirtual_out, l1tlb_reqIsOrdered_out }),
+        .rsp(l1tlb_rsp),
+        .deq(l1tlb_fifo_deq),
 
         .insertVA,
         .insertPA,
@@ -125,13 +123,68 @@ module mpf_svc_vtp_l1
 
 
     //
+    // L1 TLB hit FIFO. We need a place to store L1 hits when there are
+    // L2 responses ready. This way the L1 TLB continues to drain and,
+    // if necessary, keeps pushing L1 misses to the L2 pipeline.
+    //
+    t_mpf_vtp_lookup_rsp l1hit_rsp;
+
+    logic l1hit_notFull;
+    logic l1hit_notEmpty;
+    logic l1hit_deq;
+
+    logic l1hit_valid;
+    assign l1hit_valid = l1hit_notEmpty && !almostFullFromFIU_q;
+
+    logic l1tlb_to_l1hit;
+    assign l1tlb_to_l1hit = l1hit_notFull && l1tlb_fifo_notEmpty &&
+                            // Block ordered (fence) requests until L2 drains
+                            !(l1tlb_reqIsOrdered_out && l2_notEmpty) &&
+                            // No L1 translation needed or L1 translation is valid
+                            (! l1tlb_reqAddrIsVirtual_out || ! l1tlb_rsp.error);
+
+    t_mpf_vtp_lookup_rsp l1hit_rsp_in;
+    always_comb
+    begin
+        l1hit_rsp_in = l1tlb_rsp;
+
+        // Drop error bit if the address isn't virtual
+        if (! l1tlb_reqAddrIsVirtual_out)
+        begin
+            l1hit_rsp_in.error = 1'b0;
+        end
+    end
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(t_mpf_vtp_lookup_rsp)),
+        .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
+        .REGISTER_OUTPUT(1)
+        )
+      l1hit
+       (
+        .clk,
+        .reset,
+
+        .enq_data(l1hit_rsp_in),
+        .enq_en(l1tlb_to_l1hit),
+        .notFull(l1hit_notFull),
+        .almostFull(),
+
+        .first(l1hit_rsp),
+        .deq_en(l1hit_deq),
+        .notEmpty(l1hit_notEmpty)
+        );
+
+
+    //
     // L2 handles translation misses in the L1.
     //
-    logic l2_notFull;
-    logic l2_notEmpty;
-
     logic l2_rspValid;
     t_mpf_vtp_lookup_rsp l2_rsp;
+
+    // Forward an unsuccessful L1 lookup to the L2 pipeline?
+    logic l1_fwd_to_l2;
 
     mpf_svc_vtp_l1_miss
       #(
@@ -149,7 +202,7 @@ module mpf_svc_vtp_l1
 
         // Send to L2 when L1 translation fails
         .reqEn(l1_fwd_to_l2),
-        .req(l1_req_out),
+        .req(l1tlb_req_out),
 
         .rspValid(l2_rspValid),
         .rsp(l2_rsp),
@@ -168,53 +221,23 @@ module mpf_svc_vtp_l1
     //
     // L1 control
     //
-    always_comb
-    begin
-        l1_rspValid = 1'b0;
-        l1_fwd_to_l2 = 1'b0;
+    assign l1hit_deq = l1hit_valid && !l2_rspValid;
+    assign l1tlb_fifo_deq = l1tlb_to_l1hit || l1_fwd_to_l2;
 
-        // Forward L1 lookup output? In addition to having valid data,
-        // we must block if the request is ordered (e.g. a fence) and
-        // other requests are still flowing through the VTP L2.
-        if (l1_fifo_notEmpty && ! (l1_reqIsOrdered_out && l2_notEmpty) && ! reset)
-        begin
-            // No L1 translation needed or translation is valid?
-            if (! l1_reqAddrIsVirtual_out || ! l1_rsp.error)
-            begin
-                // Yes: forward directly to FIU unless there is conflicting
-                // output from the L2 pipeline.
-                l1_rspValid = ! almostFullFromFIU_q && ! l2_rspValid;
-            end
-            else
-            begin
-                // L2 lookup needed.
-                l1_fwd_to_l2 = l2_notFull;
-            end
-        end
-
-        l1_fifo_deq = l1_rspValid || l1_fwd_to_l2;
-    end
+    // Forward to L2?
+    assign l1_fwd_to_l2 = l1tlb_fifo_notEmpty &&
+                          // L1 miss
+                          l1tlb_reqAddrIsVirtual_out && l1tlb_rsp.error &&
+                          // Wait for L2 to drain if order (fence) is being enforced
+                          !(l1tlb_reqIsOrdered_out && l2_notEmpty);
 
     //
     // Merge L1 and L2 pipeline toward FIU.
     //
     always_ff @(posedge clk)
     begin
-        vtp_port.rspValid <= l1_rspValid || l2_rspValid;
-
-        if (l1_rspValid)
-        begin
-            vtp_port.rsp <= l1_rsp;
-            if (! l1_reqAddrIsVirtual_out)
-            begin
-                // Not an error if the input address requires no translation
-                vtp_port.rsp.error <= 1'b0;
-            end
-        end
-        else
-        begin
-            vtp_port.rsp <= l2_rsp;
-        end
+        vtp_port.rspValid <= l1hit_valid || l2_rspValid;
+        vtp_port.rsp <= (l2_rspValid ? l2_rsp : l1hit_rsp);
 
         if (reset)
         begin

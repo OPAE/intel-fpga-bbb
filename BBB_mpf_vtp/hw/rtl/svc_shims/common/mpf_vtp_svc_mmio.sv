@@ -129,6 +129,7 @@ module mpf_vtp_svc_mmio
 
     // Is the request to the VTP region?
     assign is_vtp_mmio =
+        (write_req || read_req) &&
         ((csr_addr >= t_ccip_mmioAddr'(DFH_MMIO_BASE_ADDR >> 3)) &&
          (csr_addr < t_ccip_mmioAddr'(DFH_VTP_END_ADDR >> 3)));
 

@@ -1,10 +1,12 @@
-svc_shims/mpf_vtp_svc_ofs_ccip.sv
 svc_shims/mpf_vtp_svc_ofs_avalon_mem_rdwr.sv
+svc_shims/mpf_vtp_svc_ofs_axi_mem.sv
+svc_shims/mpf_vtp_svc_ofs_ccip.sv
 svc_shims/common/mpf_vtp_svc_mmio.sv
 
 translate/mpf_vtp_translate_chan.sv
 translate/mpf_vtp_translate_ofs_avalon_mem.sv
 translate/mpf_vtp_translate_ofs_avalon_mem_rdwr.sv
+translate/mpf_vtp_translate_ofs_axi_mem.sv
 
 translate/ccip/mpf_vtp_translate_ofs_ccip.sv
 translate/ccip/mpf_vtp_translate_ofs_ccip_c0.sv

@@ -46,13 +46,20 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     // the translation failure. When no translation is found, the channel's
     // error bit is set, the request still flows to host_mem_if, and the
     // address in host_mem_if is unchanged from the value in host_mem_va_if.
-    parameter FAIL_ON_ERROR = 1
+    parameter FAIL_ON_ERROR = 1,
+
+    // Break requests that cross 4KB pages into separate translations?
+    // This is a common problem for AFUs using virtual addresses, so
+    // is provided by default. The AFU will not detect that transactions
+    // have been broken apart. Extra read last flags and write responses
+    // are suppressed.
+    parameter SAFE_PAGE_CROSSING = 1
     )
    (
     // FIU interface -- IOVA or physical addresses
-    ofs_plat_avalon_mem_rdwr_if.to_slave host_mem_if,
+    ofs_plat_avalon_mem_rdwr_if.to_sink host_mem_if,
     // AFU interface -- virtual addresses
-    ofs_plat_avalon_mem_rdwr_if.to_master host_mem_va_if,
+    ofs_plat_avalon_mem_rdwr_if.to_source host_mem_va_if,
 
     // Translation error signal. When FAIL_ON_ERROR is 0, the consumer of
     // host_mem_if is expected to note the error bit and handle the failure.
@@ -79,10 +86,57 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     localparam BURST_CNT_WIDTH = host_mem_va_if.BURST_CNT_WIDTH_;
     localparam USER_WIDTH = host_mem_va_if.USER_WIDTH_;
 
+
+    // ====================================================================
+    //
+    // Break requests at page boundaries.
+    //
+    // ====================================================================
+
+    ofs_plat_avalon_mem_rdwr_if
+      #(
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_REPLICATE_PARAMS(host_mem_va_if)
+        )
+      host_mem_va_page_if();
+
+    assign host_mem_va_page_if.clk = host_mem_va_if.clk;
+    assign host_mem_va_page_if.reset_n = host_mem_va_if.reset_n;
+    assign host_mem_va_page_if.instance_number = host_mem_va_if.instance_number;
+
+    generate
+        if (SAFE_PAGE_CROSSING)
+        begin
+            ofs_plat_avalon_mem_rdwr_if_map_bursts
+              #(
+                .UFLAG_NO_REPLY(ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_NO_REPLY),
+                .PAGE_SIZE(4096)
+                )
+              map_page_bursts
+               (
+                .mem_source(host_mem_va_if),
+                .mem_sink(host_mem_va_page_if)
+                );
+        end
+        else
+        begin
+            ofs_plat_avalon_mem_rdwr_if_connect conn
+               (
+                .mem_source(host_mem_va_if),
+                .mem_sink(host_mem_va_page_if)
+                );
+        end
+    endgenerate
+
+
+    // ====================================================================
+    //
     // Connect responses (no translation needed)
+    //
+    // ====================================================================
+
     always_comb
     begin
-        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_SLAVE_TO_MASTER(host_mem_va_if, =, host_mem_if);
+        `OFS_PLAT_AVALON_MEM_RDWR_IF_FROM_SINK_TO_SOURCE(host_mem_va_page_if, =, host_mem_if);
     end
 
 
@@ -97,12 +151,12 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     t_mpf_vtp_port_wrapper_rsp vtp_rd_rsp;
     logic vtp_rd_full;
 
-    assign host_mem_va_if.rd_waitrequest = vtp_rd_full;
+    assign host_mem_va_page_if.rd_waitrequest = vtp_rd_full;
 
     always_comb
     begin
         vtp_rd_req = '0;
-        vtp_rd_req.addr = host_mem_va_if.rd_address;
+        vtp_rd_req.addr = host_mem_va_page_if.rd_address;
         // All reads have virtual addresses in this AFU
         vtp_rd_req.addrIsVirtual = 1'b1;
         vtp_rd_req.isSpeculative = (FAIL_ON_ERROR == 0);
@@ -136,10 +190,10 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
                       rd_rsp_user }),
         .deq_en(rd_deq_en),
 
-        .req_valid(host_mem_va_if.rd_read && !host_mem_va_if.rd_waitrequest),
-        .opaque_req({ host_mem_va_if.rd_burstcount,
-                      host_mem_va_if.rd_byteenable,
-                      host_mem_va_if.rd_user }),
+        .req_valid(host_mem_va_page_if.rd_read && !host_mem_va_page_if.rd_waitrequest),
+        .opaque_req({ host_mem_va_page_if.rd_burstcount,
+                      host_mem_va_page_if.rd_byteenable,
+                      host_mem_va_page_if.rd_user }),
         .full(vtp_rd_full),
 
         .vtp_req(vtp_rd_req),
@@ -188,7 +242,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     t_mpf_vtp_port_wrapper_rsp vtp_wr_rsp;
     logic vtp_wr_full;
 
-    assign host_mem_va_if.wr_waitrequest = vtp_wr_full;
+    assign host_mem_va_page_if.wr_waitrequest = vtp_wr_full;
 
     // Track SOP -- only translate the address at SOP
     logic wr_sop;
@@ -202,8 +256,8 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
        (
         .clk,
         .reset_n,
-        .flit_valid(host_mem_va_if.wr_write && ! host_mem_va_if.wr_waitrequest),
-        .burstcount(host_mem_va_if.wr_burstcount),
+        .flit_valid(host_mem_va_page_if.wr_write && ! host_mem_va_page_if.wr_waitrequest),
+        .burstcount(host_mem_va_page_if.wr_burstcount),
         .sop(wr_sop),
         .eop(wr_eop)
         );
@@ -211,12 +265,14 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     always_comb
     begin
         vtp_wr_req = '0;
-        vtp_wr_req.addr = host_mem_va_if.wr_address;
+        vtp_wr_req.addr = host_mem_va_page_if.wr_address;
         // All reads have virtual addresses in this AFU
         vtp_wr_req.addrIsVirtual =
             wr_sop &&
-            !host_mem_va_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_FENCE] &&
-            !host_mem_va_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_INTERRUPT];
+            !host_mem_va_page_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_FENCE] &&
+            !host_mem_va_page_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_INTERRUPT];
+        vtp_wr_req.isOrdered =
+            host_mem_va_page_if.wr_user[ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_FENCE];
         vtp_wr_req.isSpeculative = (FAIL_ON_ERROR == 0);
     end
 
@@ -255,11 +311,11 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
                       wr_rsp_eop }),
         .deq_en(wr_deq_en),
 
-        .req_valid(host_mem_va_if.wr_write && !host_mem_va_if.wr_waitrequest),
-        .opaque_req({ host_mem_va_if.wr_burstcount,
-                      host_mem_va_if.wr_writedata,
-                      host_mem_va_if.wr_byteenable,
-                      host_mem_va_if.wr_user,
+        .req_valid(host_mem_va_page_if.wr_write && !host_mem_va_page_if.wr_waitrequest),
+        .opaque_req({ host_mem_va_page_if.wr_burstcount,
+                      host_mem_va_page_if.wr_writedata,
+                      host_mem_va_page_if.wr_byteenable,
+                      host_mem_va_page_if.wr_user,
                       wr_eop }),
         .full(vtp_wr_full),
 

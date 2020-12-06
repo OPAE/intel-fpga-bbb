@@ -42,10 +42,12 @@ module mpf_vtp_translate_ofs_ccip_c1
 
     output t_if_ccip_c1_Tx c1_host,
     input  logic c1_host_almostFull,
-    input  t_if_ccip_c1_Tx c1_va,
 
     // Request: commands to VTP (e.g. address is virtual)
     input  mpf_vtp_pkg::t_mpf_vtp_port_wrapper_req vtp_req,
+    input  t_if_ccip_c1_Tx c1_va,
+    output logic vtp_req_almostFull,
+
     // Response from VTP (e.g. whether translation was successful)
     output mpf_vtp_pkg::t_mpf_vtp_port_wrapper_rsp vtp_rsp,
     mpf_vtp_port_if.to_slave vtp_port
@@ -60,8 +62,39 @@ module mpf_vtp_translate_ofs_ccip_c1
     t_mpf_vtp_req_tag vtp_reqIdx;
     t_mpf_vtp_req_tag vtp_rspIdx;
 
+    //
+    // Request FIFO for handling almost full
+    //
+    mpf_vtp_pkg::t_mpf_vtp_port_wrapper_req vtp_req_buf;
+    t_if_ccip_c1_Tx c1_va_buf;
+    logic req_notEmpty;
+
+    cci_mpf_prim_fifo_lutram
+      #(
+        .N_DATA_BITS($bits(vtp_req) + $bits(c1_va)),
+        .N_ENTRIES(CCI_TX_ALMOST_FULL_THRESHOLD + 4),
+        .THRESHOLD(CCI_TX_ALMOST_FULL_THRESHOLD),
+        .REGISTER_OUTPUT(1)
+        )
+      c0_fifo
+       (
+        .clk,
+        .reset,
+
+        .enq_data({ vtp_req, c1_va }),
+        // Map the valid bit through as enq here and notEmpty below.
+        .enq_en(c1_va.valid),
+        .notFull(),
+        .almostFull(vtp_req_almostFull),
+
+        .first({ vtp_req_buf, c1_va_buf }),
+        .deq_en(process_new_req),
+        .notEmpty(req_notEmpty)
+        );
+
+
     logic process_new_req;
-    assign process_new_req = c1_va.valid && vtp_notFull;
+    assign process_new_req = req_notEmpty && vtp_notFull;
 
     // Do the translation, allowing responses out of order (the usual for CCI-P).
     // VTP assigns the request a unique ID while in flight (reqIdx). The
@@ -75,7 +108,7 @@ module mpf_vtp_translate_ofs_ccip_c1
 
         .vtp_port,
         .reqEn(process_new_req),
-        .req(vtp_req),
+        .req(vtp_req_buf),
         .notFull(vtp_notFull),
         .reqIdx(vtp_reqIdx),
 
@@ -91,7 +124,7 @@ module mpf_vtp_translate_ofs_ccip_c1
     cci_mpf_prim_lutram
       #(
         .N_ENTRIES(MPF_VTP_MAX_SVC_REQS),
-        .N_DATA_BITS($bits(c1_va))
+        .N_DATA_BITS($bits(c1_va_buf))
         )
       tr_c1_meta
        (
@@ -103,7 +136,7 @@ module mpf_vtp_translate_ofs_ccip_c1
 
         .wen(process_new_req),
         .waddr(vtp_reqIdx),
-        .wdata(c1_va)
+        .wdata(c1_va_buf)
         );
 
     // Accept VTP responses as long as there is space in the host channel

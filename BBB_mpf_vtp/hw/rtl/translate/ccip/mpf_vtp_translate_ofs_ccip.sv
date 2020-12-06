@@ -67,16 +67,24 @@ module mpf_vtp_translate_ofs_ccip
     logic reset_n;
     assign reset_n = host_mem_if.reset_n;
 
+
+    // Meta-data for translations (tells VTP what to do and returns result)
+    t_mpf_vtp_port_wrapper_req vtp_c0_req, vtp_c1_req;
+    logic vtp_c0_req_almostFull;
+    t_mpf_vtp_port_wrapper_rsp vtp_c0_rsp, vtp_c1_rsp;
+    logic vtp_c1_req_almostFull;
+
+
     assign host_mem_va_if.clk = host_mem_if.clk;
     assign host_mem_va_if.reset_n = host_mem_if.reset_n;
     assign host_mem_va_if.error = host_mem_if.error;
     assign host_mem_va_if.instance_number = host_mem_if.instance_number;
-    assign host_mem_va_if.sRx = host_mem_if.sRx;
-
-    // Meta-data for translations (tells VTP what to do and returns result)
-    t_mpf_vtp_port_wrapper_req vtp_c0_req, vtp_c1_req;
-    t_mpf_vtp_port_wrapper_rsp vtp_c0_rsp, vtp_c1_rsp;
-
+    always_comb
+    begin
+        host_mem_va_if.sRx = host_mem_if.sRx;
+        host_mem_va_if.sRx.c0TxAlmFull = vtp_c0_req_almostFull;
+        host_mem_va_if.sRx.c1TxAlmFull = vtp_c1_req_almostFull;
+    end
 
     always_comb
     begin
@@ -101,6 +109,7 @@ module mpf_vtp_translate_ofs_ccip
         .c0_va(host_mem_va_if.sTx.c0),
 
         .vtp_req(vtp_c0_req),
+        .vtp_req_almostFull(vtp_c0_req_almostFull),
         .vtp_rsp(vtp_c0_rsp),
         .vtp_port(vtp_ports[0])
         );
@@ -141,6 +150,7 @@ module mpf_vtp_translate_ofs_ccip
         .c1_va(host_mem_va_if.sTx.c1),
 
         .vtp_req(vtp_c1_req),
+        .vtp_req_almostFull(vtp_c1_req_almostFull),
         .vtp_rsp(vtp_c1_rsp),
         .vtp_port(vtp_ports[1])
         );

@@ -61,6 +61,7 @@
 #define KB(x) ((x) * 1024)
 #endif
 
+static const size_t default_bufsize = MB(4);
 
 // Engine's address mode
 typedef enum
@@ -207,20 +208,20 @@ initEngine(
     }
 
     // Separate read and write buffers.
-    s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle, MB(2));
+    s_eng_bufs[e].rd_buf = allocSharedBuffer(mpf_handle, default_bufsize);
     assert(NULL != s_eng_bufs[e].rd_buf);
-    s_eng_bufs[e].rd_buf_size = MB(2);
+    s_eng_bufs[e].rd_buf_size = default_bufsize;
     initReadBuf(s_eng_bufs[e].rd_buf, s_eng_bufs[e].rd_buf_size);
-    flushRange((void*)s_eng_bufs[e].rd_buf, MB(2));
+    flushRange((void*)s_eng_bufs[e].rd_buf, default_bufsize);
 
-    s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle, MB(2));
+    s_eng_bufs[e].wr_buf = allocSharedBuffer(mpf_handle, default_bufsize);
     assert(NULL != s_eng_bufs[e].wr_buf);
-    s_eng_bufs[e].wr_buf_size = MB(2);
+    s_eng_bufs[e].wr_buf_size = default_bufsize;
 
-    // Set the buffer size mask. The buffer is 2MB but the mask covers
-    // only 1MB. This allows bursts to flow a bit beyond the mask
-    // without concern for overflow.
-    csrEngWrite(csr_handle, e, 4, (MB(1) / CL(1)) - 1);
+    // Set the buffer size mask. Only half the buffer is used so
+    // bursts can flow a bit beyond the mask without concern for
+    // overflow.
+    csrEngWrite(csr_handle, e, 4, (default_bufsize / 2) / CL(1) - 1);
 }
 
 
@@ -505,7 +506,7 @@ testSmallRegions(
                         // Clear the write buffer
                         memset((void*)s_eng_bufs[e].wr_buf, 0,
                                s_eng_bufs[e].wr_buf_size);
-                        flushRange((void*)s_eng_bufs[e].wr_buf, MB(2));
+                        flushRange((void*)s_eng_bufs[e].wr_buf, default_bufsize);
 
                         // Configure engine burst details
                         csrEngWrite(s_csr_handle, e, 2,
@@ -580,7 +581,7 @@ testSmallRegions(
                         uint32_t write_error_line;
                         if (mode & 2)
                         {
-                            flushRange((void*)s_eng_bufs[e].wr_buf, MB(2));
+                            flushRange((void*)s_eng_bufs[e].wr_buf, default_bufsize);
 
                             writes_ok = testExpectedWrites(
                                 (uint64_t*)s_eng_bufs[e].wr_buf,
@@ -843,6 +844,9 @@ testHostChanVtp(
             assert(FPGA_OK == r);
         }
     }
+
+    // Force smaller page mapping to trigger more MPF activity
+    mpfVtpSetMaxPhysPageSize(mpf_handle[0], MPF_VTP_PAGE_4KB);
 
     // Allocate memory buffers for each engine
     s_eng_bufs = malloc(num_engines * sizeof(t_engine_buf));

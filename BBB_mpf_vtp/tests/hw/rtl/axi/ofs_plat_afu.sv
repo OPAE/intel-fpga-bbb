@@ -29,7 +29,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 //
-// Export the host channel as Avalon.
+// Export the host channel as AXI.
 //
 
 `include "ofs_plat_if.vh"
@@ -40,50 +40,40 @@ module ofs_plat_afu
     ofs_plat_if plat_ifc
     );
 
-    import cci_mpf_shim_pkg::t_cci_mpf_shim_mdata_value;
-
     // ====================================================================
     //
-    //  Get an Avalon host channel connection from the platform.
+    //  Get an AXI host channel connection from the platform.
     //
     // ====================================================================
-
-    // User bits in the Avalon interface are used to tag page table
-    // traffic from VTP. Make sure there are enough user bits available.
-    // They must start beyond the PIM's user flags (used for interrupts
-    // and fences).
-    localparam AV_USER_BIT_START_IDX = ofs_plat_host_chan_avalon_mem_pkg::HC_AVALON_UFLAG_MAX + 1;
-    localparam AV_USER_WIDTH = AV_USER_BIT_START_IDX +
-                               $bits(t_cci_mpf_shim_mdata_value) + // VTP tag
-                               1;                                  // VTP traffic flag
 
     // Host memory AFU source
-    ofs_plat_avalon_mem_rdwr_if
+    ofs_plat_axi_mem_if
       #(
-        `HOST_CHAN_AVALON_MEM_RDWR_PARAMS,
+        `HOST_CHAN_AXI_MEM_PARAMS,
         // When using VTP, bursts can't cross physical page boundaries.
         // The PIM's ofs_plat_axi_mem_if_map_bursts() module is used to
         // split page-crossing bursts. It depends on the maximum burst
         // size being no larger than half a page.
-        .BURST_CNT_WIDTH(6),
-        .USER_WIDTH(AV_USER_WIDTH),
+        .BURST_CNT_WIDTH(5),
+        .RID_WIDTH(9),
+        .WID_WIDTH(9),
         .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
         )
         host_mem_to_afu();
 
     // 64 bit read/write MMIO AFU sink
-    ofs_plat_avalon_mem_if
+    ofs_plat_axi_mem_lite_if
       #(
-        `HOST_CHAN_AVALON_MMIO_PARAMS(64),
+        `HOST_CHAN_AXI_MMIO_PARAMS(64),
         .LOG_CLASS(ofs_plat_log_pkg::HOST_CHAN)
         )
         mmio64_to_afu();
 
-    ofs_plat_host_chan_as_avalon_mem_rdwr_with_mmio
+    ofs_plat_host_chan_as_axi_mem_with_mmio
       #(
         .ADD_CLOCK_CROSSING(1)
         )
-      primary_avalon
+      primary_axi
        (
         .to_fiu(plat_ifc.host_chan.ports[0]),
         .host_mem_to_afu(host_mem_to_afu),
