@@ -42,6 +42,7 @@
 #include <uuid/uuid.h>
 #include <time.h>
 #include <immintrin.h>
+#include <cpuid.h>
 
 #include <opae/fpga.h>
 #include <opae/mpf/mpf.h>
@@ -135,6 +136,26 @@ flushRange(void* start, size_t len)
 {
     uint8_t* cl = start;
     uint8_t* end = start + len;
+
+    // Does the CPU support clflushopt?
+    static bool checked_clflushopt;
+    static bool supports_clflushopt;
+
+    if (! checked_clflushopt)
+    {
+        checked_clflushopt = true;
+        supports_clflushopt = false;
+
+        unsigned int eax, ebx, ecx, edx;
+        if (__get_cpuid_max(0, 0) >= 7)
+        {
+            __cpuid_count(7, 0, eax, ebx, ecx, edx);
+            // bit_CLFLUSHOPT is (1 << 23)
+            supports_clflushopt = (((1 << 23) & ebx) != 0);
+            printf("#  Processor supports clflushopt: %d\n", supports_clflushopt);
+        }
+    }
+    if (! supports_clflushopt) return;
 
     while (cl < end)
     {
