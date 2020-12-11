@@ -215,12 +215,12 @@ initEngine(
     s_eng_bufs[e].addr_mode = (r >> 40) & 3;
     s_eng_bufs[e].group = (r >> 47) & 7;
     uint32_t eng_num = (r >> 42) & 31;
-    printf("  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
-    printf("  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
-    printf("  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
-    printf("  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
-    printf("  Engine %d addressing mode: %s\n", e, addr_mode_str[s_eng_bufs[e].addr_mode]);
-    printf("  Engine %d group: %d\n", e, s_eng_bufs[e].group);
+    printf("#  Engine %d type: %s\n", e, engine_type[(r >> 35) & 1]);
+    printf("#  Engine %d max burst size: %d\n", e, s_eng_bufs[e].max_burst_size);
+    printf("#  Engine %d natural bursts: %d\n", e, s_eng_bufs[e].natural_bursts);
+    printf("#  Engine %d ordered read responses: %d\n", e, s_eng_bufs[e].ordered_read_responses);
+    printf("#  Engine %d addressing mode: %s\n", e, addr_mode_str[s_eng_bufs[e].addr_mode]);
+    printf("#  Engine %d group: %d\n", e, s_eng_bufs[e].group);
 
     if (eng_num != e)
     {
@@ -392,8 +392,7 @@ testVtpFailurePath(
             csrEnableEngines(s_csr_handle, emask);
 
             struct timespec wait_time;
-            // Poll less often in simulation
-            wait_time.tv_sec = (s_is_ase ? 1 : 0);
+            wait_time.tv_sec = 0;
             wait_time.tv_nsec = 1000000;
 
             // Loop until the test starts
@@ -556,8 +555,7 @@ testSmallRegions(
                 // and the engine active flag going high. Execution is done when
                 // the engine is enabled and the active flag goes low.
                 struct timespec wait_time;
-                // Poll less often in simulation
-                wait_time.tv_sec = (s_is_ase ? 1 : 0);
+                wait_time.tv_sec = 0;
                 wait_time.tv_nsec = 1000000;
                 while ((csrGetEnginesEnabled(s_csr_handle) == 0) ||
                        csrGetEnginesActive(s_csr_handle))
@@ -717,7 +715,7 @@ runBandwidth(
 
     // Wait for them to start
     struct timespec wait_time;
-    wait_time.tv_sec = (s_is_ase ? 1 : 0);
+    wait_time.tv_sec = 0;
     wait_time.tv_nsec = 1000000;
     while (csrGetEnginesEnabled(s_csr_handle) == 0)
     {
@@ -725,7 +723,7 @@ runBandwidth(
     }
 
     // Let them run for a while
-    sleep(s_is_ase ? 10 : 1);
+    usleep(s_is_ase ? 10000000 : 100000);
     
     csrDisableEngines(s_csr_handle, emask);
 
@@ -827,7 +825,7 @@ testHostChanVtp(
     s_csr_handle = csr_handle;
     s_is_ase = is_ase;
 
-    printf("Test ID: %016" PRIx64 " %016" PRIx64 "\n",
+    printf("# Test ID: %016" PRIx64 " %016" PRIx64 "\n",
            csrEngGlobRead(csr_handle, 1),
            csrEngGlobRead(csr_handle, 0));
 
@@ -836,7 +834,7 @@ testHostChanVtp(
     uint32_t engine_groups = csrEngGlobRead(csr_handle, 2);
     num_grp_engines[0] = (uint8_t)engine_groups;
     num_grp_engines[1] = (uint8_t)(engine_groups >> 8);
-    printf("Engines: %d (g0 %d, g1 %d)\n", num_engines,
+    printf("# Engines: %d (g0 %d, g1 %d)\n", num_engines,
            num_grp_engines[0], num_grp_engines[1]);
     assert(0 != num_grp_engines[0]);
 

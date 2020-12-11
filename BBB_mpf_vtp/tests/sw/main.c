@@ -208,13 +208,13 @@ int main(int argc, char *argv[])
     bool is_ase = probeForASE(&target);
     if (is_ase)
     {
-        printf("Running in ASE mode\n");
+        printf("# Running in ASE mode\n");
     }
 
     t_csr_handle_p csr_handle = csrAllocHandle(accel_handle, 0);
     assert(csr_handle != NULL);
 
-    printf("AFU ID:  %016" PRIx64 " %016" PRIx64 "\n",
+    printf("# AFU ID:  %016" PRIx64 " %016" PRIx64 "\n",
            csrRead(csr_handle, CSR_AFU_ID_H),
            csrRead(csr_handle, CSR_AFU_ID_L));
 
