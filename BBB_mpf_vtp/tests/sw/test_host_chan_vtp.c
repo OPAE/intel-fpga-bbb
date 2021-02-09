@@ -762,15 +762,15 @@ runBandwidth(
 
     if (! write_lines)
     {
-        printf("  Read GB/s:  %f\n", read_bw);
+        printf("  Read GiB/s:  %f\n", read_bw);
     }
     else if (! read_lines)
     {
-        printf("  Write GB/s: %f\n", write_bw);
+        printf("  Write GiB/s: %f\n", write_bw);
     }
     else
     {
-        printf("  R+W GB/s:   %f (read %f, write %f)\n",
+        printf("  R+W GiB/s:   %f (read %f, write %f)\n",
                read_bw + write_bw, read_bw, write_bw);
     }
 

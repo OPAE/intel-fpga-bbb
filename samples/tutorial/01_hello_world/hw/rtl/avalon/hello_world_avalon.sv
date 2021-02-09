@@ -233,7 +233,7 @@ module ofs_plat_afu
     assign is_mem_addr_csr_write = is_csr_write && (mmio64_to_afu.address == '0);
 
     // DMA address to which this AFU will write.
-    localparam MEM_ADDR_WIDTH = host_mem.ADDR_WIDTH;
+    localparam MEM_ADDR_WIDTH = ofs_plat_host_chan_pkg::ADDR_WIDTH_LINES;
     typedef logic [MEM_ADDR_WIDTH-1 : 0] t_mem_addr;
     t_mem_addr mem_addr;
 
