@@ -171,7 +171,14 @@ static fpga_result vtpPinRegion(
         // The alloc flags are set only on the first page
         pt_flags &= ~(MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC);
         page += this_page_bytes;
-        len -= this_page_bytes;
+        if (this_page_bytes < len)
+        {
+            len -= this_page_bytes;
+        }
+        else
+        {
+            len = 0;
+        }
 
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     }
