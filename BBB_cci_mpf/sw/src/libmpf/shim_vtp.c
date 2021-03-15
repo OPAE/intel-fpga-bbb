@@ -122,7 +122,14 @@ static fpga_result vtpPinRegion(
                                         &existing_pa, &this_page_size, &existing_flags);
             if (FPGA_OK == r)
             {
+                // Found the page already pinned. Move the base pointer to the start
+                // of the actual page in case the underlying page is larger, then
+                // adjust the range to account for the new region.
                 this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
+                uint8_t* page_start = (uint8_t*)((size_t)page & ~(this_page_bytes - 1));
+                len += (page - page_start);
+                page = page_start;
+
                 goto already_pinned;
             }
         }
