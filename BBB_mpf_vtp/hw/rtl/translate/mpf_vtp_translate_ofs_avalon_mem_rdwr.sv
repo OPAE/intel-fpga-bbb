@@ -164,13 +164,14 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
 
     localparam RD_OPAQUE_BITS = BURST_CNT_WIDTH +  // rd_burstcount
                                 DATA_N_BYTES +     // rd_byteenable
+                                ADDR_WIDTH +       // rd_address
                                 USER_WIDTH;        // rd_user
 
     logic rd_deq_en;
     logic rd_rsp_valid;
     logic rd_rsp_used_vtp;
 
-    logic [ADDR_WIDTH-1:0] rd_rsp_address;
+    logic [ADDR_WIDTH-1:0] rd_rsp_address, rd_rsp_orig_address;
     logic [BURST_CNT_WIDTH-1:0] rd_rsp_burstcount;
     logic [DATA_N_BYTES-1:0] rd_rsp_byteenable;
     logic [USER_WIDTH-1:0] rd_rsp_user;
@@ -187,12 +188,14 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
         .rsp_valid(rd_rsp_valid),
         .opaque_rsp({ rd_rsp_burstcount,
                       rd_rsp_byteenable,
+                      rd_rsp_orig_address,
                       rd_rsp_user }),
         .deq_en(rd_deq_en),
 
         .req_valid(host_mem_va_page_if.rd_read && !host_mem_va_page_if.rd_waitrequest),
         .opaque_req({ host_mem_va_page_if.rd_burstcount,
                       host_mem_va_page_if.rd_byteenable,
+                      host_mem_va_page_if.rd_address,
                       host_mem_va_page_if.rd_user }),
         .full(vtp_rd_full),
 
@@ -204,7 +207,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
         );
 
     assign rd_deq_en = rd_rsp_valid && ! host_mem_if.rd_waitrequest;
-    assign rd_rsp_address = (rd_rsp_used_vtp ? vtp_rd_rsp.addr : '0);
+    assign rd_rsp_address = (rd_rsp_used_vtp ? vtp_rd_rsp.addr : rd_rsp_orig_address);
     // Translation error?
     assign rd_error = rd_rsp_valid && (rd_rsp_used_vtp ? vtp_rd_rsp.error : 1'b0);
 
@@ -279,6 +282,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     localparam WR_OPAQUE_BITS = BURST_CNT_WIDTH +  // wr_burstcount
                                 DATA_WIDTH +       // wr_writedata
                                 DATA_N_BYTES +     // wr_byteenable
+                                ADDR_WIDTH +       // wr_address
                                 USER_WIDTH +       // wr_user
                                 1;                 // wr_eop
 
@@ -288,7 +292,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
     logic wr_rsp_eop;
     logic wr_rsp_reg_error;
 
-    logic [ADDR_WIDTH-1:0] wr_rsp_address;
+    logic [ADDR_WIDTH-1:0] wr_rsp_address, wr_rsp_orig_address;
     logic [BURST_CNT_WIDTH-1:0] wr_rsp_burstcount;
     logic [DATA_N_BYTES-1:0] wr_rsp_byteenable;
     logic [USER_WIDTH-1:0] wr_rsp_user;
@@ -307,6 +311,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
         .opaque_rsp({ wr_rsp_burstcount,
                       host_mem_if.wr_writedata,
                       wr_rsp_byteenable,
+                      wr_rsp_orig_address,
                       wr_rsp_user,
                       wr_rsp_eop }),
         .deq_en(wr_deq_en),
@@ -315,6 +320,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
         .opaque_req({ host_mem_va_page_if.wr_burstcount,
                       host_mem_va_page_if.wr_writedata,
                       host_mem_va_page_if.wr_byteenable,
+                      host_mem_va_page_if.wr_address,
                       host_mem_va_page_if.wr_user,
                       wr_eop }),
         .full(vtp_wr_full),
@@ -327,7 +333,7 @@ module mpf_vtp_translate_ofs_avalon_mem_rdwr
         );
 
     assign wr_deq_en = wr_rsp_valid && ! host_mem_if.wr_waitrequest;
-    assign wr_rsp_address = (wr_rsp_used_vtp ? vtp_wr_rsp.addr : '0);
+    assign wr_rsp_address = (wr_rsp_used_vtp ? vtp_wr_rsp.addr : wr_rsp_orig_address);
     // Translation error? Raise only on SOP beats (that is when VTP is used).
     assign wr_error = wr_rsp_valid && (wr_rsp_used_vtp ? vtp_wr_rsp.error : wr_rsp_reg_error);
 

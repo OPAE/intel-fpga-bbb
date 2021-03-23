@@ -207,7 +207,6 @@ module mpf_vtp_translate_ofs_axi_mem
     always_comb
     begin
         host_mem_if.ar = rd_opaque;
-        host_mem_if.ar.addr = '0;
         if (rd_rsp_used_vtp)
         begin
             host_mem_if.ar.addr = { vtp_rd_rsp.addr, 6'b0 };
@@ -300,7 +299,6 @@ module mpf_vtp_translate_ofs_axi_mem
     always_comb
     begin
         host_mem_if.aw = wr_opaque;
-        host_mem_if.aw.addr = '0;
         if (wr_rsp_used_vtp)
         begin
             host_mem_if.aw.addr = { vtp_wr_rsp.addr, 6'b0 };
