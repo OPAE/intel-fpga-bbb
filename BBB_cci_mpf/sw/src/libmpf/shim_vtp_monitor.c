@@ -101,7 +101,9 @@ static void *mpfVtpMonitorMain(void *args)
     }
 
     close(mon_fd);
+    mon->mon_fd = 0;
     close(evt_fd);
+    mon->evt_fd = 0;
     return NULL;
 }
 
@@ -202,7 +204,9 @@ static fpga_result mpfVtpMonitorInit(
         }
 
         close(evt_fd);
+        mon->evt_fd = 0;
         close(fd);
+        mon->mon_fd = 0;
         return FPGA_EXCEPTION;
     }
 
@@ -273,6 +277,17 @@ fpga_result mpfVtpMonitorTerm(
         pthread_cancel(monitor->mon_tid);
         pthread_join(monitor->mon_tid, NULL);
         monitor->mon_tid = 0;
+    }
+
+    if (monitor->mon_fd > 0)
+    {
+        close(monitor->mon_fd);
+        monitor->mon_fd = 0;
+    }
+    if (monitor->evt_fd > 0)
+    {
+        close(monitor->evt_fd);
+        monitor->evt_fd = 0;
     }
 
     // Release the top-level monitor descriptor

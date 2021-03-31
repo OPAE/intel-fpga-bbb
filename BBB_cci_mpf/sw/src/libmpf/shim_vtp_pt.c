@@ -382,6 +382,8 @@ static fpga_result ptFreeTableNode(
     bool do_inval
 )
 {
+    if (NULL == node) return FPGA_OK;
+
     // Unpin the page
     fpga_result r = FPGA_OK;
     if (pt->hw_pt_walker_present)
@@ -580,6 +582,8 @@ static void freeTableAndPinnedPages(
     uint64_t partial_va,
     uint32_t depth)
 {
+    if (NULL == node) return;
+
     for (uint64_t idx = 0; idx < 512; idx++)
     {
         if (nodeEntryExists(node, idx))
