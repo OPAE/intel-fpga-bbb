@@ -1012,7 +1012,11 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
     // Need to pin the memory. At most one translation will be returned.
     if (num_pages) *num_pages = 1;
 
-    if (MPF_VTP_PIN_MODE_LOOKUP_ONLY == mode) return r;
+    if (MPF_VTP_PIN_MODE_LOOKUP_ONLY == mode)
+    {
+        mpfVtpPtUnlockMutex(pt);
+        return r;
+    }
 
     // What size is the underlying physical page? As an optimization, if
     // mpfVtpPtTranslateVAtoPA indicates failure at the 4KB level then we
