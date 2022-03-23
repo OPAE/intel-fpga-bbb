@@ -35,7 +35,9 @@ class TEST_SPEC_LOAD : public CCI_TEST
     TEST_SPEC_LOAD(const po::variables_map& vm, SVC_WRAPPER& svc) :
         CCI_TEST(vm, svc),
         n_rd_engines(0),
-        mem_buf_handles(NULL)
+        mem_buf_handles(NULL),
+        mem_buf_sizes(NULL),
+        mem_buf_hashes(NULL)
     {
     }
 

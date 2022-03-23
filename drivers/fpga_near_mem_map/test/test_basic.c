@@ -94,8 +94,8 @@ int main(int argc, char *argv[])
     base_info.ctrl_num = 0;
     ret = ioctl(mfd, FPGA_NEAR_MEM_MAP_BASE_PHYS_ADDR, &base_info);
     assert(0 == ret);
-    printf("Base address: 0x%llx\n", base_info.base_phys);
-    printf("NUMA mask: 0x%llx\n", base_info.numa_mask);
+    printf("Base address: 0x%" PRIx64 "\n", base_info.base_phys);
+    printf("NUMA mask: 0x%" PRIx64 "\n", base_info.numa_mask);
 
     // Allocate two page buffers of each size
     uint8_t* buffers[6] = { MAP_FAILED };
@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
         *buffers[b] = 0;
 
         ret = ioctl(mfd, FPGA_NEAR_MEM_MAP_PAGE_VMA_INFO, &info);
-        printf("page_vma_info: buffer %d, va %p, ret %d (%d), pa 0x%llx, page shift %d, numa id %d, read %d, write %d\n",
+        printf("page_vma_info: buffer %d, va %p, ret %d (%d), pa 0x%" PRIx64 ", page shift %d, numa id %d, read %d, write %d\n",
                b, buffers[b], ret, errno,
                (uint64_t)info.page_phys,
                info.page_shift,

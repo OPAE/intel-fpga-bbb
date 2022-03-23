@@ -115,17 +115,14 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
     if (addr_local == MAP_FAILED) {
         if (errno == ENOMEM) {
             if (len > 2 * MB)
-                FPGA_MSG("Could not allocate buffer (no free 1 "
-                     "GiB huge pages)");
+                fprintf(stderr, "Could not allocate buffer (no free 1 GiB huge pages)");
             if (len > 4 * KB)
-                FPGA_MSG("Could not allocate buffer (no free 2 "
-                     "MiB huge pages)");
+                fprintf(stderr, "Could not allocate buffer (no free 2 MiB huge pages)");
             else
-                FPGA_MSG("Could not allocate buffer (out of "
-                     "memory)");
+                fprintf(stderr, "Could not allocate buffer (out of memory)");
             return FPGA_NO_MEMORY;
         }
-        FPGA_MSG("FPGA buffer mmap failed: %s", strerror(errno));
+        fprintf(stderr, "FPGA buffer mmap failed: %s", strerror(errno));
         return FPGA_INVALID_PARAM;
     }
 
@@ -139,8 +136,7 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
 static fpga_result buffer_release(void *addr, uint64_t len)
 {
     if (munmap(addr, len)) {
-        FPGA_MSG("FPGA buffer munmap failed: %s",
-             strerror(errno));
+        fprintf(stderr, "FPGA buffer munmap failed: %s", strerror(errno));
         return FPGA_INVALID_PARAM;
     }
 
@@ -190,7 +186,6 @@ int main(int argc, char *argv[])
     fpga_result r;
     fpga_handle accel_handle;
     volatile char *buf;
-    uint64_t wsid;
     uint64_t buf_pa;
 
     // Find and connect to the accelerator
@@ -256,7 +251,6 @@ int main(int argc, char *argv[])
     r = mpfDisconnect(mpf_handle);
     assert(FPGA_OK == r);
 
-    fpgaReleaseBuffer(accel_handle, wsid);
     fpgaClose(accel_handle);
 
     return 0;
