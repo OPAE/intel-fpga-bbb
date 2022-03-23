@@ -278,6 +278,8 @@ TEST_SPEC_LOAD::genBuffers()
         // Mark end of stream
         *buf = 1;
     }
+
+    return 0;
 }
 
 
