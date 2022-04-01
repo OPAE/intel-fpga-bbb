@@ -616,3 +616,4 @@ static void __exit mmu_monitor_exit(void)
 module_exit(mmu_monitor_exit);
 
 MODULE_DESCRIPTION("MMU Monitor Driver");
+MODULE_LICENSE("Dual BSD/GPL");
