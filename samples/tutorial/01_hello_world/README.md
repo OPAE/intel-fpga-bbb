@@ -41,6 +41,12 @@ environment variable points to a release tree that has been configured with
 the Platform Interface Manager (PIM). (If the steps below work, then you can
 be confident that your environment is properly configured.)
 
+The Application Simulation Environment (ASE) must also be installed in
+the same tree as the OPAE SDK runtime. ASE is compiled separately and
+then installed into the OPAE tree. Please follow the instructions for
+cloning and installing ASE from the [opae-sim](https://github.com/OPAE/opae-sim)
+repository.
+
 Simulation requires two software processes: one for RTL simulation and
 the other to run the connected software. To construct an RTL simulation
 environment execute the following in the directory containing this
@@ -79,13 +85,17 @@ run the software:
 # Set ASE_WORKDIR as directed by the simulator
 $ cd sw
 $ make
-$ ./hello_world_ase
+$ with_ase ./hello_world
 ```
 
+The "with\_ase" prefix transforms an existing binary to load the ASE emulation
+shared library instead of the normal OPAE shared library. Without "with\_ase",
+the program would look for an AFU running on an actual FPGA.
+
 The software and simulator should both run quickly, log transactions and
-exit. If the software prints "Accelerator not found" you ran the wrong
-binary (./hello\_world instead of ./hello\_world\_ase). The binary without
-the "ase" suffix is for execution on an FPGA.
+exit. If the software prints "Accelerator not found" you ran without "with\_ase"
+(./hello\_world instead of with\_ase ./hello\_world). The binary did not
+find the AFU on an attached FPGA and failed.
 
 ### Debugging
 

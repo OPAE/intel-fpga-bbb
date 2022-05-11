@@ -38,10 +38,7 @@ AFU sources are stored in directories named hw/rtl, which contain:
 - RTL sources.
 
 Each example also includes software to drive the AFUs. While in a sw directory,
-run "make". Two binaries will be generated. The binary with an "\_ase" suffix
-connects only to RTL simulated in ASE.  Binaries without the "\_ase" suffix
-connect to actual FPGAs.  If you run the non-ASE version on a machine without
-an FPGA it will print an error that the target hardware was not found.
+run "make".
 
 ## Topics
 

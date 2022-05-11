@@ -13,7 +13,7 @@ SRCS = $(TEST).cpp $(BASE_FILE_SRC)
 OBJS = $(addprefix $(OBJDIR)/,$(patsubst %.cpp,%.o,$(SRCS)))
 
 # Targets
-all: $(TEST) $(TEST)_ase
+all: $(TEST)
 
 # AFU info from JSON file, including AFU UUID
 AFU_JSON_INFO = $(OBJDIR)/afu_json_info.h
@@ -24,14 +24,11 @@ $(OBJS): $(AFU_JSON_INFO)
 $(TEST): $(OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS) $(FPGA_LIBS)
 
-$(TEST)_ase: $(OBJS)
-	$(CXX) -o $@ $^ $(LDFLAGS) $(ASE_LIBS)
-
 $(OBJDIR)/%.o: %.cpp | objdir
 	$(CXX) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(TEST) $(TEST)_ase $(OBJDIR)
+	rm -rf $(TEST) $(OBJDIR)
 
 objdir:
 	@mkdir -p $(OBJDIR)

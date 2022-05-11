@@ -122,6 +122,8 @@ int main(int argc, char *argv[])
 
     // Find and connect to the accelerator
     accel_handle = connect_to_accel(AFU_ACCEL_UUID);
+    if (0 == accel_handle)
+        exit(1);
 
     // Allocate a single page memory buffer
     buf = (volatile char*)alloc_buffer(accel_handle, getpagesize(),
