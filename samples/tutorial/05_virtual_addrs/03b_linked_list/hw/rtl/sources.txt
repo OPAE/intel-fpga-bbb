@@ -1,7 +1,0 @@
-linked_list.json
-
-C:../../../base/hw/rtl/base_sources.txt
-
-+incdir+.
-hash32.sv
-linked_list_afu.sv

@@ -1,0 +1,6 @@
+clock_freq_uClk_310.json
+
+C:sources_common.txt
+
+# Pointer to software:
+# sw:../../sw/clock_freq_test

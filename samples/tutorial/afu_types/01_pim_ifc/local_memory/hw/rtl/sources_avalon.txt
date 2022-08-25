@@ -1,0 +1,8 @@
+hello_mem_afu.json
+C:common/sources.txt
+
+avalon/ofs_plat_afu.sv
+avalon/afu_top.sv
+
+# Pointer to software:
+# sw:../../sw/hello_mem_afu

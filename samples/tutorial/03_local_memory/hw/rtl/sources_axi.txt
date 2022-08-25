@@ -1,4 +1,0 @@
-C:common/sources.txt
-
-axi/ofs_plat_afu.sv
-axi/afu_top.sv

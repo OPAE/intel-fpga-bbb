@@ -1,80 +1,46 @@
 # Tutorial
 
-The sample designs in this tree are deliberately simple. They are intended
-to demonstrate simulation, synthesis and the Platform Interface Manager
-without the details of an actual accelerator getting in the way.
+This tree contains [sample workloads](afu_types/), typically written as small examples of specific concepts. The tutorial progresses through defining RTL sources, configuring for simulation or synthesis, and connecting to device interfaces. The designs are deliberately simple, intended to demonstrate simulation, synthesis and the Platform Interface Manager without the details of an actual accelerator getting in the way.
 
-All the designs may either be simulated with ASE or synthesized for FPGA
-hardware.
+All the designs may either be simulated with ASE or synthesized for FPGA hardware.
 
-The Platform Interface Manager (PIM) is an abstraction layer, enabling AFU
-portability across hardware despite variations in hardware topology and native
-interfaces. The PIM implementation is documented both for platform developers
-and for AFU developers in its [source repository](https://github.com/OPAE/ofs-platform-afu-bbb/).
-Use of the PIM for AFU developers is optional. As the tutorial
-is intended to be platform-agnostic, all of the examples use the PIM. See
-below for a short discussion of [non-PIM AFU development](#non-pim-afu-development).
+The tutorial documentation is written in Markdown. We suggest you pull a local copy of the tutorial in order to compile the examples and that you read the tutorial's documentation with a browser.
 
-This tutorial assumes that OPAE has been installed already, that your
-OPAE\_PLATFORM\_ROOT environment variable points to a release updated with
-PIM v2, and that the BBB (Basic Building Blocks) release is present. Please
-follow the instructions in the README file in the [../samples](..) directory.
+## Requirements
 
-The tutorial documentation is written in Markdown. We suggest you pull a local
-copy of the tutorial in order to compile the examples and that you read the
-tutorial's documentation with a browser. The current version of the tutorial
-is on GitHub in the
-[OPAE Basic Building Blocks tree](https://github.com/OPAE/intel-fpga-bbb/tree/master/samples/tutorial).
+All samples depend on proper configuration of OPAE and the hardware build environments.
 
-## Structure
+### Partial Reconfiguration Build Template \(__OPAE\_PLATFORM\_ROOT__\)
 
-All of the tutorials have two components: CPU-side software in the sw tree
-and FPGA-side RTL in the hw tree.
+The tutorial examples depend on an out-of-tree partial reconfiguration \(PR\) build environment for simulation with ASE and synthesis with Quartus. The tutorial remains relevant even if your target FIM does not use PR. The module hierarchy and ports passed to AFUs are independent of whether there also happens to be a PR boundary around the OFS afu\_top\(\). All of the AFU RTL examples here can be built into OFS FIMs without partial reconfiguration. We use PR in order to simplify the build environment and to focus the tutorial on AFU development without the complication of configuring a full FIM. In addition, ASE configuration scripts currently depend on the PR flow. If you are developing a FIM without PR, we suggest that you pick a different base FIM for working through the tutorial and then switch to your non-PR FIM.
 
-AFU sources are stored in directories named hw/rtl, which contain:
+Older OPAE-based releases for PAC cards and the Broadwell integrated Xeon+FPGA that predate OFS may also be used. However, they must be upgraded to a new version of the PIM. A set of update scripts is provided in the [ofs-platform-afu-bbb](https://github.com/OPAE/ofs-platform-afu-bbb) repository. The one-time script, [plat\_if\_release/update\_release.sh](https://github.com/OPAE/ofs-platform-afu-bbb/blob/master/plat_if_release/update_release.sh), must be run in order to configure both simulation and Quartus environments with the PIM. PAC card releases are equivalent to OFS out-of-tree PR build environments.
 
-- A file specifying the set of sources to compile: sources.txt.
-- A JSON file containing meta-data that describes the AFU.
-- RTL sources.
+In OFS, the out-of-tree build environment can be generated automatically at the end of a FIM compilation by passing the "&#8209;p" switch to ./syn/build_top. With "&#8209;p" set, the tree is stored in \<work dir\>/pr\_build\_template. The pr\_build\_template tree is relocatable and may be moved anywhere in the filesystem. Setting "&#8209;p" runs ./syn/common/scripts/generate\_pr\_release.sh at the end of the FIM build. This script may also be invoked by hand on a completed FIM build's work tree.
 
-Each example also includes software to drive the AFUs. While in a sw directory,
-run "make".
+__Set the OPAE\_PLATFORM\_ROOT environment variable to the path of an OFS pr\_build\_template tree or to the root of an updated PAC or Xeon+FPGA release.__ You can determine whether OPAE\_PLATFORM\_ROOT points to a valid release tree by confirming that ${OPAE\_PLATFORM\_ROOT}/hw/lib/build/platform/ofs\_plat\_if exists.
 
-## Topics
+### OPAE Software Environment
 
-- [Section 1](01_hello_world/) describes the basic structure of an AFU, simulation
-  with ASE and synthesis for hardware. It also covers the AXI, Avalon and CCI-P host
-  interface options available through the PIM. __This section is a prerequisite for all
-  subsequent sections. All of the later examples are compiled using the steps
-  described here.__
+1. Install the OPAE SDK from packages shipped with a board release or from source, by following the [standard instructions](https://opae.github.io/).
 
-- [Section 2](02_clocks/) documents the global clocks passed into AFUs and
-  PIM-based clock management.
+2. If OPAE is installed to standard system directories it may already be found on C and C++ header and library search paths. If not, the installation directories must be added explicitly:
 
-- [Section 3](03_local_memory/) covers the top-level interface to local
-  memory, including clock management.
+   - Header files from OPAE must either be on the default compiler search paths or on both __C\_INCLUDE\_PATH__ and __CPLUS\_INCLUDE\_PATH__.
 
-- [Section 4](04_PIM/) covers some more advanced PIM features.
+   - OPAE libraries must either be on the default linker search paths or on both __LIBRARY\_PATH__ and __LD\_LIBRARY\_PATH__.
 
-## Non-PIM AFU Development
+3. Install [ASE, the OPAE RTL simulator](https://github.com/OPAE/opae-sim). With the OPAE SDK already installed, build and add ASE to the OPAE tree with:
 
-AFU developers may choose to connect directly to the PR interface or to the
-platform-provided green\_bs() interface. Perhaps your AFU provides its own bridges
-from native interfaces. Even then, we strongly suggest taking a hybrid approach
-and attaching your AFU through the PIM's top-level ofs\_plat\_afu() module and
-the plat\_ifc top-level interface wrapper. There is no performance or area cost
-for this style compared to directly attaching to green\_bs(). The plat\_ifc
-wrapper is only wires and all PR interfaces are available, mapped through plat\_ifc.
-There are several advantages to connecting through ofs\_plat\_afu():
+    ```sh
+    cd opae-sim
+    mkdir build
+    cd build
+    # Set -DCMAKE_INSTALL_PREFIX=<dir> if OPAE is installed in a non-standard location
+    cmake ..
 
-- AFUs can be simulated with ASE as long as they connect through ofs\_plat\_afu().
-  The ASE environment emulates the plat\_ifc interface and is fully functional,
-  whether or not an AFU uses PIM-provided bridge modules.
-- The wired PIM interface wrappers in plat\_ifc offer both transaction logging
-  and some error checking during simulation, whether or not PIM bridges are used.
-- AFUs might use PIM bridges for some interfaces and not others. For example,
-  an AFU that provides its own shell for PCIe and connects directly to the host
-  channel port may still use the PIM to map local memory to a target interface
-  and clock.
-- The PIM's tie-off module for unused interfaces is available for AFUs that
-  don't use other PIM modules.
+    # This might need to be run as root if OPAE was installed as root
+    make install
+    ```
+
+The tutorial begins with a discussion of [AFU design pattern choices](afu_types).

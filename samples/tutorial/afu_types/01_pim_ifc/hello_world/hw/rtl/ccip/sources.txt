@@ -1,0 +1,6 @@
+../hello_world.json
+ofs_plat_afu.sv
+hello_world_ccip.sv
+
+# Pointer to software:
+# sw:../../../sw/hello_world

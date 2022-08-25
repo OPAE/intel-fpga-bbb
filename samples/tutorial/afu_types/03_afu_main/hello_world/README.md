@@ -1,0 +1,7 @@
+# Native Hello World
+
+This version instantiates a single hello\_world AFU on the function at port 0. All ports must respond to CSR reads, so a NULL AFU that responds with a valid device feature header and AFU UUID is placed on all other PCIe functions. As noted earlier, the ASE simulator only exposes port 0. On hardware, the NULL AFU UUIDs will be visible with "fpgainfo port".
+
+The implementation of hello\_world in PCIe subsystem TLPs \([hello\_world\_tlp.sv](hw/rtl/hello_world_tlp.sv)\) here is deceptively simple. All the sample traffic fits in a single 64 byte payload, including the 32 byte header and "Hello world TLP!" payload. More complex and higher throughput DMA logic will need to detect header vs. data beats, shift wide data in order to stream it inline with headers, manage tags, and optimize read vs. write interleaving. CSR and DMA traffic is no longer broken out into generic AXI memory interfaces as they were with the PIM version.
+
+Use either the [PIM](../../01_pim_ifc/hello_world/sw) or [hybrid](../../02_hybrid/hello_world/sw) software hello\_world implementations to drive the example here. Since only a single AFU is instantiated the two programs will produce similar output. The software is compatible with this example because the exposed CSR interface is unchanged.

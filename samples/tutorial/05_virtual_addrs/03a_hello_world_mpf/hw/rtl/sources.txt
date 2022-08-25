@@ -1,6 +1,0 @@
-cci_mpf_hello.json
-
-C:../../../base/hw/rtl/base_sources.txt
-
-+incdir+.
-cci_mpf_hello_afu.sv

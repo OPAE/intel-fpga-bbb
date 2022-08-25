@@ -1,3 +1,0 @@
-clock_freq_uClk_auto.json
-
-C:sources_common.txt

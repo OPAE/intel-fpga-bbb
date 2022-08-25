@@ -1,0 +1,8 @@
+hello_world.json
+afu_main.sv
+
+hello_world_tlp.sv
+null_afu.sv
+
+# Pointer to software:
+# sw:../../../../02_hybrid/hello_world/sw/hello_world_all

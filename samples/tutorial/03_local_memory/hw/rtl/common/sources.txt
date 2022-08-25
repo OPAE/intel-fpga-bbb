@@ -1,4 +1,0 @@
-hello_mem_afu.json
-hello_mem_afu.sv
-mem_csr.sv
-mem_fsm.sv

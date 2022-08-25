@@ -1,0 +1,8 @@
+hello_mem_afu.json
+C:common/sources.txt
+
+axi/ofs_plat_afu.sv
+axi/afu_top.sv
+
+# Pointer to software:
+# sw:../../sw/hello_mem_afu

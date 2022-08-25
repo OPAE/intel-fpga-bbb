@@ -1,0 +1,12 @@
+hello_mem_afu.json
+C:../../../../01_pim_ifc/local_memory/hw/rtl/common/sources.txt
+
+# AFU implementation using PIM interfaces, shared with the full PIM version
+../../../../01_pim_ifc/local_memory/hw/rtl/axi/afu_top.sv
+# NULL AFU implemented as PCIe SS TLP streams
+../../../../03_afu_main/hello_world/hw/rtl/null_afu.sv
+
+afu_main.sv
+
+# Pointer to software:
+# sw:../../../../01_pim_ifc/local_memory/sw/hello_mem_afu

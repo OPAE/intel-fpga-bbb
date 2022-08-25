@@ -1,0 +1,12 @@
+hello_world.json
+afu_main.sv
+
+# The implementation from the full PIM example is used. The afu_main() logic
+# uses the PIM to map the same interfaces.
+../../../../01_pim_ifc/hello_world/hw/rtl/axi/hello_world_axi.sv
+
+# An equivalent hello_world AFU implemented in PCIe SS TLP streams.
+../../../../03_afu_main/hello_world/hw/rtl/hello_world_tlp.sv
+
+# Pointer to software:
+# sw:../../sw/hello_world_all

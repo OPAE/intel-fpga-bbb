@@ -1,0 +1,15 @@
+copy_engine.json
+ofs_plat_afu.sv
+
+copy_engine_pkg.sv
+copy_engine_top.sv
+copy_read_engine.sv
+copy_write_engine.sv
+copy_write_engine_core.sv
+csr_mgr.sv
+counter_multicycle.sv
+
+data_stream_engine.sv
+
+# Pointer to software:
+# sw:../../sw/copy_engine
