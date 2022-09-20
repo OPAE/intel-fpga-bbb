@@ -144,7 +144,7 @@ module ofs_plat_afu
 
     localparam N_COUNTER_BITS = 40;
 
-    logic [N_COUNTER_BITS-1:0] counter_max = 0;
+    logic [N_COUNTER_BITS-1:0] counter_max;
     logic [N_COUNTER_BITS-1:0] counter_pclk_value;
     logic [N_COUNTER_BITS-1:0] counter_pclk_div2_value;
     logic [N_COUNTER_BITS-1:0] counter_pclk_div4_value;

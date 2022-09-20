@@ -72,9 +72,9 @@ module mem_fsm
 
     logic [32:0] address;
     assign mem_cmd.burstcount = mem_csr_to_fsm.burstcount;
-    logic  [3:0] max_reads = 0;
+    logic  [3:0] max_reads;
     logic [mem_cmd.BURST_CNT_WIDTH-1 : 0] burstcount;
-    logic avs_readdatavalid_1 = 0;
+    logic avs_readdatavalid_1;
 
     assign mem_cmd.address = mem_testmode? {'0, address[ADDRESS_MAX_BIT-1:0]}: mem_csr_to_fsm.address;
     assign mem_cmd.writedata = mem_csr_to_fsm.writedata;
