@@ -618,13 +618,23 @@ module test_afu
         c0Rx <= fiu.c0Rx;
 
         // Two stage XOR reduction of c0Rx
-        for (int i = 0; i < 8; i = i + 1)
+        if (cci_c0Rx_isValid(c0Rx))
         begin
-            c0Rx_xor_v[i] <= ^(c0Rx[i * ($bits(c0Rx) / 8) +: ($bits(c0Rx) / 8)]);
+            for (int i = 0; i < 8; i = i + 1)
+            begin
+                c0Rx_xor_v[i] <= ^(c0Rx[i * ($bits(c0Rx) / 8) +: ($bits(c0Rx) / 8)]);
+            end
         end
 
         c0Rx_xor_t <= ^c0Rx_xor_v;
         c0Rx_xor <= c0Rx_xor_t;
+
+        if (reset)
+        begin
+            c0Rx_xor <= '0;
+            c0Rx_xor_v <= '0;
+            c0Rx_xor_t <= 1'b0;
+        end
     end
 
     assign fiu.c2Tx.mmioRdValid = 1'b0;
@@ -921,13 +931,23 @@ module test_afu
         c1Rx <= fiu.c1Rx;
 
         // Two stage XOR reduction of c1Rx
-        for (int i = 0; i < 8; i = i + 1)
+        if (cci_c1Rx_isValid(c1Rx))
         begin
-            c1Rx_xor_v[i] <= ^(c1Rx[i * ($bits(c1Rx) / 8) +: ($bits(c1Rx) / 8)]);
+            for (int i = 0; i < 8; i = i + 1)
+            begin
+                c1Rx_xor_v[i] <= ^(c1Rx[i * ($bits(c1Rx) / 8) +: ($bits(c1Rx) / 8)]);
+            end
         end
 
         c1Rx_xor_t <= ^c1Rx_xor_v;
         c1Rx_xor <= c1Rx_xor_t;
+
+        if (reset)
+        begin
+            c1Rx_xor <= '0;
+            c1Rx_xor_v <= '0;
+            c1Rx_xor_t <= 1'b0;
+        end
     end
 
 

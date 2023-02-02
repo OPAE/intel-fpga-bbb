@@ -279,7 +279,7 @@ module cci_test_csrs
 
            default:
              begin
-                c2Tx.data <= t_ccip_mmioData'('x);
+                c2Tx.data <= ~t_ccip_mmioData'(0);
              end
         endcase
 
