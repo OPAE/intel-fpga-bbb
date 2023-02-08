@@ -38,6 +38,7 @@
 #endif
 
 #include "shim_vtp_pt.h"
+#include "shim_vtp_buffers.h"
 #include "shim_vtp_srv.h"
 #include "shim_vtp_monitor.h"
 
@@ -170,6 +171,9 @@ typedef struct
 
     // VTP munmap event monitor state
     mpf_vtp_monitor* munmap_monitor;
+
+    // User buffer address tracking table
+    mpf_vtp_buffer_hash_table* user_buffers;
 
     // Maximum requested page size
     mpf_vtp_page_size max_physical_page_size;

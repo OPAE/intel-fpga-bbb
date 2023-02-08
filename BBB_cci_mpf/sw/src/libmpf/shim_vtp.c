@@ -118,7 +118,7 @@ static fpga_result vtpPinRegion(
         {
             mpf_vtp_pt_paddr existing_pa;
             uint32_t existing_flags;
-            r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, page, false,
+            r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, page, false, NULL,
                                         &existing_pa, &this_page_size, &existing_flags);
             if (FPGA_OK == r)
             {
@@ -130,7 +130,13 @@ static fpga_result vtpPinRegion(
                 len += (page - page_start);
                 page = page_start;
 
-                goto already_pinned;
+                // The page is already present in the table. Just increment
+                // the reference count -- a side effect of inserting the mapping.
+                // wsid is ignored.
+                r = mpfVtpPtInsertPageMapping(_mpf_handle->vtp.pt, page, existing_pa, -1,
+                                              this_page_size, pt_flags);
+                if (FPGA_OK != r) return r;
+                goto huge_success;
             }
         }
 
@@ -169,14 +175,6 @@ static fpga_result vtpPinRegion(
         if (FPGA_OK != r) goto fail;
 
       huge_success:
-        if (pt_flags)
-        {
-            mpfVtpPtSetAllocBufSize(_mpf_handle->vtp.pt, page, len);
-        }
-
-      already_pinned:
-        // The alloc flags are set only on the first page
-        pt_flags &= ~(MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC);
         page += this_page_bytes;
         if (this_page_bytes < len)
         {
@@ -204,8 +202,9 @@ static fpga_result vtpPinRegion(
 static fpga_result vtpPreallocBuffer(
     _mpf_handle_p _mpf_handle,
     uint64_t len,
-    void** buf_addr,
-    int fpga_flags      // enum fpga_buffer_flags
+    void* buf_addr,
+    void** buf_page_addr, // address of the start of the page holding buf_addr
+    int fpga_flags        // enum fpga_buffer_flags
 )
 {
     fpga_result r;
@@ -224,7 +223,7 @@ static fpga_result vtpPreallocBuffer(
     }
 
     // Buffer is already allocated, check addresses.
-    if ((NULL == *buf_addr) || ((size_t)*buf_addr & p_mask))
+    if ((NULL == buf_addr) || ((size_t)buf_addr & p_mask))
     {
         if (_mpf_handle->dbg_mode)
         {
@@ -242,18 +241,19 @@ static fpga_result vtpPreallocBuffer(
         return FPGA_INVALID_PARAM;
     }
 
-    uint8_t* page = *buf_addr;
+    uint8_t* page = buf_addr;
 
     // Align buffer start to the page size
     mpf_vtp_page_size this_page_size;
-    r = mpfOsGetPageSize(*buf_addr, &this_page_size);
+    r = mpfOsGetPageSize(buf_addr, &this_page_size);
     size_t this_page_bytes = mpfPageSizeEnumToBytes(this_page_size);
     if (FPGA_OK != r) return FPGA_NO_MEMORY;
 
     // Mask out page offset bits
     page = (uint8_t*)((uint64_t)page & ~(this_page_bytes - 1));
+    *buf_page_addr = page;
     // Adjust the buffer length so it ends where it used to
-    len += (uint64_t)*buf_addr - (uint64_t)page;
+    len += (uint64_t)buf_addr - (uint64_t)page;
 
     // Share each page with the FPGA and insert them into the VTP page table.
     uint32_t pt_flags = MPF_VTP_PT_FLAG_PREALLOC;
@@ -300,7 +300,7 @@ static fpga_result vtpAllocBuffer(
     // Round len up to the page size
     len = (len + page_bytes - 1) & ~(page_bytes - 1);
 
-    if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
+     if (_mpf_handle->dbg_mode) MPF_FPGA_MSG("requested 0x%" PRIx64 " byte buffer", len);
 
 #ifdef FPGA_NEAR_MEM_MAP
     struct bitmask *numa_mems_preserve = NULL;
@@ -607,6 +607,10 @@ fpga_result mpfVtpInit(
     r = mpfVtpPtInit(_mpf_handle, &(_mpf_handle->vtp.pt));
     if (FPGA_OK != r) return r;
 
+    // Initialize the buffer tracking table
+    r = mpfVtpBuffersInit(_mpf_handle);
+    if (FPGA_OK != r) return r;
+
     if (mpfShimPresent(_mpf_handle, CCI_MPF_SHIM_VTP))
     {
         uint64_t vtp_mode;
@@ -639,6 +643,7 @@ fpga_result mpfVtpInit(
 
   fail:
     mpfVtpPtTerm(_mpf_handle->vtp.pt);
+    mpfVtpBuffersTerm(_mpf_handle);
     return r;
 }
 
@@ -672,6 +677,10 @@ fpga_result mpfVtpTerm(
 
     r = mpfVtpPtTerm(_mpf_handle->vtp.pt);
     _mpf_handle->vtp.pt = NULL;
+    if (FPGA_OK == r_ret) r_ret = r;
+
+    r = mpfVtpBuffersTerm(_mpf_handle);
+    _mpf_handle->vtp.user_buffers = NULL;
     if (FPGA_OK == r_ret) r_ret = r;
 
 #ifdef FPGA_NEAR_MEM_MAP
@@ -771,20 +780,29 @@ fpga_result __MPF_API__ mpfVtpPrepareBuffer(
     fpga_result r;
     _mpf_handle_p _mpf_handle = (_mpf_handle_p)mpf_handle;
     bool preallocated = (flags & FPGA_BUF_PREALLOCATED);
+    void* buf_page_addr;
 
     if ((NULL == buf_addr) || (0 == len)) return FPGA_INVALID_PARAM;
 
     if (preallocated)
     {
-        r = vtpPreallocBuffer(_mpf_handle, len, buf_addr, flags);
+        r = vtpPreallocBuffer(_mpf_handle, len, *buf_addr, &buf_page_addr, flags);
     }
     else
     {
         r = vtpAllocBuffer(_mpf_handle, len, buf_addr, flags);
+        buf_page_addr = *buf_addr;
+    }
+
+    if (FPGA_OK == r)
+    {
+        r = mpfVtpBuffersInsert(_mpf_handle, *buf_addr, len, buf_page_addr);
     }
 
     if (_mpf_handle->dbg_mode)
     {
+        mpfVtpDumpBuffers(_mpf_handle);
+
         mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
         mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
@@ -817,6 +835,8 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     uint32_t flags;
     uint64_t wsid;
     fpga_result r;
+    size_t page_bytes;
+    mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
 
     if (_mpf_handle->dbg_mode)
     {
@@ -826,7 +846,8 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
 
     // Is the address the beginning of an allocation region?
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, false, &pa, NULL, &flags);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, false, &buf_va_start,
+                                &pa, NULL, &flags);
     if ((FPGA_OK != r) ||
         (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))))
     {
@@ -839,13 +860,21 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         return FPGA_NO_MEMORY;
     }
 
-    // Get buffer range, stored in the page table.
-    mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
-    size_t buf_size;
-    r = mpfVtpPtGetAllocBufSize(_mpf_handle->vtp.pt, va, &buf_va_start, &buf_size);
     mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-    buf_va_end = (char *)buf_va_start + buf_size;
-    if (FPGA_OK != r) return r;
+
+    // Get buffer size and remove it from the tracking table.
+    size_t buf_size = mpfVtpBuffersRemove(_mpf_handle, va, &buf_va_start);
+    if (0 == buf_size)
+    {
+        // Pin on demand mode doesn't store preallocated regions. Just ignore
+        // errors when there is no record of the underlying buffer.
+        if (mpfVtpPinOnDemandMode(_mpf_handle)) return FPGA_OK;
+
+        return FPGA_NO_MEMORY;
+    }
+
+    buf_va_end = (char *)va + buf_size;
+    va = buf_va_start;
 
     // Loop through the mapped virtual pages until the end of the region
     // is reached or there is an error.
@@ -860,6 +889,18 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         r = mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
                                       &pa, &wsid, &size, NULL);
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+        if (FPGA_BUSY == r)
+        {
+            // FPGA_BUSY is returned if the reference count of the page
+            // is greater than one. Keep the page mapped.
+            if (_mpf_handle->dbg_mode)
+            {
+                MPF_FPGA_MSG("keeping VA %p -- multiple references", va);
+            }
+
+            goto keep_page;
+        }
+
         if (FPGA_OK != r)
         {
             if (_mpf_handle->dbg_mode)
@@ -878,8 +919,6 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
                          va, pa, wsid);
         }
 
-        size_t page_bytes = mpfPageSizeEnumToBytes(size);
-
         r = mpfVtpInvalHWVAMapping(_mpf_handle, va);
         if (FPGA_OK != r) break;
 
@@ -887,12 +926,16 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         // is bound to happen.
         assert(FPGA_OK == fpgaReleaseBuffer(_mpf_handle->handle, wsid));
 
+      keep_page:
         // Next page address
+        page_bytes = mpfPageSizeEnumToBytes(size);
         va = (char *) va + page_bytes;
 
         // Done?
         if (va >= buf_va_end)
         {
+            if (_mpf_handle->dbg_mode) mpfVtpDumpBuffers(_mpf_handle);
+
             mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
             if (_mpf_handle->dbg_mode) mpfVtpPtDumpPageTable(_mpf_handle->vtp.pt);
             mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
@@ -940,7 +983,7 @@ uint64_t __MPF_API__ mpfVtpGetIOAddress(
 
     uint64_t pa;
     mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, false, &pa, NULL, NULL);
+    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, buf_addr, false, NULL, &pa, NULL, NULL);
     mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
     if (FPGA_OK != r) return 0;
 
@@ -973,7 +1016,7 @@ fpga_result __MPF_API__ mpfVtpPinAndGetIOAddressVec(
     }
     mpfVtpPtLockMutex(pt);
 
-    r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, ioaddr, page_size, &pt_flags);
+    r = mpfVtpPtTranslateVAtoPA(pt, buf_addr, true, NULL, ioaddr, page_size, &pt_flags);
     if (FPGA_OK == r)
     {
         // Already mapped. Should more virtually contiguous translations

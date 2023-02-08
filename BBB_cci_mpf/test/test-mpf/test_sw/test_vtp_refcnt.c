@@ -111,7 +111,7 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
 
     assert(NULL != addr);
 
-    addr_local = mmap(NULL, len, PROTECTION, flags, 0, 0);
+    addr_local = mmap(*addr, len, PROTECTION, flags, 0, 0);
     if (addr_local == MAP_FAILED) {
         if (errno == ENOMEM) {
             if (len > 2 * MB)
@@ -123,6 +123,12 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
             return FPGA_NO_MEMORY;
         }
         fprintf(stderr, "FPGA buffer mmap failed: %s", strerror(errno));
+        return FPGA_INVALID_PARAM;
+    }
+
+    if (*addr && (*addr != addr_local))
+    {
+        fprintf(stderr, "Failed to remap at target address %p\n", *addr);
         return FPGA_INVALID_PARAM;
     }
 
@@ -185,7 +191,6 @@ int main(int argc, char *argv[])
 {
     fpga_result r;
     fpga_handle accel_handle;
-    volatile char *buf;
     uint64_t buf_pa;
 
     // Find and connect to the accelerator
@@ -198,60 +203,66 @@ int main(int argc, char *argv[])
     bool has_vtp = mpfShimPresent(mpf_handle, CCI_MPF_SHIM_VTP);
     printf("AFU %s VTP shim\n", (has_vtp ? "has" : "does not have"));
 
-    //
-    // Allocate 3 buffers, each with different page sizes.
-    //
-    uint8_t *buf_2xGB;
-    r = buffer_allocate((void*)&buf_2xGB, GB * 2, FLAGS_1G);
+    // Allocate 4MB of 4KB pages
+    uint8_t *buf = NULL;
+    r = buffer_allocate((void*)&buf, MB * 4, FLAGS_4K);
     if (FPGA_OK != r)
     {
-        fprintf(stderr, "Error allocating 2GB buffer\n");
+        fprintf(stderr, "Error allocating 6MB buffer\n");
         exit(1);
     }
-    buf_2xGB[0] = 0;
-    buf_2xGB[GB] = 0;
 
-    uint8_t *buf_700x2MB;
-    r = buffer_allocate((void*)&buf_700x2MB, MB * 2 * 700, FLAGS_2M);
+    // Replace an aligned 2MB region with a huge page
+    uint8_t *buf_2mb = (uint8_t*)((uint64_t)(buf + (2 * MB) - 1) & ~(2 * MB - 1));
+    munmap(buf_2mb, MB * 2);
+    r = buffer_allocate((void*)&buf_2mb, MB * 2, FLAGS_2M);
     if (FPGA_OK != r)
     {
         fprintf(stderr, "Error allocating 2MB buffer\n");
         exit(1);
     }
-    memset(buf_700x2MB, 0, MB * 2 * 700);
+    memset(buf, 0, MB * 4);
 
-    uint8_t *buf_2000x4KB;
-    r = buffer_allocate((void*)&buf_2000x4KB, KB * 4 * 2000, FLAGS_4K);
-    if (FPGA_OK != r)
+    //
+    // Map a collection of buffers
+    //
+    static const int num_buffers = 10;
+    struct
     {
-        fprintf(stderr, "Error allocating 4KB buffer\n");
-        exit(1);
+        void* start;
+        size_t len;
     }
-    memset(buf_2000x4KB, 0, KB * 4 * 2000);
+    buffers[num_buffers];
 
-    //
-    // Tell VTP about the buffers
-    //
-    r = mpfVtpPrepareBuffer(mpf_handle, GB * 2, (void*)&buf_2xGB, FPGA_BUF_PREALLOCATED);
-    assert(FPGA_OK == r);
-    r = mpfVtpPrepareBuffer(mpf_handle, MB * 2 * 700, (void*)&buf_700x2MB, FPGA_BUF_PREALLOCATED);
-    assert(FPGA_OK == r);
-    r = mpfVtpPrepareBuffer(mpf_handle, KB * 4 * 2000, (void*)&buf_2000x4KB, FPGA_BUF_PREALLOCATED);
+    for (int i = 0; i < num_buffers; i += 1)
+    {
+        buffers[i].start = buf + 4096 + ((rand() % (MB * 3)) & ~(KB * 4 - 1));
+        buffers[i].len = ((rand() % (MB-1)) + KB - 1) & ~(KB * 4 - 1);
+
+        printf("New buffer VA %p len 0x%" PRIx64 "\n", buffers[i].start, buffers[i].len);
+        r = mpfVtpPrepareBuffer(mpf_handle, buffers[i].len, (void*)&buffers[i].start,
+                                FPGA_BUF_PREALLOCATED);
+        assert(FPGA_OK == r);
+    }
+
+    // Manage the entire region as a buffer
+    void* full_buf = buf;
+    r = mpfVtpPrepareBuffer(mpf_handle, MB * 4, &full_buf, FPGA_BUF_PREALLOCATED);
     assert(FPGA_OK == r);
 
-    testVtpGetIOAddrVec(mpf_handle, buf_2xGB, "1GB");
-    testVtpGetIOAddrVec(mpf_handle, buf_700x2MB, "2MB");
-    testVtpGetIOAddrVec(mpf_handle, buf_2000x4KB, "4KB");
+    testVtpGetIOAddrVec(mpf_handle, buf, "4MB");
 
     // Done
-    assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buf_2000x4KB));
-    assert(FPGA_OK == buffer_release(buf_2000x4KB, KB * 4 * 2000));
+    for (int i = 0; i < num_buffers; i += 1)
+    {
+        printf("Release buffer VA %p\n", buffers[i].start);
+        assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buffers[i].start));
+    }
 
-    assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buf_700x2MB));
-    assert(FPGA_OK == buffer_release(buf_700x2MB, MB * 2 * 700));
+    printf("Release buffer VA %p\n", buf);
+    assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buf));
 
-    assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buf_2xGB));
-    assert(FPGA_OK == buffer_release(buf_2xGB, GB * 2));
+    assert(FPGA_OK == buffer_release(buf, MB * 4));
 
     r = mpfDisconnect(mpf_handle);
     assert(FPGA_OK == r);

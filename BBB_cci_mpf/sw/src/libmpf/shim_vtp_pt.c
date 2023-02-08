@@ -220,7 +220,7 @@ static inline void nodeInsertChildNode(
         node->ptable[idx] = child_paddr;
         node->vtable[idx] = child_node;
         node->meta[idx].wsid = child_wsid;
-        node->meta[idx].alloc_buf_len = 0;
+        node->meta[idx].refcnt = 1;
     }
 }
 
@@ -243,7 +243,63 @@ static inline void nodeInsertTranslatedAddr(
         node->ptable[idx] = pa;
         node->vtable[idx] = (mpf_vtp_pt_vaddr)pa;
         node->meta[idx].wsid = wsid;
-        node->meta[idx].alloc_buf_len = 0;
+        node->meta[idx].refcnt = 1;
+    }
+}
+
+static inline uint64_t nodeGetRefCnt(
+    mpf_vtp_pt_node* node,
+    uint64_t idx
+)
+{
+    if (idx < 512)
+    {
+        return node->meta[idx].refcnt;
+    }
+
+    return 0;
+}
+
+static inline void nodeDecrRefCnt(
+    mpf_vtp_pt_node* node,
+    uint64_t idx
+)
+{
+    if (idx < 512)
+    {
+        assert(node->meta[idx].refcnt != 0);
+        node->meta[idx].refcnt -= 1;
+    }
+}
+
+static inline void nodeIncrRefCnt(
+    mpf_vtp_pt_node* node,
+    uint64_t idx,
+    int64_t flags
+)
+{
+    // Incrementing a page's reference count may only happen on user memory
+    // pages and not the page table itself. Failing this test is a VTP
+    // internal problem, so just abort.
+    assert(nodeEntryIsTerminal(node, idx));
+
+    if (idx < 512)
+    {
+        // It should never happen that both prealloc and alloc are set,
+        // but we'll give prealloc precendence to avoid unmapping pages
+        // the user claims to have mapped.
+        if (MPF_VTP_PT_FLAG_PREALLOC & flags)
+        {
+            mpf_vtp_pt_paddr pa = node->ptable[idx] | MPF_VTP_PT_FLAG_PREALLOC;
+            // Clear MPF_VTP_PT_FLAG_ALLOC in case it was set. If it
+            // really was set this may well lead to a memory leak, but
+            // it avoids a crash.
+            pa = pa & ~(mpf_vtp_pt_paddr)MPF_VTP_PT_FLAG_ALLOC;
+            node->ptable[idx] = pa;
+            node->vtable[idx] = (mpf_vtp_pt_vaddr)pa;
+        }
+
+        node->meta[idx].refcnt += 1;
     }
 }
 
@@ -453,8 +509,12 @@ static fpga_result addVAtoTable(
         }
 
         // Are we being asked to add an entry below a larger region that
-        // is already mapped?
-        if (nodeEntryIsTerminal(table, idx)) return FPGA_EXCEPTION;
+        // is already mapped? If so, just increment the refcnt.
+        if (nodeEntryIsTerminal(table, idx))
+        {
+            nodeIncrRefCnt(table, idx, flags);
+            return FPGA_OK;
+        }
 
         // Continue down the tree
         table = nodeGetChildNode(table, idx);
@@ -482,6 +542,12 @@ static fpga_result addVAtoTable(
             // pointer will be overwritten with a huge page pointer.
             ptFreeTableNode(pt, child_node, table->meta[leaf_idx].wsid, true);
             nodeEntryReset(table, leaf_idx);
+        }
+        else if (nodeEntryIsTerminal(table, leaf_idx))
+        {
+            // Another request to map an existing page. Just count it.
+            nodeIncrRefCnt(table, leaf_idx, flags);
+            return FPGA_OK;
         }
         else
         {
@@ -584,6 +650,8 @@ static void freeTableAndPinnedPages(
 {
     if (NULL == node) return;
 
+    mpf_vtp_page_size page_size = ptDepthToSize(depth);
+
     for (uint64_t idx = 0; idx < 512; idx++)
     {
         if (nodeEntryExists(node, idx))
@@ -599,12 +667,11 @@ static void freeTableAndPinnedPages(
                     // Free the MPF-allocated virtual buffer
                     if (pt->_mpf_handle->dbg_mode)
                     {
-                        MPF_FPGA_MSG("release virtual buffer VA 0x%016" PRIx64 "-0x%016" PRIx64 " (%ld KB)",
-                                     va, va + node->meta[idx].alloc_buf_len,
-                                     node->meta[idx].alloc_buf_len / 1024);
+                        MPF_FPGA_MSG("release virtual buffer VA 0x%016" PRIx64 "-0x%016" PRIx64 " (%d KB)",
+                                     va, va + page_size, page_size / 1024);
                     }
 
-                    mpfOsUnmapMemory((void*)va, node->meta[idx].alloc_buf_len);
+                    mpfOsUnmapMemory((void*)va, page_size);
                 }
 
                 fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
@@ -671,17 +738,33 @@ static bool releaseRange(
                 // Yes, address is in range. Keep walking down the tree.
                 if (nodeEntryIsTerminal(node, idx))
                 {
-                    vtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)va, true);
-                    fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
-                    nodeRemoveTranslatedAddr(node, idx);
-
-                    if (pt->_mpf_handle->dbg_mode)
+                    if (nodeGetRefCnt(node, idx) > 1)
                     {
-                        mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
-                        MPF_FPGA_MSG("release pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
-                                     child_pa, child_wsid);
-                    }
+                        // Multiple references exist to the page. Decrement the
+                        // counter and leave the page pinned.
+                        nodeDecrRefCnt(node, idx);
+                        node_active = true;
 
+                        if (pt->_mpf_handle->dbg_mode)
+                        {
+                            mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
+                            MPF_FPGA_MSG("decrement refcnt pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64 ", refcnt %" PRId64,
+                                         child_pa, child_wsid, nodeGetRefCnt(node, idx));
+                        }
+                    }
+                    else
+                    {
+                        vtpInvalHWVAMapping(pt->_mpf_handle, (mpf_vtp_pt_vaddr)va, true);
+                        fpgaReleaseBuffer(pt->_mpf_handle->handle, child_wsid);
+                        nodeRemoveTranslatedAddr(node, idx);
+
+                        if (pt->_mpf_handle->dbg_mode)
+                        {
+                            mpf_vtp_pt_paddr child_pa = node->ptable[idx] & ~(uint64_t)MPF_VTP_PT_FLAG_MASK;
+                            MPF_FPGA_MSG("release pinned page PA 0x%016" PRIx64 ", wsid 0x%" PRIx64,
+                                         child_pa, child_wsid);
+                        }
+                    }
                 }
                 else
                 {
@@ -771,8 +854,8 @@ static void dumpPageTable(
 
                 mpf_vtp_pt_paddr pa = nodeGetTranslatedAddr(node, idx);
 
-                printf("%s    VA 0x%016" PRIx64 " -> PA 0x%016" PRIx64 " (%s)  wsid 0x%" PRIx64,
-                       indent, va, pa, kind, node->meta[idx].wsid);
+                printf("%s    VA 0x%016" PRIx64 " -> PA 0x%016" PRIx64 " (%s)  wsid 0x%" PRIx64 " refcnt %" PRId64,
+                       indent, va, pa, kind, node->meta[idx].wsid, node->meta[idx].refcnt);
 
                 uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
                 if (flags & (MPF_VTP_PT_FLAG_MASK - MPF_VTP_PT_FLAG_TERMINAL))
@@ -786,13 +869,6 @@ static void dumpPageTable(
                     printf(" ]");
                 }
                 printf("\n");
-
-                if (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))
-                {
-                    printf("%s      Buffer: VA 0x%016" PRIx64 "-0x%016" PRIx64 " (%ld KB)\n",
-                           indent, va, va + node->meta[idx].alloc_buf_len,
-                           node->meta[idx].alloc_buf_len / 1024);
-                }
             }
             else
             {
@@ -948,74 +1024,6 @@ fpga_result mpfVtpPtClearInUseFlag(
 }
 
 
-fpga_result mpfVtpPtSetAllocBufSize(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_vaddr va,
-    size_t buf_size
-)
-{
-    // Caller must lock the mutex
-    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
-
-    fpga_result r;
-    mpf_vtp_pt_node* node;
-    uint64_t idx;
-
-    // Find the containing node
-    r = findTerminalNodeAndIndex(pt, va, &node, &idx, NULL);
-    if (FPGA_OK != r) return r;
-
-    // One of the ALLOC flags must be set when buffer size is recorded
-    uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
-    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
-    {
-        return FPGA_EXCEPTION;
-    }
-
-    node->meta[idx].alloc_buf_len = buf_size;
-
-    return FPGA_OK;
-}
-
-
-fpga_result mpfVtpPtGetAllocBufSize(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_vaddr va,
-    mpf_vtp_pt_vaddr* start_va,
-    size_t* buf_size
-)
-{
-    // Caller must lock the mutex
-    DBG_MPF_OS_TEST_MUTEX_IS_LOCKED(pt->mutex);
-
-    fpga_result r;
-    mpf_vtp_pt_node* node;
-    uint64_t idx;
-    uint32_t depth;
-
-    // Find the containing node
-    r = findTerminalNodeAndIndex(pt, va, &node, &idx, &depth);
-    if (FPGA_OK != r) return r;
-
-    // One of the ALLOC flags must be set when buffer size is recorded
-    uint32_t flags = nodeGetTranslatedAddrFlags(node, idx);
-    if (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC)))
-    {
-        return FPGA_EXCEPTION;
-    }
-
-    *buf_size = node->meta[idx].alloc_buf_len;
-
-    // Mask the start_va so it points to the start of the page
-    if (start_va)
-    {
-        *start_va = (mpf_vtp_pt_vaddr)((uint64_t)va & addrMaskFromPtDepth(depth));
-    }
-
-    return FPGA_OK;
-}
-
-
 fpga_result mpfVtpPtRemovePageMapping(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
@@ -1060,6 +1068,14 @@ fpga_result mpfVtpPtRemovePageMapping(
                 *flags = nodeGetTranslatedAddrFlags(node, idx);
             }
 
+            if (nodeGetRefCnt(node, idx) > 1)
+            {
+                // Multiple references exist to the page. Decrement the
+                // counter and leave the page pinned.
+                nodeDecrRefCnt(node, idx);
+                return FPGA_BUSY;
+            }
+
             nodeRemoveTranslatedAddr(node, idx);
             invalFindNodeCache(pt);
 
@@ -1097,6 +1113,7 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     bool set_in_use,
+    mpf_vtp_pt_vaddr* start_va,
     mpf_vtp_pt_paddr *pa,
     mpf_vtp_page_size *size,
     uint32_t *flags
@@ -1127,6 +1144,12 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     if (set_in_use)
     {
         nodeSetTranslatedAddrFlags(node, idx, MPF_VTP_PT_FLAG_IN_USE);
+    }
+
+    // Mask the start_va so it points to the start of the page
+    if (start_va)
+    {
+        *start_va = (mpf_vtp_pt_vaddr)((uint64_t)va & addrMaskFromPtDepth(depth));
     }
 
     *pa = nodeGetTranslatedAddr(node, idx);
