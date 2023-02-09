@@ -94,8 +94,9 @@ bool __MPF_API__ mpfVtpIsAvailable(
  * addresses.
  *
  * The FPGA_BUF_PREALLOCATED flag has requirements and semantics that
- * match fpgaPrepareBuffer. When set, buf_addr must point to the
- * page-aligned start of an existing virtual buffer. VTP will call
+ * match fpgaPrepareBuffer. When set, buf_addr must point to an
+ * existing virtual buffer. There are NO ALIGNMENT REQUIREMENTS for
+ * buf_addr. VTP will determine the underlying page alignment and call
  * OPAE to share the buffer with the FPGA and will also add the
  * buffer to VTP's address translation table.
  *
@@ -141,6 +142,9 @@ fpga_result __MPF_API__ mpfVtpBufferAllocate(
  * If the buffer was allocated without setting FPGA_BUF_PREALLOCATED
  * this call will deallocate/free the memory. Otherwise, the memory
  * will only be returned to it's previous state (unpinned).
+ *
+ * buf_addr must exactly match an address that is managed by
+ * mpfVtpPrepareBuffer().
  *
  * @param[in]  mpf_handle  MPF handle initialized by mpfConnect().
  * @param[in]  buf_addr    Virtual base address of the allocated buffer.

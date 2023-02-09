@@ -213,8 +213,6 @@ static fpga_result vtpPreallocBuffer(
     // Buffer is allocated already before calling VTP. Map the existing
     // buffer for use on the FPGA.
     //
-    const size_t p_mask = mpfPageSizeEnumToBytes(MPF_VTP_PAGE_4KB) - 1;
-
     if (! _mpf_handle->vtp.use_fpga_buf_preallocated)
     {
         MPF_FPGA_MSG("This version of the OPAE SDK does not support FPGA_BUF_PREALLOCATED.\n"
@@ -223,20 +221,20 @@ static fpga_result vtpPreallocBuffer(
     }
 
     // Buffer is already allocated, check addresses.
-    if ((NULL == buf_addr) || ((size_t)buf_addr & p_mask))
+    if (NULL == buf_addr)
     {
         if (_mpf_handle->dbg_mode)
         {
-            MPF_FPGA_MSG("Preallocated buffer address is NULL or not page aligned");
+            MPF_FPGA_MSG("Preallocated buffer address is NULL");
         }
         return FPGA_INVALID_PARAM;
     }
     // Check length
-    if (! len || (len & p_mask))
+    if (! len)
     {
         if (_mpf_handle->dbg_mode)
         {
-            MPF_FPGA_MSG("Preallocated buffer size is not a non-zero multiple of page size");
+            MPF_FPGA_MSG("Preallocated buffer size is 0");
         }
         return FPGA_INVALID_PARAM;
     }
@@ -832,35 +830,17 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     mpf_vtp_pt_vaddr va = buf_addr;
     mpf_vtp_pt_paddr pa;
     mpf_vtp_page_size size;
-    uint32_t flags;
+    uint32_t flags = 0;
     uint64_t wsid;
     fpga_result r;
     size_t page_bytes;
     mpf_vtp_pt_vaddr buf_va_start, buf_va_end;
+    bool region_busy = false;
 
     if (_mpf_handle->dbg_mode)
     {
         MPF_FPGA_MSG("release buffer at VA %p", va);
     }
-
-    mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
-
-    // Is the address the beginning of an allocation region?
-    r = mpfVtpPtTranslateVAtoPA(_mpf_handle->vtp.pt, va, false, &buf_va_start,
-                                &pa, NULL, &flags);
-    if ((FPGA_OK != r) ||
-        (0 == (flags & (MPF_VTP_PT_FLAG_ALLOC | MPF_VTP_PT_FLAG_PREALLOC))))
-    {
-        mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
-
-        // Pin on demand mode doesn't store preallocated regions. Just ignore
-        // errors when there is no record of the underlying buffer.
-        if (mpfVtpPinOnDemandMode(_mpf_handle)) return FPGA_OK;
-
-        return FPGA_NO_MEMORY;
-    }
-
-    mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
 
     // Get buffer size and remove it from the tracking table.
     size_t buf_size = mpfVtpBuffersRemove(_mpf_handle, va, &buf_va_start);
@@ -886,9 +866,13 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
         }
 
         mpfVtpPtLockMutex(_mpf_handle->vtp.pt);
+        uint32_t page_flags;
         r = mpfVtpPtRemovePageMapping(_mpf_handle->vtp.pt, va,
-                                      &pa, &wsid, &size, NULL);
+                                      &pa, &wsid, &size, &page_flags);
         mpfVtpPtUnlockMutex(_mpf_handle->vtp.pt);
+
+        flags |= page_flags;
+
         if (FPGA_BUSY == r)
         {
             // FPGA_BUSY is returned if the reference count of the page
@@ -898,6 +882,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
                 MPF_FPGA_MSG("keeping VA %p -- multiple references", va);
             }
 
+            region_busy = true;
             goto keep_page;
         }
 
@@ -908,6 +893,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
                 MPF_FPGA_MSG("error unmapping VA %p", va);
             }
 
+            flags = 0;
             r = FPGA_NO_MEMORY;
             break;
         }
@@ -946,7 +932,7 @@ fpga_result __MPF_API__ mpfVtpReleaseBuffer(
     }
 
     // Was the buffer allocated by MPF? If so, deallocate it.
-    if (flags & MPF_VTP_PT_FLAG_ALLOC)
+    if (! region_busy && (flags & MPF_VTP_PT_FLAG_ALLOC))
     {
         if (_mpf_handle->dbg_mode)
         {

@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
     //
     // Map a collection of buffers
     //
-    static const int num_buffers = 10;
+    static const int num_buffers = 20;
     struct
     {
         void* start;
@@ -234,10 +234,21 @@ int main(int argc, char *argv[])
     }
     buffers[num_buffers];
 
-    for (int i = 0; i < num_buffers; i += 1)
+    memset(buffers, 0, sizeof(buffers));
+
+    for (int trips = 0; trips < 100 * num_buffers; trips += 1)
     {
-        buffers[i].start = buf + 4096 + ((rand() % (MB * 3)) & ~(KB * 4 - 1));
-        buffers[i].len = ((rand() % (MB-1)) + KB - 1) & ~(KB * 4 - 1);
+        int i = trips % num_buffers;
+
+        if (buffers[i].len != 0)
+        {
+            printf("Release buffer VA %p\n", buffers[i].start);
+            assert(FPGA_OK == mpfVtpReleaseBuffer(mpf_handle, buffers[i].start));
+        }
+
+        buffers[i].start = buf + (rand() % (MB * 3));
+        buffers[i].len = rand() % MB;
+        if (buffers[i].len == 0) buffers[i].len = 1;
 
         printf("New buffer VA %p len 0x%" PRIx64 "\n", buffers[i].start, buffers[i].len);
         r = mpfVtpPrepareBuffer(mpf_handle, buffers[i].len, (void*)&buffers[i].start,
