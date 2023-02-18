@@ -97,7 +97,7 @@ typedef void* mpf_vtp_pt_vaddr;
 typedef struct
 {
     uint64_t wsid;
-    size_t alloc_buf_len;
+    uint64_t refcnt;
 }
 mpf_vtp_pt_meta;
 
@@ -250,44 +250,6 @@ fpga_result mpfVtpPtClearInUseFlag(
 
 
 /**
- * Set the size of a buffer associated with a page table entry. The page
- * table is a convenient place to store meta-data describing buffers
- * allocated by mpfVtpPrepareBuffer(). There must already be a page
- * table entry for the VA and either MPF_VTP_PT_FLAG_ALLOC or
- * MPF_VTP_PT_FLAG_PREALLOC must be set for that entry.
- *
- * @param[in]  pt          Page table.
- * @param[in]  va          Virtual address of the buffer start.
- * @param[in]  buf_size    Size of the buffer. The size may span multiple
- *                         pages.
- * @returns                FPGA_OK on success.
- */
-fpga_result mpfVtpPtSetAllocBufSize(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_vaddr va,
-    size_t buf_size
-);
-
-
-/**
- * Get the size of an MPF-allocated buffer (set with mpfVtpPtSetAllocBufSize).
- *
- * @param[in]  pt          Page table.
- * @param[in]  va          Virtual address of the buffer start.
- * @param[out] start_va    Starting VA of the buffer, aligned to page size.
- * @param[out] buf_size    Size of the buffer. The size may span multiple
- *                         pages.
- * @returns                FPGA_OK on success.
- */
-fpga_result mpfVtpPtGetAllocBufSize(
-    mpf_vtp_pt* pt,
-    mpf_vtp_pt_vaddr va,
-    mpf_vtp_pt_vaddr* start_va,
-    size_t* buf_size
-);
-
-
-/**
  * Remove a page from the table.
  *
  * Some state from the page is returned as it is dropped.
@@ -336,6 +298,8 @@ fpga_result mpfVtpPtReleaseRange(
  * @param[in]  set_in_use  Set the MPF_VTP_PT_FLAG_IN_USE in the page table
  *                         indicating that the translation has been sent
  *                         to the FPGA.
+ * @param[out] start_va    Starting VA of the page, aligned to page size.
+ *                         (Ignored if NULL.)
  * @param[out] pa          PA corresponding to VA.
  * @param[out] size        Physical page size. Even on failed translations,
  *                         size indicates the level in the page table at
@@ -352,6 +316,7 @@ fpga_result mpfVtpPtTranslateVAtoPA(
     mpf_vtp_pt* pt,
     mpf_vtp_pt_vaddr va,
     bool set_in_use,
+    mpf_vtp_pt_vaddr* start_va,
     mpf_vtp_pt_paddr *pa,
     mpf_vtp_page_size *size,
     uint32_t *flags
