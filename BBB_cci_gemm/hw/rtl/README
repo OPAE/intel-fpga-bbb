@@ -1,4 +1,0 @@
-The Design uses MPF for VTP and reordering. The user needs to download the MPF hw from:
-	https://github.com/OPAE/intel-fpga-bbb/tree/master/BBB_cci_mpf/hw/rtl
-
-All the files in the above link needs to be added to the project when using generating bitstream or simulating with ASE with GEMM IP.
