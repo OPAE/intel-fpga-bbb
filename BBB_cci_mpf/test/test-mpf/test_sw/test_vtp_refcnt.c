@@ -129,6 +129,7 @@ static fpga_result buffer_allocate(void **addr, uint64_t len, int flags)
     if (*addr && (*addr != addr_local))
     {
         fprintf(stderr, "Failed to remap at target address %p\n", *addr);
+        munmap(addr_local, len);
         return FPGA_INVALID_PARAM;
     }
 
