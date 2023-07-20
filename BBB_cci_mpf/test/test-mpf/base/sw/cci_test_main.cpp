@@ -64,6 +64,7 @@ int main(int argc, char *argv[])
     catch (boost::exception &ex) 
     {
       cerr << boost::diagnostic_information(ex);
+      exit(1);
     }
 
     SVC_WRAPPER svc(testAFUID());
@@ -89,6 +90,7 @@ int main(int argc, char *argv[])
     catch (boost::exception &ex)
     {
       cerr << boost::diagnostic_information(ex);
+      exit(1);
     }
 
     // If a fixed ratio is set ignore "dynamic" and enable VC mapping
@@ -134,6 +136,7 @@ int main(int argc, char *argv[])
     catch (boost::exception &ex)
     {
       cerr << boost::diagnostic_information(ex);
+      exit(1);
     }
 
 
@@ -309,6 +312,7 @@ int main(int argc, char *argv[])
         catch (boost::exception &ex)
         {
           cerr << boost::diagnostic_information(ex);
+          exit(1);
         }
         cout << endl;
     }
