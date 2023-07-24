@@ -27,6 +27,8 @@
 #include "cci_test.h"
 #include <math.h>
 #include <boost/format.hpp>
+#include <boost/exception/all.hpp>
+#include <exception>
 
 #ifndef VCMAP_ENABLE_DEFAULT
   #define VCMAP_ENABLE_DEFAULT true
@@ -34,26 +36,35 @@
 
 int main(int argc, char *argv[])
 {
-    po::options_description desc("Usage");
-    desc.add_options()
-        ("help", "Print this message")
-        ("vcmap-all", po::value<bool>()->default_value(false), "VC MAP: Map all requests, ignoring vc_sel")
-        ("vcmap-enable", po::value<bool>()->default_value(VCMAP_ENABLE_DEFAULT), "VC MAP: Enable channel mapping")
-        ("vcmap-dynamic", po::value<bool>()->default_value(true), "VC MAP: Use dynamic channel mapping (overridden by --vcmap-fixed)")
-        ("vcmap-fixed", po::value<int>()->default_value(-1), "VC MAP: Use fixed mapping with VL0 getting <n>/64 of traffic")
-        ("vcmap-only-writes", po::value<bool>()->default_value(false), "VC MAP: Apply the chosen mapping mode only to write requests")
-        ("vtp-force-small-pages", po::value<bool>()->default_value(false), "Force small (4KB) page allocation in VTP")
-        ;
-
-    testConfigOptions(desc);
-
     po::variables_map vm;
-    po::store(po::parse_command_line(argc, argv, desc), vm);
-    po::notify(vm);    
+    try
+    {
+      po::options_description desc("Usage");
+      desc.add_options()
+          ("help", "Print this message")
+          ("vcmap-all", po::value<bool>()->default_value(false), "VC MAP: Map all requests, ignoring vc_sel")
+          ("vcmap-enable", po::value<bool>()->default_value(VCMAP_ENABLE_DEFAULT), "VC MAP: Enable channel mapping")
+          ("vcmap-dynamic", po::value<bool>()->default_value(true), "VC MAP: Use dynamic channel mapping (overridden by --vcmap-fixed)")
+          ("vcmap-fixed", po::value<int>()->default_value(-1), "VC MAP: Use fixed mapping with VL0 getting <n>/64 of traffic")
+          ("vcmap-only-writes", po::value<bool>()->default_value(false), "VC MAP: Apply the chosen mapping mode only to write requests")
+          ("vtp-force-small-pages", po::value<bool>()->default_value(false), "Force small (4KB) page allocation in VTP")
+          ;
 
-    if (vm.count("help")) {
+      testConfigOptions(desc);
+
+      //po::variables_map vm;
+      po::store(po::parse_command_line(argc, argv, desc), vm);
+      po::notify(vm);    
+
+      if (vm.count("help")) {
         cout << desc << "\n";
         return 1;
+      }
+    }
+    catch (boost::exception &ex) 
+    {
+      cerr << boost::diagnostic_information(ex);
+      exit(1);
     }
 
     SVC_WRAPPER svc(testAFUID());
@@ -66,11 +77,22 @@ int main(int argc, char *argv[])
     //
     // Configure VC MAP shim
     //
-    bool vcmap_all = vm["vcmap-all"].as<bool>();
-    bool vcmap_enable = vm["vcmap-enable"].as<bool>();
-    bool vcmap_dynamic = vm["vcmap-dynamic"].as<bool>();
-    int32_t vcmap_fixed_vl0_ratio = int32_t(vm["vcmap-fixed"].as<int>());
-    bool vcmap_only_writes = vm["vcmap-only-writes"].as<bool>();
+    bool vcmap_all = false, vcmap_enable = false, vcmap_dynamic = false, vcmap_only_writes = false;
+    int32_t vcmap_fixed_vl0_ratio = 0;
+    try
+    {
+      vcmap_all = vm["vcmap-all"].as<bool>();
+      vcmap_enable = vm["vcmap-enable"].as<bool>();
+      vcmap_dynamic = vm["vcmap-dynamic"].as<bool>();
+      vcmap_fixed_vl0_ratio = int32_t(vm["vcmap-fixed"].as<int>());
+      vcmap_only_writes = vm["vcmap-only-writes"].as<bool>();
+    }
+    catch (boost::exception &ex)
+    {
+      cerr << boost::diagnostic_information(ex);
+      exit(1);
+    }
+
     // If a fixed ratio is set ignore "dynamic" and enable VC mapping
     if (vcmap_fixed_vl0_ratio >= 0)
     {
@@ -106,7 +128,18 @@ int main(int argc, char *argv[])
     //
     bool vtp_available;
     vtp_available = mpfVtpIsAvailable(svc.mpf->c_type());
-    bool vtp_small_pages = vm["vtp-force-small-pages"].as<bool>();
+    bool vtp_small_pages = false;
+    try
+    {
+      vtp_small_pages = vm["vtp-force-small-pages"].as<bool>();
+    }
+    catch (boost::exception &ex)
+    {
+      cerr << boost::diagnostic_information(ex);
+      exit(1);
+    }
+
+
     if (vtp_available && vtp_small_pages)
     {
         svc.forceSmallPageAlloc(true);
@@ -251,29 +284,36 @@ int main(int argc, char *argv[])
 
         cout << "#" << endl;
         cout << "#   WRO conflict cycles RR:   " << wro_stats.numConflictCyclesRR;
-        if (cycles != 0)
+        try  
         {
-            cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesRR) * 100.0 / cycles) << "% of cycles)";
-        }
+          if (cycles != 0)
+          {
+              cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesRR) * 100.0 / cycles) << "% of cycles)";
+          }
 
-        cout << endl << "#   WRO conflict cycles RW:   " << wro_stats.numConflictCyclesRW;
-        if (cycles != 0)
+          cout << endl << "#   WRO conflict cycles RW:   " << wro_stats.numConflictCyclesRW;
+          if (cycles != 0)
+          {
+              cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesRW) * 100.0 / cycles) << "% of cycles)";
+          }
+
+          cout << endl << "#   WRO conflict cycles WR:   " << wro_stats.numConflictCyclesWR;
+          if (cycles != 0)
+          {
+              cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesWR) * 100.0 / cycles) << "% of cycles)";
+          }
+
+          cout << endl << "#   WRO conflict cycles WW:   " << wro_stats.numConflictCyclesWW;
+          if (cycles != 0)
+          {
+              cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesWW) * 100.0 / cycles) << "% of cycles)";
+          }
+        }
+        catch (boost::exception &ex)
         {
-            cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesRW) * 100.0 / cycles) << "% of cycles)";
+          cerr << boost::diagnostic_information(ex);
+          exit(1);
         }
-
-        cout << endl << "#   WRO conflict cycles WR:   " << wro_stats.numConflictCyclesWR;
-        if (cycles != 0)
-        {
-            cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesWR) * 100.0 / cycles) << "% of cycles)";
-        }
-
-        cout << endl << "#   WRO conflict cycles WW:   " << wro_stats.numConflictCyclesWW;
-        if (cycles != 0)
-        {
-            cout << "  (" << boost::format("%.1f") % (double(wro_stats.numConflictCyclesWW) * 100.0 / cycles) << "% of cycles)";
-        }
-
         cout << endl;
     }
 
