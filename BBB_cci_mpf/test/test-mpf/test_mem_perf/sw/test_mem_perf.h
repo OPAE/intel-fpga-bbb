@@ -132,20 +132,38 @@ class TEST_MEM_PERF : public CCI_TEST
         {
             vl0_wr_hit_rate = round((1000.0 * stats.write_cache_line_hits) / stats.vl0_wr_lines);
         }
-
-        os << boost::format("%.1f") % ((double(stats.read_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
-           << boost::format("%.1f") % ((double(stats.write_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
-           << stats.vl0_rd_lines + stats.vl0_wr_lines << " "
-           << stats.vh0_lines << " "
-           << stats.vh1_lines << " "
-           << vl0_rd_hit_rate << " "
-           << vl0_wr_hit_rate << " "
-           << stats.read_max_inflight_lines << " "
-           << stats.read_average_latency << " "
-           << stats.write_max_inflight_lines << " "
-           << stats.write_average_latency << " "
-           << boost::format("%.4f") % (100.0 * double(stats.read_almost_full_cycles) / double(stats.actual_cycles)) << " "
-           << boost::format("%.4f") % (100.0 * double(stats.write_almost_full_cycles) / double(stats.actual_cycles)) << " ";
+  
+        if (stats.actual_cycles == 0)
+        {
+            os << boost::format("%.1f") % ((double(stats.read_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
+               << boost::format("%.1f") % ((double(stats.write_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
+               << stats.vl0_rd_lines + stats.vl0_wr_lines << " "
+               << stats.vh0_lines << " "
+               << stats.vh1_lines << " "
+               << vl0_rd_hit_rate << " "
+               << vl0_wr_hit_rate << " "
+               << stats.read_max_inflight_lines << " "
+               << stats.read_average_latency << " "
+               << stats.write_max_inflight_lines << " "
+               << stats.write_average_latency << " "
+               << "NA " 
+               << "NA ";
+        }
+        else {
+            os << boost::format("%.1f") % ((double(stats.read_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
+               << boost::format("%.1f") % ((double(stats.write_lines) * CL(1) / 0x40000000) / stats.run_sec) << " "
+               << stats.vl0_rd_lines + stats.vl0_wr_lines << " "
+               << stats.vh0_lines << " "
+               << stats.vh1_lines << " "
+               << vl0_rd_hit_rate << " "
+               << vl0_wr_hit_rate << " "
+               << stats.read_max_inflight_lines << " "
+               << stats.read_average_latency << " "
+               << stats.write_max_inflight_lines << " "
+               << stats.write_average_latency << " "
+               << boost::format("%.4f") % (100.0 * double(stats.read_almost_full_cycles) / double(stats.actual_cycles)) << " "
+               << boost::format("%.4f") % (100.0 * double(stats.write_almost_full_cycles) / double(stats.actual_cycles)) << " ";
+        }
         return os;
     }
 
