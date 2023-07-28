@@ -224,7 +224,7 @@ TEST_MEM_PERF::runTest(const t_test_config* config, t_test_stats* stats)
     {
         // Error!
         dbgRegDump(readTestCSR(7));
-        cerr << *stats << endl;
+        cerr << "WARNING : actual_cycles => 0" << endl;
         return 1;
     }
 
