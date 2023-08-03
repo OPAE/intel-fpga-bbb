@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - feature/**
+      - pajgaonk/**
     paths:
       - '**.py'
       - '.github/workflows/python-static-analysis.yml'
